@@ -4,6 +4,7 @@ from typing import Optional
 import requests
 import pandas as pd
 from src.config import settings
+from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 
 COMMODITY_ALIASES = {
     "mil": "Millet",
@@ -31,6 +32,37 @@ def _normalize_text(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+# Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
+_CREDIT_RE = re.compile(
+    r"\b(credit|credits|pret|prets|preter|financer|financement|financements|"
+    r"banque|banques|risque|risques|score|scores|passport|imf)\b"
+)
+_ALERT_RE = re.compile(
+    r"\b(alerte|alertes|tension|tensions|surchauffe|anomalie|anomalies|"
+    r"cher|chere|chers|cheres|flambee|hausse|hausses)\b"
+)
+# "3 millions", "2,5 m" ...
+_LOAN_MILLION_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:millions?|m)\b")
+# Montant explicite avec une unité monétaire : "500 000 fcfa", "3.000.000 xaf", "800000 francs".
+_LOAN_UNIT_RE = re.compile(r"(\d{1,3}(?:[ .]\d{3})+|\d+)\s*(?:xaf|fcfa|f\s?cfa|cfa|francs?)\b")
+_MIN_LOAN_XAF = 10_000  # même plancher que l'API (/credit-passport)
+_DEFAULT_LOAN_XAF = 1_000_000
+_DIGITS_RE = re.compile(r"\d+")
+
+
+def _numbers_in(text: str) -> set[str]:
+    """Suites de chiffres de 2 caractères ou plus (les chiffres isolés, ex. numéros de liste, sont ignorés)."""
+    return {n for n in _DIGITS_RE.findall(text) if len(n) >= 2}
+
+
+def numbers_are_grounded(candidate: str, *sources: str) -> bool:
+    """Vrai si tous les nombres de `candidate` apparaissent dans les `sources` (faits du moteur + question)."""
+    allowed: set[str] = set()
+    for s in sources:
+        allowed |= _numbers_in(s)
+    return _numbers_in(candidate) <= allowed
+
+
 class FreeDataAIAgent:
     """
     Agent conversationnel analytique (Tool-Calling déterministe + support optionnel Ollama).
@@ -50,7 +82,7 @@ class FreeDataAIAgent:
         # 1. Province
         matched_prov = None
         for p_norm, p_orig in sorted(self.prov_lookup.items(), key=lambda x: -len(x[0])):
-            if p_norm in q_norm:
+            if re.search(rf"(?<![a-z0-9]){re.escape(p_norm)}(?![a-z0-9])", q_norm):
                 matched_prov = p_orig
                 break
 
@@ -62,21 +94,22 @@ class FreeDataAIAgent:
                 break
 
         # 3. Montant de prêt éventuel
-        loan_amount = 1_000_000
-        m_million = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:million|millions|m\b)", q_norm)
+        # Un nombre n'est un montant que s'il est suivi de "million(s)" ou d'une unité monétaire :
+        # une année ("en 2025") ne doit jamais devenir un prêt de 2 025 XAF.
+        loan_amount = _DEFAULT_LOAN_XAF
+        m_million = _LOAN_MILLION_RE.search(q_norm)
         if m_million:
-            loan_amount = int(float(m_million.group(1).replace(",", ".")) * 1_000_000)
+            candidate = int(float(m_million.group(1).replace(",", ".")) * 1_000_000)
         else:
-            m_num = re.search(r"(\d[\d\s]{3,})", q_norm)
-            if m_num:
-                cleaned = re.sub(r"\s+", "", m_num.group(1))
-                if cleaned.isdigit():
-                    loan_amount = int(cleaned)
+            m_unit = _LOAN_UNIT_RE.search(q_norm)
+            candidate = int(re.sub(r"[ .]", "", m_unit.group(1))) if m_unit else None
+        if candidate is not None and candidate >= _MIN_LOAN_XAF:
+            loan_amount = candidate
 
-        # 4. Intention
-        if any(w in q_norm for w in ["credit", "pret", "financer", "banque", "risque", "score", "passport", "imf"]):
+        # 4. Intention (mots entiers)
+        if _CREDIT_RE.search(q_norm):
             intent = "credit_passport"
-        elif any(w in q_norm for w in ["alerte", "tension", "surchauffe", "anomalie", "cher", "flambee", "hausse"]):
+        elif _ALERT_RE.search(q_norm):
             intent = "alerts"
         else:
             intent = "forecast"
@@ -191,7 +224,11 @@ class FreeDataAIAgent:
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json().get("response", structured_facts)
+                candidate = (resp.json().get("response") or "").strip()
+                # Garde-fou : tout nombre cité par le LLM doit provenir des faits du moteur
+                # (ou de la question). Sinon on renvoie les faits vérifiés, tels quels.
+                if candidate and numbers_are_grounded(candidate, structured_facts, user_query):
+                    return candidate
         except Exception:
             pass
         return structured_facts
@@ -210,6 +247,17 @@ class FreeDataAIAgent:
             facts = self.tool_get_forecast(prov, comm)
 
         final_reply = self._refine_with_ollama(user_query, facts)
+
+        # Produit absent ou non reconnu : on le dit au lieu de répondre silencieusement sur le Millet.
+        if comm is None and intent in ("forecast", "credit_passport"):
+            known = ", ".join(sorted(set(COMMODITY_ALIASES.values())))
+            final_reply = (
+                f"ℹ️ Produit non précisé ou non reconnu : résultats affichés pour le **Millet** par défaut. "
+                f"Produits reconnus : {known}.\n\n{final_reply}"
+            )
+        if intent == "credit_passport":
+            final_reply = f"{final_reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
+
         return {
             "reply": final_reply,
             "intent": intent,
