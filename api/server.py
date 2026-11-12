@@ -1,10 +1,13 @@
+import hmac
+import logging
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 import requests
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -15,8 +18,15 @@ from src.data_loader import load_clean_markets
 from src.forecasting import run_forecasting_pipeline
 from src.credit_passport import compute_credit_passport
 from src.ai_agent import FreeDataAIAgent
+from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
+from src.freshness import filter_fresh
 
-STATE = {}
+logger = logging.getLogger("freedata.api")
+
+# État servi par l'API. Il n'est remplacé que d'un bloc (STATE.update) une fois le nouvel
+# état entièrement construit : une requête ne voit jamais un mélange ancien/nouveau.
+STATE: dict = {}
+_REFRESH_LOCK = threading.Lock()
 
 
 def _fetch_gold_table(table_name: str) -> pd.DataFrame:
@@ -49,43 +59,87 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def refresh_engines():
-    # Mode Production léger (Render Free < 512 Mo RAM) : lecture directe des tables Gold
-    if settings.data_backend == "supabase_rest":
-        fc_gold = _fetch_gold_table("table_ml_forecasts")
-        cp_gold = _fetch_gold_table("table_ml_credit_passport")
+def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str) -> dict:
+    """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
+    hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
+    forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
+    return {
+        "hist_df": hist_df,
+        "forecast_df": forecast_df,
+        "passport_df": passport_df,
+        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df),
+        "mode": mode,
+        "alerts_source": alerts_source,
+        "stale_excluded": stale_excluded,
+    }
 
-        if not fc_gold.empty and not cp_gold.empty:
-            fc_gold = fc_gold.rename(columns={"last_observed_price": "value"})
-            # Reconstitution légère des alertes de tension (> +15%) depuis les écarts observés/prévus
-            hist_light = fc_gold.copy()
-            hist_light["year_month"] = hist_light["last_observed_month"]
-            hist_light["predicted_price"] = hist_light["forecast_t1"]
-            hist_light["deviation_pct"] = (
-                ((hist_light["value"] - hist_light["predicted_price"]) / hist_light["predicted_price"]) * 100.0
-            ).round(2)
 
-            STATE["hist_df"] = hist_light
-            STATE["forecast_df"] = fc_gold
-            STATE["passport_df"] = cp_gold
-            STATE["agent"] = FreeDataAIAgent(hist_light, fc_gold, cp_gold)
-            STATE["mode"] = "gold_fast_read"
-            return
+def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame) -> dict:
+    """Construit l'état à partir des tables Gold (mode production léger)."""
+    fc = fc_gold.rename(columns={"last_observed_price": "value"}).copy()
+    for col in ("predicted_price", "deviation_pct"):
+        if col in fc.columns:
+            fc[col] = pd.to_numeric(fc[col], errors="coerce")
 
-    # Fallback complet (si tables Gold vides ou mode CSV local)
+    hist = fc.copy()
+    hist["year_month"] = hist["last_observed_month"]
+
+    if {"predicted_price", "deviation_pct"} <= set(fc.columns) and fc["deviation_pct"].notna().any():
+        # Écart observé / attendu calculé par le modèle pour le dernier mois observé.
+        alerts_source = "stored"
+    else:
+        logger.warning(
+            "Colonnes predicted_price/deviation_pct absentes ou vides dans table_ml_forecasts : "
+            "alertes APPROXIMÉES (appliquer sql/03 puis relancer scripts/update_predictions.py)."
+        )
+        hist["predicted_price"] = hist["forecast_t1"]
+        hist["deviation_pct"] = (
+            ((hist["value"] - hist["predicted_price"]) / hist["predicted_price"]) * 100.0
+        ).round(2)
+        alerts_source = "approximated"
+
+    return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source)
+
+
+def build_state_full() -> dict:
+    """Recalcule tout depuis les données brutes (CSV local / PostgreSQL). Lourd en mémoire."""
     kg_df = load_clean_markets()
     hist_df, forecast_df = run_forecasting_pipeline(kg_df)
     passport_df = compute_credit_passport(kg_df)
-    STATE["hist_df"] = hist_df
-    STATE["forecast_df"] = forecast_df
-    STATE["passport_df"] = passport_df
-    STATE["agent"] = FreeDataAIAgent(hist_df, forecast_df, passport_df)
-    STATE["mode"] = "full_compute"
+    return _finalize_state(hist_df, forecast_df, passport_df, "full_compute", "model_residual")
+
+
+def build_state() -> dict:
+    if settings.data_backend == "supabase_rest":
+        fc_gold = _fetch_gold_table("table_ml_forecasts")
+        cp_gold = _fetch_gold_table("table_ml_credit_passport")
+        if fc_gold.empty or cp_gold.empty:
+            # Pas de repli vers un recalcul complet : il saturerait la mémoire d'un hébergement gratuit.
+            raise RuntimeError(
+                "Tables Gold vides : exécuter scripts/update_predictions.py avant de démarrer l'API."
+            )
+        return build_state_from_gold(fc_gold, cp_gold)
+    return build_state_full()
+
+
+def refresh_engines():
+    """Reconstruit l'état puis le remplace d'un bloc. En cas d'échec, l'ancien état reste servi."""
+    with _REFRESH_LOCK:
+        new_state = build_state()
+        STATE.update(new_state)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    refresh_engines()
+    if settings.read_key_is_privileged:
+        logger.warning(
+            "L'API lit Supabase avec la clé service_role (SUPABASE_KEY absente). "
+            "Utiliser une clé publique (anon) en lecture seule : voir sql/04_rls_policies.sql."
+        )
+    try:
+        refresh_engines()
+    except Exception:
+        logger.exception("Chargement initial impossible : l'API démarre en mode dégradé (503).")
     yield
     STATE.clear()
 
@@ -93,7 +147,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FreeData.AI API",
     description="API REST officielle de prévision des prix agricoles, alertes spatiales et Agricultural Credit Passport (Tchad).",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 
@@ -105,6 +159,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_state() -> dict:
+    """Instantané de l'état servi ; 503 explicite si les données ne sont pas chargées."""
+    snapshot = dict(STATE)
+    if "agent" not in snapshot:
+        raise HTTPException(status_code=503, detail="Données non chargées. Réessayez dans quelques instants.")
+    return snapshot
 
 
 class ChatRequest(BaseModel):
@@ -119,25 +181,37 @@ class ChatResponse(BaseModel):
 
 @app.get("/api/v1/health")
 def health_check():
+    snapshot = dict(STATE)
     return {
-        "status": "ok",
+        "status": "ok" if "agent" in snapshot else "degraded",
         "backend": settings.data_backend,
-        "engine_mode": STATE.get("mode", "unknown"),
-        "series_count": len(STATE.get("forecast_df", [])),
-        "passports_count": len(STATE.get("passport_df", [])),
+        "engine_mode": snapshot.get("mode", "unknown"),
+        "alerts_source": snapshot.get("alerts_source", "unknown"),
+        "max_staleness_months": settings.max_staleness_months,
+        "stale_series_excluded": snapshot.get("stale_excluded", 0),
+        "series_count": len(snapshot.get("forecast_df", [])),
+        "passports_count": len(snapshot.get("passport_df", [])),
     }
 
 
 @app.post("/api/v1/refresh")
-def manual_refresh():
-    """Permet de recharger la mémoire de l'API après une mise à jour mensuelle des tables Gold."""
-    refresh_engines()
+def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
+    """Recharge la mémoire de l'API après une mise à jour mensuelle des tables Gold. Protégé par jeton."""
+    if not settings.admin_token:
+        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
+        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    try:
+        refresh_engines()
+    except Exception:
+        logger.exception("Rechargement impossible ; l'ancien état reste servi.")
+        raise HTTPException(status_code=502, detail="Rechargement impossible ; l'ancien état reste servi.")
     return {"status": "reloaded", "engine_mode": STATE.get("mode")}
 
 
 @app.get("/api/v1/metadata")
-def get_metadata():
-    fc = STATE["forecast_df"]
+def get_metadata(state: dict = Depends(get_state)):
+    fc = state["forecast_df"]
     return {
         "provinces": sorted(fc["province"].dropna().unique().tolist()),
         "commodities": sorted(fc["commodity_std"].dropna().unique().tolist()),
@@ -145,8 +219,8 @@ def get_metadata():
 
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-def chat_endpoint(payload: ChatRequest):
-    agent: FreeDataAIAgent = STATE["agent"]
+def chat_endpoint(payload: ChatRequest, state: dict = Depends(get_state)):
+    agent: FreeDataAIAgent = state["agent"]
     result = agent.answer_with_metadata(payload.message)
     return ChatResponse(**result)
 
@@ -156,8 +230,9 @@ def get_forecasts(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=2000),
+    state: dict = Depends(get_state),
 ):
-    df = STATE["forecast_df"].copy()
+    df = state["forecast_df"].copy()
     if province:
         df = df[df["province"].str.lower() == province.strip().lower()]
     if commodity:
@@ -177,10 +252,11 @@ def get_alerts(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
+    state: dict = Depends(get_state),
 ):
-    hist = STATE["hist_df"]
+    hist = state["hist_df"]
     recent = hist.sort_values("year_month").groupby(["source", "province", "market_name", "commodity_std"]).tail(1).copy()
-    alerts = recent[recent["deviation_pct"] >= threshold_pct].copy()
+    alerts = recent[recent["deviation_pct"].notna() & (recent["deviation_pct"] >= threshold_pct)].copy()
     if province:
         alerts = alerts[alerts["province"].str.lower() == province.strip().lower()]
     if commodity:
@@ -188,7 +264,11 @@ def get_alerts(
     alerts = alerts.sort_values("deviation_pct", ascending=False).head(limit)
     alerts["month"] = alerts["year_month"].astype(str)
     cols = ["month", "source", "province", "market_name", "commodity_std", "value", "predicted_price", "deviation_pct"]
-    return {"count": len(alerts), "items": alerts[cols].to_dict(orient="records")}
+    return {
+        "count": len(alerts),
+        "alerts_source": state.get("alerts_source"),
+        "items": alerts[cols].to_dict(orient="records"),
+    }
 
 
 @app.get("/api/v1/credit-passport")
@@ -196,12 +276,17 @@ def get_credit_passport(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
     loan_amount: int = Query(1_000_000, ge=10000),
+    state: dict = Depends(get_state),
 ):
-    df = STATE["passport_df"].copy()
+    df = state["passport_df"].copy()
     if province:
         df = df[df["province"].str.lower() == province.strip().lower()]
     if commodity:
         df = df[df["commodity_std"].str.lower() == commodity.strip().lower()]
     df = df.sort_values("credit_score", ascending=False)
     df["recommended_max_loan_xaf"] = (df["ltv_ratio"] * loan_amount).astype(int)
-    return {"count": len(df), "items": df.to_dict(orient="records")}
+    return {
+        "count": len(df),
+        "disclaimer": CREDIT_PASSPORT_DISCLAIMER,
+        "items": df.to_dict(orient="records"),
+    }
