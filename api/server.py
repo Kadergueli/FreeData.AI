@@ -24,8 +24,8 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
     base = settings.supabase_url.rstrip("/")
     endpoint = f"{base}/rest/v1/{table_name}"
     headers = {
-        "apikey": settings.supabase_key,
-        "Authorization": f"Bearer {settings.supabase_key}",
+        "apikey": settings.read_key,
+        "Authorization": f"Bearer {settings.read_key}",
         "Accept": "application/json",
     }
     rows = []
@@ -35,7 +35,7 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
         resp = requests.get(
             endpoint,
             headers=headers,
-            params={"select": "*", "limit": batch_size, "offset": offset},
+            params={"select": "*", "order": "id", "limit": batch_size, "offset": offset},
             timeout=20,
         )
         resp.raise_for_status()

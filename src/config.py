@@ -12,15 +12,37 @@ except ImportError:
 class Settings:
     csv_path: str = os.getenv("FREEDATA_CSV_PATH", "freedatatd-markets-full.csv").strip()
     supabase_url: str = os.getenv("SUPABASE_URL", "").strip()
-    supabase_key: str = os.getenv("SUPABASE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")).strip()
+    # Clé de LECTURE (publique / anon) utilisée par l'API.
+    supabase_key: str = os.getenv("SUPABASE_KEY", "").strip()
+    # Clé d'ÉCRITURE (service_role) : uniquement pour scripts/update_predictions.py.
+    supabase_service_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     supabase_db_url: str = os.getenv("SUPABASE_DB_URL", "").strip()
     allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*").strip()
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "").strip()
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2").strip()
+    # Jeton exigé (en-tête X-Admin-Token) par POST /api/v1/refresh. Vide = endpoint désactivé.
+    admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
+    # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
+    # récent n'est plus servie par l'API (0 = pas de filtre).
+    max_staleness_months: int = int(os.getenv("MAX_STALENESS_MONTHS", "3"))
+
+    @property
+    def read_key(self) -> str:
+        """Clé utilisée pour lire. Repli sur service_role par compatibilité (journalisé au démarrage)."""
+        return self.supabase_key or self.supabase_service_key
+
+    @property
+    def write_key(self) -> str:
+        """Clé utilisée pour écrire les tables Gold (script mensuel)."""
+        return self.supabase_service_key or self.supabase_key
+
+    @property
+    def read_key_is_privileged(self) -> bool:
+        return not self.supabase_key and bool(self.supabase_service_key)
 
     @property
     def data_backend(self) -> str:
-        if self.supabase_url and self.supabase_key:
+        if self.supabase_url and self.read_key:
             return "supabase_rest"
         if self.supabase_db_url:
             return "supabase"
