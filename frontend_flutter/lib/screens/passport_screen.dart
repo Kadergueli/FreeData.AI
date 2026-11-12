@@ -14,6 +14,7 @@ class _PassportScreenState extends State<PassportScreen> {
   int _loanAmount = 1000000;
   List<dynamic> _passports = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -22,15 +23,22 @@ class _PassportScreenState extends State<PassportScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final items = await widget.apiService.getCreditPassports(
         commodity: _commodity,
         loanAmount: _loanAmount,
       );
+      if (!mounted) return;
       setState(() => _passports = items);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Impossible de charger le Credit Passport pour le moment. Réessayez dans une minute.');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -87,7 +95,9 @@ class _PassportScreenState extends State<PassportScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
+                : _error != null
+                    ? Center(child: Text(_error!))
+                    : ListView.builder(
                     itemCount: _passports.length,
                     itemBuilder: (context, idx) {
                       final r = _passports[idx];

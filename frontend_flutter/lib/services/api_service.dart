@@ -8,13 +8,18 @@ class ApiService {
     defaultValue: 'http://127.0.0.1:8000',
   );
 
+  // Un hébergement gratuit (Render Free) peut mettre ~1 minute à se réveiller.
+  static const Duration _timeout = Duration(seconds: 60);
+
   Future<Map<String, dynamic>> sendChatMessage(String message) async {
     final uri = Uri.parse('$baseUrl/api/v1/chat');
-    final resp = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'message': message}),
-    );
+    final resp = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'message': message}),
+        )
+        .timeout(_timeout);
     if (resp.statusCode == 200) {
       return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -23,7 +28,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getMetadata() async {
     final uri = Uri.parse('$baseUrl/api/v1/metadata');
-    final resp = await http.get(uri);
+    final resp = await http.get(uri).timeout(_timeout);
     if (resp.statusCode == 200) {
       return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -35,7 +40,7 @@ class ApiService {
     if (province != null && province.isNotEmpty) params['province'] = province;
     if (commodity != null && commodity.isNotEmpty) params['commodity'] = commodity;
     final uri = Uri.parse('$baseUrl/api/v1/forecasts').replace(queryParameters: params);
-    final resp = await http.get(uri);
+    final resp = await http.get(uri).timeout(_timeout);
     if (resp.statusCode == 200) {
       final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       return data['items'] as List<dynamic>;
@@ -47,7 +52,7 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/api/v1/alerts').replace(
       queryParameters: {'threshold_pct': thresholdPct.toString()},
     );
-    final resp = await http.get(uri);
+    final resp = await http.get(uri).timeout(_timeout);
     if (resp.statusCode == 200) {
       final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       return data['items'] as List<dynamic>;
@@ -64,7 +69,7 @@ class ApiService {
     if (province != null && province.isNotEmpty) params['province'] = province;
     if (commodity != null && commodity.isNotEmpty) params['commodity'] = commodity;
     final uri = Uri.parse('$baseUrl/api/v1/credit-passport').replace(queryParameters: params);
-    final resp = await http.get(uri);
+    final resp = await http.get(uri).timeout(_timeout);
     if (resp.statusCode == 200) {
       final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       return data['items'] as List<dynamic>;

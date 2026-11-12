@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
@@ -34,18 +35,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final res = await widget.apiService.sendChatMessage(text);
+      if (!mounted) return;
       setState(() {
         _messages.add({'role': 'assistant', 'text': res['reply'] ?? 'Réponse vide.'});
       });
     } catch (e) {
+      if (!mounted) return;
+      // Les détails techniques (exception, URL) ne sont montrés qu'en mode debug.
+      final detail = kDebugMode ? '\n\nDétail : $e\nURL : ${ApiService.baseUrl}' : '';
       setState(() {
         _messages.add({
           'role': 'assistant',
-          'text': 'Impossible de joindre le serveur FreeData.AI ($e). Vérifiez que FastAPI tourne sur ${ApiService.baseUrl}.',
+          'text': 'Impossible de joindre le serveur FreeData.AI pour le moment. '
+              'Il est peut-être en train de se réveiller : réessayez dans une minute.$detail',
         });
       });
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

@@ -16,6 +16,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
   String? _selectedCommodity;
   List<dynamic> _items = [];
   bool _loading = true;
+  String? _error;
+
+  static const String _errorText =
+      'Impossible de charger les prévisions pour le moment. Réessayez dans une minute.';
 
   @override
   void initState() {
@@ -26,6 +30,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
   Future<void> _init() async {
     try {
       final meta = await widget.apiService.getMetadata();
+      if (!mounted) return;
       final provs = List<String>.from(meta['provinces'] ?? []);
       final comms = List<String>.from(meta['commodities'] ?? []);
       setState(() {
@@ -36,20 +41,31 @@ class _ForecastScreenState extends State<ForecastScreen> {
       });
       await _loadForecasts();
     } catch (_) {
-      setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = _errorText;
+      });
     }
   }
 
   Future<void> _loadForecasts() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final items = await widget.apiService.getForecasts(
         province: _selectedProvince,
         commodity: _selectedCommodity,
       );
+      if (!mounted) return;
       setState(() => _items = items);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _errorText);
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -90,7 +106,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
+                : _error != null
+                    ? Center(child: Text(_error!))
+                    : ListView.builder(
                     itemCount: _items.length,
                     itemBuilder: (context, idx) {
                       final r = _items[idx];
