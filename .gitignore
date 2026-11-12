@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.csv
+*.joblib
+*.zip
+.DS_Store
+frontend_flutter/build/
+frontend_flutter/.dart_tool/
