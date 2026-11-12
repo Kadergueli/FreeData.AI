@@ -1,0 +1,4 @@
+# À installer seulement si SUPABASE_DB_URL est utilisé (accès PostgreSQL direct).
+-r requirements.txt
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9

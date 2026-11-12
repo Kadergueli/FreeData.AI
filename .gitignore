@@ -8,3 +8,4 @@ __pycache__/
 .DS_Store
 frontend_flutter/build/
 frontend_flutter/.dart_tool/
+.pytest_cache/
