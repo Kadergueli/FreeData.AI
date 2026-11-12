@@ -17,8 +17,8 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
     base = settings.supabase_url.rstrip("/")
     endpoint = f"{base}/rest/v1/v_clean_markets"
     headers = {
-        "apikey": settings.supabase_key,
-        "Authorization": f"Bearer {settings.supabase_key}",
+        "apikey": settings.read_key,
+        "Authorization": f"Bearer {settings.read_key}",
         "Accept": "application/json",
     }
     all_rows = []
@@ -29,6 +29,8 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
         params = {
             "select": "month_date,source,province,market_name,commodity_std,price_value,is_flagged_outlier",
             "unit_clean": "eq.xaf/kg",
+            # Ordre stable obligatoire : sans lui, limit/offset peut dupliquer ou sauter des lignes.
+            "order": "id",
             "limit": batch_size,
             "offset": offset,
         }

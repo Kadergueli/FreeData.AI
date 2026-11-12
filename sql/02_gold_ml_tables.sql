@@ -1,6 +1,8 @@
 -- ============================================================================
 -- FreeData.AI | Couche Gold : Tables de sortie ML & Credit Passport
 -- Convention de nommage alignée sur public.table_*
+-- Installation neuve : exécuter ce fichier puis 04_rls_policies.sql.
+-- Base existante     : exécuter 03_gold_alert_columns.sql puis 04_rls_policies.sql.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.table_ml_forecasts (
@@ -16,6 +18,10 @@ CREATE TABLE IF NOT EXISTS public.table_ml_forecasts (
     ci_low_80 DOUBLE PRECISION NOT NULL,
     ci_high_80 DOUBLE PRECISION NOT NULL,
     hist_mae DOUBLE PRECISION NOT NULL,
+    -- Prix attendu par le modèle pour le DERNIER mois observé, et écart observé/attendu (%).
+    -- Source des alertes de tension ; NULL tant que le pipeline mensuel n'a pas été relancé.
+    predicted_price DOUBLE PRECISION,
+    deviation_pct DOUBLE PRECISION,
     date_calcul TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
     UNIQUE (source, province, market_name, commodity_std)
 );
