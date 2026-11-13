@@ -205,7 +205,7 @@ def test_rag_and_llm_synthesis_grounds_numbers_and_propagates_sources(agent, mon
         return Resp()
 
     monkeypatch.setattr(ai_agent.requests, "post", fake_post)
-    res_fallback = agent.answer_with_metadata("Quel est le risque de credit du mil au Salamat ?")
+    res_fallback = agent.answer_with_metadata("Quel est le risque de credit du mil au Salamat ?", tier="premium")
     assert "https://api.jina.ai/v1/embeddings" in called_urls
     assert "https://api.groq.com/openai/v1/chat/completions" in called_urls
     assert res_fallback["intent"] == "credit_passport"
@@ -216,7 +216,7 @@ def test_rag_and_llm_synthesis_grounds_numbers_and_propagates_sources(agent, mon
     assert res_fallback["sources"][0]["page"] == 4
 
     llm_reply_mode["grounded"] = True
-    res_grounded = agent.answer_with_metadata("Quel est le risque de credit du mil au Salamat ?")
+    res_grounded = agent.answer_with_metadata("Quel est le risque de credit du mil au Salamat ?", tier="premium")
     assert "En 2026, le bulletin PAM signale une hausse saisonnière au Salamat." in res_grounded["reply"]
     assert "ne constitue" in res_grounded["reply"]
 
@@ -356,14 +356,14 @@ def test_opportunity_llm_uses_global_snapshot_and_logs_fallback_on_ungrounded(ag
 
     monkeypatch.setattr(ai_agent.requests, "post", fake_post)
 
-    res_ok = agent.answer_with_metadata("quel marché est le plus approprié pour lancer un business")
+    res_ok = agent.answer_with_metadata("quel marché est le plus approprié pour lancer un business", tier="premium")
     assert res_ok["intent"] == "opportunity"
     assert f"score Credit Passport atteint {top_score}/100" in res_ok["reply"]
     assert "ℹ️ Produit non précisé" not in res_ok["reply"]
 
     mode["grounded"] = False
     with caplog.at_level(logging.WARNING, logger="freedata.agent"):
-        res_fb = agent.answer_with_metadata("quel marché est le plus approprié pour lancer un business")
+        res_fb = agent.answer_with_metadata("quel marché est le plus approprié pour lancer un business", tier="premium")
     assert "987654" not in res_fb["reply"]
     assert "Opportunités Commerciales" in res_fb["reply"]
     assert any("LLM fallback triggered" in rec.message for rec in caplog.records)
@@ -538,7 +538,7 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
         return Resp()
 
     monkeypatch.setattr(ai_agent.requests, "post", fake_post)
-    follow_up = route_agent.answer_with_metadata("et pour 2 tonnes ?", history=history)
+    follow_up = route_agent.answer_with_metadata("et pour 2 tonnes ?", history=history, tier="premium")
     assert follow_up["intent"] == "route_revenue"
     assert follow_up["entities"]["origin_province"] == "Tandjile"
     assert follow_up["entities"]["destination_province"] == "Ouaddai"
@@ -704,6 +704,204 @@ def test_arithmetic_conversions_grounding_and_forecast_enrichment(agent):
         "Le prix grimpera à 999 XAF/kg soit 99 900 XAF le sac.",
         source_facts,
     )
+
+
+def test_market_data_provider_standalone_and_pure_dicts(gold_tables):
+    import json
+    from src.ai_agent import MarketDataProvider
+
+    fc_gold, cp_gold = gold_tables
+    provider = MarketDataProvider(fc_gold, cp_gold)
+
+    # 1. Résolution de localisation & produits
+    expected_locs = {
+        "kelo": "Tandjile",
+        "abe": "Ouaddai",
+        "abeche": "Ouaddai",
+        "moundou": "Logone Occidental",
+        "doba": "Logone Oriental",
+        "sarh": "Moyen-Chari",
+        "mongo": "Guera",
+        "am timan": "Salamat",
+        "bongor": "Mayo-Kebbi Est",
+        "pala": "Mayo-Kebbi Ouest",
+        "bol": "Lac",
+        "mao": "Kanem",
+        "faya": "Borkou",
+    }
+    for city, prov in expected_locs.items():
+        assert provider.resolve_location(f"Prix à {city}") == prov
+
+    assert provider.resolve_commodity("du mil") == "Millet"
+    assert provider.resolve_commodity("du riz") == "Rice (imported)"
+    assert provider.resolve_commodity("riz local") == "Rice (local)"
+    assert provider.resolve_commodity("du sorgho") == "Sorghum (red)"
+    assert provider.resolve_commodity("du mais") == "Maize (white)"
+    assert provider.resolve_commodity("arachide") == "Groundnuts (shelled)"
+    assert provider.resolve_commodity("niebe") == "Beans (niebe)"
+    assert provider.resolve_commodity("haricot") == "Beans (niebe)"
+    assert provider.resolve_commodity("oignon") == "Onions (red)"
+    assert provider.resolve_commodity("sesame") == "Sesame"
+    assert provider.resolve_commodity("sucre") == "Sugar"
+    assert provider.resolve_commodity("pates") == "Pasta"
+    assert provider.resolve_commodity("patate") == "Sweet potatoes"
+    assert provider.resolve_commodity("poisson") == "Fish (dry)"
+
+    # 2. Dictionnaires purs retournés pour prévisions, alertes et Credit Passport
+    fc_dict = provider.get_forecasts(province="Salamat", commodity="Millet")
+    assert fc_dict["status"] == "ok"
+    assert fc_dict["count"] >= 1
+    assert "forecast_t1" in fc_dict["records"][0]
+    assert "most_expensive_provinces" in fc_dict["national_summary"]
+    json.dumps(fc_dict)  # sérialisable JSON sans NaN/numpy
+
+    alerts_dict = provider.get_alerts(threshold_pct=15.0)
+    assert alerts_dict["status"] == "ok"
+    assert alerts_dict["count"] >= 1
+    assert any(r["province"] == "Salamat" and r["deviation_pct"] >= 15.0 for r in alerts_dict["records"])
+    json.dumps(alerts_dict)
+
+    cp_dict = provider.get_credit_passport(province="Salamat", commodity="Millet", loan_amount=2_000_000)
+    assert cp_dict["status"] == "ok"
+    rec = cp_dict["records"][0]
+    assert {"credit_score", "grade", "cv_pct", "max_drawdown_pct", "ltv_ratio", "recommended_max_loan_xaf"} <= set(rec)
+    json.dumps(cp_dict)
+
+
+def test_provider_retrieve_rag_chunks_empty_and_populated(gold_tables, monkeypatch):
+    import dataclasses
+    from src import ai_agent
+    from src.ai_agent import MarketDataProvider
+
+    fc_gold, cp_gold = gold_tables
+    provider = MarketDataProvider(fc_gold, cp_gold)
+
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        dataclasses.replace(
+            ai_agent.settings,
+            embed_api_key="jina_test_key",
+            embed_base_url="https://api.jina.ai/v1/embeddings",
+            embed_model="jina-embeddings-v3",
+            supabase_url="https://example.supabase.co",
+            supabase_key="anon-key",
+        ),
+    )
+
+    rpc_payload = []
+
+    def fake_post(url, *args, **kwargs):
+        class Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                if url == "https://api.jina.ai/v1/embeddings":
+                    return {"data": [{"embedding": [0.1] * 4}]}
+                assert "rpc/match_chunks" in url
+                assert kwargs["headers"]["apikey"] == "anon-key"
+                return rpc_payload
+
+        return Resp()
+
+    monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+    # Table rag_chunks vide -> [] proprement
+    assert provider.retrieve_rag_chunks("prix du mil au Tchad") == []
+
+    # Chunks retournés -> filtre similarity >= 0.72 et champs normalisés
+    rpc_payload.extend(
+        [
+            {
+                "titre": "Rapport FEWS NET Tchad",
+                "editeur": "FEWS NET",
+                "page": 9,
+                "url_source": "https://example.org/fews.pdf",
+                "content": "Pression saisonnière sur le mil dans le Salamat.",
+                "similarity": 0.88,
+            },
+            {
+                "titre": "Bruit",
+                "editeur": "X",
+                "page": 1,
+                "url_source": "",
+                "content": "Hors sujet",
+                "similarity": 0.50,
+            },
+        ]
+    )
+    chunks = provider.retrieve_rag_chunks("prix du mil au Salamat")
+    assert len(chunks) == 1
+    assert set(chunks[0].keys()) == {"titre", "editeur", "page", "url_source", "content", "similarity"}
+    assert chunks[0]["titre"] == "Rapport FEWS NET Tchad"
+    assert chunks[0]["page"] == 9
+
+
+def test_agent_free_mode_skips_llm_and_renders_rag_sources_section(agent, monkeypatch):
+    import dataclasses
+    from src import ai_agent
+
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        dataclasses.replace(
+            ai_agent.settings,
+            llm_api_key="gsk_configured_but_unused_in_free",
+            embed_api_key="jina_test_key",
+            embed_base_url="https://api.jina.ai/v1/embeddings",
+            embed_model="jina-embeddings-v3",
+            supabase_url="https://example.supabase.co",
+            supabase_key="anon-key",
+        ),
+    )
+
+    called_urls = []
+
+    def fake_post(url, *args, **kwargs):
+        called_urls.append(url)
+        if "chat/completions" in url:
+            raise AssertionError("Le mode free ne doit jamais appeler le LLM.")
+
+        class Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                if url == "https://api.jina.ai/v1/embeddings":
+                    return {"data": [{"embedding": [0.1, 0.2]}]}
+                return [
+                    {
+                        "titre": "Bulletin PAM Octobre",
+                        "editeur": "WFP",
+                        "page": 12,
+                        "url_source": "https://example.org/wfp.pdf",
+                        "content": "Tensions localisées sur le mil.",
+                        "similarity": 0.81,
+                    }
+                ]
+
+        return Resp()
+
+    monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+    res = agent.answer("Quel est le prix du mil au Salamat ?", tier="free")
+    assert isinstance(res, dict)
+    assert "https://api.groq.com/openai/v1/chat/completions" not in called_urls
+    assert "Sources documentaires associées" in res["reply"]
+    assert "Bulletin PAM Octobre" in res["reply"]
+    assert "WFP" in res["reply"]
+    assert "p.12" in res["reply"]
+    assert len(res["sources"]) == 1
+
+    # Mode premium sans clé LLM -> repli propre sur le rendu free sans erreur
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        dataclasses.replace(ai_agent.settings, llm_api_key=""),
+    )
+    res_fallback = agent.answer("Quel est le prix du mil au Salamat ?", tier="premium")
+    assert "Sources documentaires associées" in res_fallback["reply"]
+    assert "Prévisions" in res_fallback["reply"]
+
 
 
 

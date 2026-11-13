@@ -169,3 +169,57 @@ class TestChatRateLimit:
         assert body["entities"]["province"] == "Salamat"
         assert body["entities"]["commodity"] == "Millet"
 
+    def test_chat_defaults_to_free_tier_and_accepts_premium(self, client, monkeypatch):
+        from src import ai_agent
+
+        monkeypatch.setattr(
+            ai_agent,
+            "settings",
+            dataclasses.replace(
+                ai_agent.settings,
+                llm_api_key="gsk_should_not_be_called_by_default",
+                embed_api_key="",
+            ),
+        )
+
+        llm_urls = []
+
+        def fake_post(url, *args, **kwargs):
+            llm_urls.append(url)
+            raise AssertionError("Le tier='free' par défaut ne doit pas déclencher d'appel LLM.")
+
+        monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+        resp = client.post("/api/v1/chat", json={"message": "Quel est le prix du mil au Salamat ?"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["intent"] == "forecast"
+        assert body["sources"] == []
+        assert llm_urls == []
+
+        # Valeur tier='premium' acceptée et transmise au module d'analyse avancée
+        def fake_premium_post(url, *args, **kwargs):
+            llm_urls.append(url)
+
+            class Resp:
+                def raise_for_status(self):
+                    return None
+
+                def json(self):
+                    return {"choices": [{"message": {"content": "Synthèse premium Salamat : Mil vérifié."}}]}
+
+            return Resp()
+
+        monkeypatch.setattr(ai_agent.requests, "post", fake_premium_post)
+        prem = client.post(
+            "/api/v1/chat",
+            json={"message": "Quel est le prix du mil au Salamat ?", "tier": "premium"},
+        )
+        assert prem.status_code == 200
+        assert len(llm_urls) == 1
+        assert "Synthèse premium Salamat" in prem.json()["reply"]
+
+        # Valeur de tier invalide rejetée par Pydantic (422)
+        bad = client.post("/api/v1/chat", json={"message": "Prix du mil", "tier": "enterprise"})
+        assert bad.status_code == 422
+
+

@@ -1,9 +1,12 @@
 import logging
+import math
 import re
 import unicodedata
-from typing import Optional
-import requests
+from typing import Literal, Optional
+
 import pandas as pd
+import requests
+
 from src.config import settings
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 
@@ -14,28 +17,47 @@ COMMODITY_ALIASES = {
     "millet": "Millet",
     "sorgho": "Sorghum (red)",
     "sorghos": "Sorghum (red)",
+    "sorgho rouge": "Sorghum (red)",
     "sorghum": "Sorghum (red)",
+    "sorghum (red)": "Sorghum (red)",
     "mais": "Maize (white)",
+    "mais blanc": "Maize (white)",
     "maize": "Maize (white)",
+    "maize (white)": "Maize (white)",
     "riz": "Rice (imported)",
     "rice": "Rice (imported)",
-    "riz local": "Rice (local)",
+    "rice (imported)": "Rice (imported)",
     "riz importe": "Rice (imported)",
+    "riz local": "Rice (local)",
+    "rice (local)": "Rice (local)",
     "niebe": "Beans (niebe)",
     "haricot": "Beans (niebe)",
     "haricots": "Beans (niebe)",
+    "beans (niebe)": "Beans (niebe)",
     "arachide": "Groundnuts (shelled)",
     "arachides": "Groundnuts (shelled)",
+    "arachide decortiquee": "Groundnuts (shelled)",
+    "arachides decortiquees": "Groundnuts (shelled)",
+    "groundnuts (shelled)": "Groundnuts (shelled)",
     "sesame": "Sesame",
     "sucre": "Sugar",
+    "sugar": "Sugar",
     "oignon": "Onions (red)",
     "oignons": "Onions (red)",
+    "oignon rouge": "Onions (red)",
+    "oignons rouges": "Onions (red)",
+    "onions (red)": "Onions (red)",
     "pates": "Pasta",
     "pate": "Pasta",
+    "pasta": "Pasta",
     "patate": "Sweet potatoes",
     "patates": "Sweet potatoes",
+    "patate douce": "Sweet potatoes",
+    "patates douces": "Sweet potatoes",
+    "sweet potatoes": "Sweet potatoes",
     "poisson": "Fish (dry)",
     "poisson seche": "Fish (dry)",
+    "fish (dry)": "Fish (dry)",
 }
 
 COMMODITY_FR = {
@@ -95,6 +117,18 @@ def _normalize_text(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _clean_float(val: object) -> Optional[float]:
+    if val is None or pd.isna(val):
+        return None
+    f = float(val)
+    return f if math.isfinite(f) else None
+
+
+def _clean_int(val: object) -> Optional[int]:
+    f = _clean_float(val)
+    return int(round(f)) if f is not None else None
+
+
 # Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
 _GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|merci|aide|help)\b")
 _OVERVIEW_RE = re.compile(
@@ -130,17 +164,10 @@ _THOUSAND_GROUP_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[, \u00a0\u202f]\d{3})+)(?!\
 # Petits nombres usuels de conversation (0 à 12) + facteurs de conversion standard (100 kg / 1 000 kg)
 _IGNORED_CONVERSATION_NUMBERS = {str(i) for i in range(13)} | {"100", "1000"}
 
-
-def _numbers_in(text: str) -> set[str]:
-    """Nombres significatifs hors petits entiers usuels (0-12, 100, 1000) et numéros de listes."""
-    cleaned = _LIST_PREFIX_RE.sub(" ", text)
-    normalized = _THOUSAND_GROUP_RE.sub(lambda m: re.sub(r"[, \u00a0\u202f]", "", m.group(1)), cleaned)
-    return {
-        n
-        for n in _DIGITS_RE.findall(normalized)
-        if len(n) >= 2 and n not in _IGNORED_CONVERSATION_NUMBERS
-    }
-
+_COMMODITY_PATTERNS = [
+    (re.compile(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"), comm_std)
+    for alias, comm_std in sorted(COMMODITY_ALIASES.items(), key=lambda x: -len(x[0]))
+]
 
 _SECURITY_REFUSAL_REPLY = (
     "Je suis FreeData.AI, dédié exclusivement à l'analyse des marchés agricoles et économiques "
@@ -159,6 +186,17 @@ _SECURITY_INJECTION_RE = re.compile(
     r"|\bsql\b|\bdrop\s+(?:table|database|schema)\b|\bselect\s+\*"
     r")"
 )
+
+
+def _numbers_in(text: str) -> set[str]:
+    """Nombres significatifs hors petits entiers usuels (0-12, 100, 1000) et numéros de listes."""
+    cleaned = _LIST_PREFIX_RE.sub(" ", text)
+    normalized = _THOUSAND_GROUP_RE.sub(lambda m: re.sub(r"[, \u00a0\u202f]", "", m.group(1)), cleaned)
+    return {
+        n
+        for n in _DIGITS_RE.findall(normalized)
+        if len(n) >= 2 and n not in _IGNORED_CONVERSATION_NUMBERS
+    }
 
 
 def _ungrounded_numbers(candidate: str, *sources: str) -> set[str]:
@@ -184,29 +222,40 @@ def numbers_are_grounded(candidate: str, *sources: str) -> bool:
     return not _ungrounded_numbers(candidate, *sources)
 
 
-class FreeDataAIAgent:
+class MarketDataProvider:
     """
-    Agent conversationnel analytique (Tool-Calling déterministe + RAG + LLM Groq / Ollama optionnel).
-    Garantit zéro hallucination numérique : tous les chiffres proviennent des moteurs ML/SQL.
+    Couche pure d'accès aux données (Tables Gold + recherche vectorielle RAG).
+    Retourne exclusivement des dictionnaires et listes Python réutilisables, sans dépendance LLM.
     """
 
-    def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame):
-        self.hist_df = hist_df
-        self.forecast_df = forecast_df
-        self.passport_df = passport_df
-        self.provinces = sorted(forecast_df["province"].dropna().unique())
+    def __init__(
+        self,
+        forecast_df: pd.DataFrame,
+        passport_df: pd.DataFrame,
+        hist_df: Optional[pd.DataFrame] = None,
+    ):
+        self.forecast_df = forecast_df if forecast_df is not None else pd.DataFrame()
+        self.passport_df = passport_df if passport_df is not None else pd.DataFrame()
+        self.hist_df = hist_df if hist_df is not None else pd.DataFrame()
+
+        if not self.forecast_df.empty and "province" in self.forecast_df.columns:
+            self.provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique())
+        else:
+            self.provinces = []
         self.prov_lookup = {_normalize_text(p): p for p in self.provinces}
 
-        # Index combiné Villes + Provinces (avec tolérance aux tirets/espaces) compilé en une passe.
         loc_map: dict[str, str] = {}
         for p_norm, p_orig in self.prov_lookup.items():
             loc_map[p_norm] = p_orig
             if "-" in p_norm:
                 loc_map[p_norm.replace("-", " ")] = p_orig
         for city_key, target_prov in CITY_TO_PROVINCE.items():
-            city_norm = _normalize_text(city_key)
-            resolved = self.prov_lookup.get(_normalize_text(target_prov), target_prov)
-            loc_map.setdefault(city_norm, resolved)
+            target_norm = _normalize_text(target_prov)
+            resolved = self.prov_lookup.get(target_norm, target_prov)
+            loc_map.setdefault(_normalize_text(city_key), resolved)
+            loc_map.setdefault(target_norm, resolved)
+            if "-" in target_norm:
+                loc_map.setdefault(target_norm.replace("-", " "), resolved)
         self._location_map = loc_map
         if loc_map:
             alts = "|".join(re.escape(k) for k in sorted(loc_map, key=len, reverse=True))
@@ -215,16 +264,14 @@ class FreeDataAIAgent:
             self._location_re = None
 
     @staticmethod
-    def _fr_commodity(commodity_std: str) -> str:
+    def fr_commodity(commodity_std: str) -> str:
         return COMMODITY_FR.get(commodity_std, commodity_std)
 
-    @staticmethod
-    def _numbers_are_grounded(candidate: str, allowed_source: str) -> bool:
-        return numbers_are_grounded(candidate, allowed_source)
-
-    def _extract_locations(self, q_norm: str) -> list[str]:
-        if self._location_re is None:
+    def resolve_locations(self, text: str) -> list[str]:
+        """Extrait les provinces résolues (villes -> provinces) ordonnées origine -> destination."""
+        if not text or self._location_re is None:
             return []
+        q_norm = _normalize_text(text)
         hits: list[tuple[int, str]] = []
         seen_provs: set[str] = set()
         for m in self._location_re.finditer(q_norm):
@@ -239,11 +286,19 @@ class FreeDataAIAgent:
                 hits[0], hits[1] = hits[1], hits[0]
         return [prov for _, prov in hits]
 
-    @staticmethod
-    def _extract_commodities(q_norm: str) -> tuple[Optional[str], Optional[list[str]]]:
+    def resolve_location(self, text: str) -> Optional[str]:
+        """Détecte une province officielle ou une ville tchadienne dans `text`."""
+        locs = self.resolve_locations(text)
+        return locs[0] if locs else None
+
+    def resolve_commodities(self, text: str) -> tuple[Optional[str], Optional[list[str]]]:
+        """Retourne `(commodity_std_principal, liste_cibles)` à partir d'un texte français ou anglais."""
+        if not text:
+            return None, None
+        q_norm = _normalize_text(text)
         matched_comm = None
-        for alias, comm_std in sorted(COMMODITY_ALIASES.items(), key=lambda x: -len(x[0])):
-            if re.search(rf"\b{re.escape(alias)}\b", q_norm):
+        for pattern, comm_std in _COMMODITY_PATTERNS:
+            if pattern.search(q_norm):
                 matched_comm = comm_std
                 break
         if matched_comm is None:
@@ -252,6 +307,613 @@ class FreeDataAIAgent:
         if matched_comm == "Rice (imported)" and not re.search(r"\briz importe\b", q_norm):
             return matched_comm, ["Rice (local)", "Rice (imported)"]
         return matched_comm, [matched_comm]
+
+    def resolve_commodity(self, text: str) -> Optional[str]:
+        """Mappe les noms français ou anglais vers `commodity_std`."""
+        matched_comm, _ = self.resolve_commodities(text)
+        return matched_comm
+
+    @staticmethod
+    def _price_col(df: pd.DataFrame) -> Optional[str]:
+        if "value" in df.columns:
+            return "value"
+        if "last_observed_price" in df.columns:
+            return "last_observed_price"
+        return None
+
+    def _cv_lookup(self) -> dict[tuple[str, str], float]:
+        lookup: dict[tuple[str, str], float] = {}
+        if self.passport_df.empty or "cv_pct" not in self.passport_df.columns:
+            return lookup
+        for _, r in self.passport_df.iterrows():
+            cv = _clean_float(r.get("cv_pct"))
+            if cv is not None:
+                lookup[(str(r.get("province", "")), str(r.get("commodity_std", "")))] = cv
+        return lookup
+
+    def get_overview(self) -> dict:
+        """Retourne les statistiques de couverture du dataset en dictionnaire pur."""
+        if self.forecast_df.empty:
+            return {
+                "status": "empty",
+                "series_count": 0,
+                "markets_count": 0,
+                "provinces": [],
+                "commodities": [],
+                "commodities_fr": [],
+                "sources": [],
+                "period_start": None,
+                "period_end": None,
+            }
+
+        provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique().tolist())
+        commodities = sorted(self.forecast_df["commodity_std"].dropna().astype(str).unique().tolist())
+        commodities_fr = sorted({self.fr_commodity(c) for c in commodities})
+        n_markets = (
+            int(self.forecast_df["market_name"].dropna().nunique())
+            if "market_name" in self.forecast_df.columns
+            else 0
+        )
+        sources = (
+            sorted(self.forecast_df["source"].dropna().astype(str).unique().tolist())
+            if "source" in self.forecast_df.columns
+            else []
+        )
+        months = (
+            self.forecast_df["last_observed_month"].dropna().astype(str)
+            if "last_observed_month" in self.forecast_df.columns
+            else pd.Series(dtype=str)
+        )
+        return {
+            "status": "ok",
+            "series_count": int(len(self.forecast_df)),
+            "markets_count": n_markets,
+            "provinces": provinces,
+            "commodities": commodities,
+            "commodities_fr": commodities_fr,
+            "sources": sources,
+            "period_start": str(months.min()) if not months.empty else None,
+            "period_end": str(months.max()) if not months.empty else None,
+        }
+
+    def get_forecasts(self, province: Optional[str] = None, commodity: Optional[str] = None) -> dict:
+        """Interroge `forecast_df` et retourne un dictionnaire pur avec détails par marché et synthèse nationale."""
+        comm_fr = self.fr_commodity(commodity) if commodity else None
+        if self.forecast_df.empty:
+            return {
+                "status": "empty",
+                "province": province,
+                "commodity": commodity,
+                "commodity_fr": comm_fr,
+                "count": 0,
+                "records": [],
+                "national_summary": {},
+            }
+
+        price_col = self._price_col(self.forecast_df)
+        scope_df = self.forecast_df.copy()
+        if commodity:
+            scope_df = scope_df[scope_df["commodity_std"] == commodity]
+
+        if scope_df.empty:
+            return {
+                "status": "empty",
+                "province": province,
+                "commodity": commodity,
+                "commodity_fr": comm_fr,
+                "count": 0,
+                "records": [],
+                "national_summary": {},
+            }
+
+        # Synthèse nationale calculée sur le produit ciblé (avant filtre province)
+        national_summary: dict = {}
+        agg_input = scope_df.copy()
+        agg_input["_fc"] = pd.to_numeric(agg_input["forecast_t1"], errors="coerce")
+        agg_input["_obs"] = pd.to_numeric(agg_input[price_col], errors="coerce") if price_col else float("nan")
+        agg = (
+            agg_input.dropna(subset=["province", "_fc"])
+            .groupby("province", as_index=False)
+            .agg(
+                median_last_observed_xaf=("_obs", "median"),
+                median_forecast_xaf=("_fc", "median"),
+                hist_mae=("hist_mae", "median") if "hist_mae" in agg_input.columns else ("_fc", "count"),
+            )
+            .sort_values("median_forecast_xaf", ascending=False)
+        )
+        if not agg.empty:
+            def _agg_list(df_slice: pd.DataFrame) -> list[dict]:
+                return [
+                    {
+                        "province": str(r["province"]),
+                        "median_forecast_xaf": _clean_float(r["median_forecast_xaf"]),
+                        "median_last_observed_xaf": _clean_float(r["median_last_observed_xaf"]),
+                    }
+                    for _, r in df_slice.iterrows()
+                ]
+
+            national_summary = {
+                "provinces_count": int(agg["province"].nunique()),
+                "series_count": int(len(scope_df)),
+                "median_forecast_xaf": _clean_float(agg_input["_fc"].median()),
+                "most_expensive_provinces": _agg_list(agg.head(3)),
+                "most_affordable_provinces": _agg_list(agg.tail(3)),
+            }
+
+        sub = scope_df[scope_df["province"] == province] if province else scope_df
+        if sub.empty:
+            return {
+                "status": "empty",
+                "province": province,
+                "commodity": commodity,
+                "commodity_fr": comm_fr,
+                "count": 0,
+                "records": [],
+                "national_summary": national_summary,
+            }
+
+        sort_cols = [c for c in ("province", "commodity_std", "market_name") if c in sub.columns]
+        if sort_cols:
+            sub = sub.sort_values(sort_cols)
+
+        cv_map = self._cv_lookup()
+        records: list[dict] = []
+        for _, r in sub.iterrows():
+            prov_val = str(r.get("province", ""))
+            comm_val = str(r.get("commodity_std", ""))
+            obs_price = _clean_float(r.get(price_col)) if price_col else None
+            fc_price = _clean_float(r.get("forecast_t1"))
+            delta_xaf = (fc_price - obs_price) if (fc_price is not None and obs_price is not None) else None
+            delta_pct = (
+                (delta_xaf / obs_price) * 100.0
+                if (delta_xaf is not None and obs_price is not None and obs_price > 0)
+                else None
+            )
+            records.append(
+                {
+                    "source": str(r.get("source", "")),
+                    "province": prov_val,
+                    "market_name": str(r.get("market_name", "")),
+                    "commodity_std": comm_val,
+                    "commodity_fr": self.fr_commodity(comm_val),
+                    "last_observed_month": str(r.get("last_observed_month", "")),
+                    "last_observed_price": obs_price,
+                    "forecast_month": str(r.get("forecast_month", "")),
+                    "forecast_t1": fc_price,
+                    "sac_100kg_xaf": (fc_price * 100.0) if fc_price is not None else None,
+                    "delta_xaf": delta_xaf,
+                    "delta_pct": delta_pct,
+                    "ci_low_80": _clean_float(r.get("ci_low_80")),
+                    "ci_high_80": _clean_float(r.get("ci_high_80")),
+                    "hist_mae": _clean_float(r.get("hist_mae")),
+                    "cv_pct": cv_map.get((prov_val, comm_val)),
+                }
+            )
+
+        return {
+            "status": "ok",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": comm_fr,
+            "count": len(records),
+            "records": records,
+            "national_summary": national_summary,
+        }
+
+    def get_alerts(
+        self,
+        province: Optional[str] = None,
+        commodity: Optional[str] = None,
+        threshold_pct: float = 15.0,
+    ) -> dict:
+        """Retourne les séries dépassant `threshold_pct` sous forme de dictionnaire pur."""
+        comm_fr = self.fr_commodity(commodity) if commodity else None
+        empty_payload = {
+            "status": "empty",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": comm_fr,
+            "threshold_pct": float(threshold_pct),
+            "count": 0,
+            "records": [],
+        }
+
+        if not self.hist_df.empty and "deviation_pct" in self.hist_df.columns:
+            src_df = self.hist_df.copy()
+            if "year_month" in src_df.columns:
+                src_df = src_df.sort_values("year_month").groupby(
+                    ["source", "province", "market_name", "commodity_std"]
+                ).tail(1)
+            month_col = "year_month"
+        elif not self.forecast_df.empty and "deviation_pct" in self.forecast_df.columns:
+            src_df = self.forecast_df.copy()
+            month_col = "last_observed_month" if "last_observed_month" in src_df.columns else "year_month"
+        else:
+            return empty_payload
+
+        src_df["deviation_pct"] = pd.to_numeric(src_df["deviation_pct"], errors="coerce")
+        alerts = src_df[src_df["deviation_pct"].notna() & (src_df["deviation_pct"] >= threshold_pct)].copy()
+        if province:
+            alerts = alerts[alerts["province"] == province]
+        if commodity:
+            alerts = alerts[alerts["commodity_std"] == commodity]
+        if alerts.empty:
+            return empty_payload
+
+        alerts = alerts.sort_values("deviation_pct", ascending=False)
+        price_col = self._price_col(alerts)
+        records = []
+        for _, r in alerts.iterrows():
+            comm_val = str(r.get("commodity_std", ""))
+            records.append(
+                {
+                    "month": str(r.get(month_col, "")) if month_col in alerts.columns else "",
+                    "source": str(r.get("source", "")),
+                    "province": str(r.get("province", "")),
+                    "market_name": str(r.get("market_name", "")),
+                    "commodity_std": comm_val,
+                    "commodity_fr": self.fr_commodity(comm_val),
+                    "observed_price": _clean_float(r.get(price_col)) if price_col else None,
+                    "predicted_price": _clean_float(r.get("predicted_price")),
+                    "deviation_pct": _clean_float(r.get("deviation_pct")),
+                }
+            )
+
+        return {
+            "status": "ok",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": comm_fr,
+            "threshold_pct": float(threshold_pct),
+            "count": len(records),
+            "records": records,
+        }
+
+    def get_credit_passport(
+        self,
+        province: Optional[str] = None,
+        commodity: Optional[str] = None,
+        loan_amount: float = 1_000_000.0,
+    ) -> dict:
+        """Retourne les scores, grades, CV %, drawdown et plafonds LTV depuis `passport_df`."""
+        comm_fr = self.fr_commodity(commodity) if commodity else None
+        empty_payload = {
+            "status": "empty",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": comm_fr,
+            "loan_amount": float(loan_amount),
+            "count": 0,
+            "records": [],
+        }
+        if self.passport_df.empty:
+            return empty_payload
+
+        score_col = "score_global" if "score_global" in self.passport_df.columns else "credit_score"
+        if score_col not in self.passport_df.columns:
+            return empty_payload
+
+        sub = self.passport_df.copy()
+        if commodity:
+            sub = sub[sub["commodity_std"] == commodity]
+        if province:
+            sub = sub[sub["province"] == province]
+        if sub.empty:
+            return empty_payload
+
+        sub = sub.sort_values(score_col, ascending=False)
+        records = []
+        for _, r in sub.iterrows():
+            comm_val = str(r.get("commodity_std", ""))
+            ltv = _clean_float(r.get("ltv_ratio")) or 0.0
+            records.append(
+                {
+                    "province": str(r.get("province", "")),
+                    "commodity_std": comm_val,
+                    "commodity_fr": self.fr_commodity(comm_val),
+                    "credit_score": _clean_float(r.get(score_col)),
+                    "grade": str(r.get("grade", "")),
+                    "policy_recommendation": str(r.get("policy_recommendation", "")),
+                    "ltv_ratio": ltv,
+                    "ltv_pct": int(round(ltv * 100)),
+                    "recommended_max_loan_xaf": int(round(float(loan_amount) * ltv)),
+                    "median_price": _clean_float(r.get("median_price")),
+                    "cv_pct": _clean_float(r.get("cv_pct")),
+                    "max_drawdown_pct": _clean_float(r.get("max_drawdown_pct")),
+                    "obs_months": _clean_int(r.get("obs_months")),
+                }
+            )
+
+        return {
+            "status": "ok",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": comm_fr,
+            "loan_amount": float(loan_amount),
+            "count": len(records),
+            "records": records,
+        }
+
+    def _agg_province_commodity_forecasts(self, commodity: Optional[str] = None) -> pd.DataFrame:
+        if self.forecast_df.empty:
+            return pd.DataFrame()
+        price_col = self._price_col(self.forecast_df)
+        fc = self.forecast_df.dropna(subset=["province", "commodity_std", "forecast_t1"]).copy()
+        fc["forecast_t1"] = pd.to_numeric(fc["forecast_t1"], errors="coerce")
+        fc["_obs_price"] = pd.to_numeric(fc[price_col], errors="coerce") if price_col else float("nan")
+        fc = fc.dropna(subset=["forecast_t1"])
+        if commodity:
+            fc = fc[fc["commodity_std"] == commodity]
+        if fc.empty:
+            return pd.DataFrame()
+        return (
+            fc.groupby(["province", "commodity_std"], as_index=False)
+            .agg(
+                prix_prevu_median=("forecast_t1", "median"),
+                dernier_prix_median=("_obs_price", "median"),
+                nb_marches=("market_name", "nunique"),
+            )
+        )
+
+    @staticmethod
+    def _compute_arbitrage_corridors(agg: pd.DataFrame, limit: int = 3) -> list[dict]:
+        if agg.empty:
+            return []
+        corridors = []
+        for comm, grp in agg.groupby("commodity_std"):
+            if len(grp) < 2:
+                continue
+            low_row = grp.loc[grp["prix_prevu_median"].idxmin()]
+            high_row = grp.loc[grp["prix_prevu_median"].idxmax()]
+            low_p = float(low_row["prix_prevu_median"])
+            high_p = float(high_row["prix_prevu_median"])
+            spread_xaf = high_p - low_p
+            if spread_xaf <= 0:
+                continue
+            spread_pct = (spread_xaf / low_p) * 100.0 if low_p > 0 else 0.0
+            corridors.append(
+                {
+                    "commodity_std": comm,
+                    "commodity_fr": COMMODITY_FR.get(comm, comm),
+                    "low_province": str(low_row["province"]),
+                    "low_price": low_p,
+                    "high_province": str(high_row["province"]),
+                    "high_price": high_p,
+                    "spread_xaf": spread_xaf,
+                    "spread_pct": spread_pct,
+                }
+            )
+        corridors.sort(key=lambda c: c["spread_xaf"], reverse=True)
+        return corridors[:limit]
+
+    def get_business_opportunities(
+        self, province: Optional[str] = None, commodity: Optional[str] = None
+    ) -> dict:
+        """Croise prévisions d'achat/revente, écarts bruts et solidité Credit Passport."""
+        agg = self._agg_province_commodity_forecasts(commodity=commodity)
+        if agg.empty:
+            return {
+                "status": "empty",
+                "province": province,
+                "commodity": commodity,
+                "commodity_fr": self.fr_commodity(commodity) if commodity else None,
+                "local_focus": [],
+                "cheapest_zones": [],
+                "highest_zones": [],
+                "corridors": [],
+                "top_credit_passports": [],
+            }
+
+        def _zone_list(df_slice: pd.DataFrame) -> list[dict]:
+            return [
+                {
+                    "province": str(r["province"]),
+                    "commodity_std": str(r["commodity_std"]),
+                    "commodity_fr": self.fr_commodity(str(r["commodity_std"])),
+                    "forecast_median_xaf": _clean_float(r["prix_prevu_median"]),
+                    "observed_median_xaf": _clean_float(r["dernier_prix_median"]),
+                    "markets_count": int(r["nb_marches"]),
+                }
+                for _, r in df_slice.iterrows()
+            ]
+
+        local_focus = (
+            _zone_list(agg[agg["province"] == province].sort_values("prix_prevu_median", ascending=False).head(3))
+            if province
+            else []
+        )
+        cheapest = _zone_list(agg.sort_values("prix_prevu_median", ascending=True).head(3))
+        highest = _zone_list(agg.sort_values("prix_prevu_median", ascending=False).head(3))
+        corridors = self._compute_arbitrage_corridors(agg, limit=3)
+        top_cp = self.get_credit_passport(commodity=commodity)["records"][:3]
+
+        return {
+            "status": "ok",
+            "province": province,
+            "commodity": commodity,
+            "commodity_fr": self.fr_commodity(commodity) if commodity else None,
+            "local_focus": local_focus,
+            "cheapest_zones": cheapest,
+            "highest_zones": highest,
+            "corridors": corridors,
+            "top_credit_passports": top_cp,
+        }
+
+    def calculate_route_revenue(
+        self,
+        origin_province: str,
+        destination_province: str,
+        commodities: Optional[list[str]] = None,
+        volume_kg: Optional[float] = None,
+        volume_label: Optional[str] = None,
+    ) -> dict:
+        """Calcule l'écart de prix unitaire et les marges brutes entre deux provinces."""
+        agg = self._agg_province_commodity_forecasts()
+        orig_prov = self.prov_lookup.get(_normalize_text(origin_province), origin_province)
+        dest_prov = self.prov_lookup.get(_normalize_text(destination_province), destination_province)
+
+        if agg.empty:
+            return {
+                "status": "empty",
+                "origin_province": orig_prov,
+                "destination_province": dest_prov,
+                "routes": [],
+                "missing_notes": [],
+            }
+
+        if commodities:
+            target_comms = list(dict.fromkeys(commodities))
+        else:
+            orig_comms = set(agg[agg["province"] == orig_prov]["commodity_std"])
+            dest_comms = set(agg[agg["province"] == dest_prov]["commodity_std"])
+            shared = sorted(orig_comms & dest_comms)
+            target_comms = shared[:3] if shared else ["Millet"]
+
+        routes: list[dict] = []
+        missing_notes: list[str] = []
+        for comm in target_comms:
+            comm_fr = self.fr_commodity(comm)
+            sub = agg[agg["commodity_std"] == comm]
+            orig_rows = sub[sub["province"] == orig_prov]
+            dest_rows = sub[sub["province"] == dest_prov]
+            if orig_rows.empty or dest_rows.empty:
+                absent = []
+                if orig_rows.empty:
+                    absent.append(orig_prov)
+                if dest_rows.empty:
+                    absent.append(dest_prov)
+                missing_notes.append(f"**{comm_fr}** : série absente pour {', '.join(absent)}")
+                continue
+
+            o = orig_rows.iloc[0]
+            d = dest_rows.iloc[0]
+            p_orig = float(o["prix_prevu_median"])
+            p_dest = float(d["prix_prevu_median"])
+            obs_orig = _clean_float(o["dernier_prix_median"])
+            obs_dest = _clean_float(d["dernier_prix_median"])
+            unit_spread = p_dest - p_orig
+            pct_spread = (unit_spread / p_orig) * 100.0 if p_orig > 0 else 0.0
+
+            entry = {
+                "commodity_std": comm,
+                "commodity_fr": comm_fr,
+                "origin_province": orig_prov,
+                "destination_province": dest_prov,
+                "origin_forecast_xaf": p_orig,
+                "origin_observed_xaf": obs_orig,
+                "destination_forecast_xaf": p_dest,
+                "destination_observed_xaf": obs_dest,
+                "unit_spread_xaf": unit_spread,
+                "pct_spread": pct_spread,
+                "sac_100kg_revenue_xaf": p_dest * 100.0,
+                "sac_100kg_margin_xaf": unit_spread * 100.0,
+                "tonne_revenue_xaf": p_dest * 1000.0,
+                "tonne_margin_xaf": unit_spread * 1000.0,
+                "volume_kg": volume_kg,
+                "volume_label": volume_label,
+                "volume_cost_xaf": (p_orig * volume_kg) if (volume_kg and volume_kg > 0) else None,
+                "volume_revenue_xaf": (p_dest * volume_kg) if (volume_kg and volume_kg > 0) else None,
+                "volume_margin_xaf": (unit_spread * volume_kg) if (volume_kg and volume_kg > 0) else None,
+            }
+            routes.append(entry)
+
+        return {
+            "status": "ok" if routes else "empty",
+            "origin_province": orig_prov,
+            "destination_province": dest_prov,
+            "routes": routes,
+            "missing_notes": missing_notes,
+        }
+
+    def retrieve_rag_chunks(self, query: str, match_count: int = 3) -> list[dict]:
+        """Vectorise la question via Jina (1024 dim) et interroge Supabase `match_chunks` (clé publique `anon`)."""
+        if not query or not settings.embed_api_key or not settings.supabase_url or not settings.supabase_key:
+            return []
+        try:
+            emb_resp = requests.post(
+                settings.embed_base_url,
+                headers={
+                    "Authorization": f"Bearer {settings.embed_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": settings.embed_model, "input": [query]},
+                timeout=5,
+            )
+            emb_resp.raise_for_status()
+            emb_data = emb_resp.json().get("data") or []
+            if not emb_data:
+                return []
+            query_vec = emb_data[0]["embedding"]
+
+            rpc_url = f"{settings.supabase_url.rstrip('/')}/rest/v1/rpc/match_chunks"
+            rpc_resp = requests.post(
+                rpc_url,
+                headers={
+                    "apikey": settings.supabase_key,
+                    "Authorization": f"Bearer {settings.supabase_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"query_embedding": query_vec, "match_count": match_count},
+                timeout=5,
+            )
+            rpc_resp.raise_for_status()
+            rows = rpc_resp.json()
+            if not isinstance(rows, list):
+                return []
+            chunks: list[dict] = []
+            for c in rows:
+                if not isinstance(c, dict):
+                    continue
+                sim = float(c.get("similarity") or 0.0)
+                if sim >= 0.72:
+                    chunks.append(
+                        {
+                            "titre": c.get("titre"),
+                            "editeur": c.get("editeur"),
+                            "page": c.get("page"),
+                            "url_source": c.get("url_source"),
+                            "content": c.get("content", ""),
+                            "similarity": sim,
+                        }
+                    )
+            return chunks
+        except Exception:
+            return []
+
+
+class FreeDataAIAgent:
+    """
+    Moteur conversationnel structuré autour de `MarketDataProvider`.
+    - Mode `free` (par défaut) : déterministe, rapide, sans dépendance LLM bloquante.
+    - Mode `premium` : point d'extension LLM optionnel alimenté exclusivement par les données de `MarketDataProvider`.
+    """
+
+    def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame):
+        self.hist_df = hist_df
+        self.forecast_df = forecast_df
+        self.passport_df = passport_df
+        self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df)
+        self.provinces = self.provider.provinces
+        self.prov_lookup = self.provider.prov_lookup
+
+    @staticmethod
+    def _fr_commodity(commodity_std: str) -> str:
+        return MarketDataProvider.fr_commodity(commodity_std)
+
+    @staticmethod
+    def _numbers_are_grounded(candidate: str, allowed_source: str) -> bool:
+        return numbers_are_grounded(candidate, allowed_source)
+
+    @staticmethod
+    def _check_security_guardrails(user_query: str) -> Optional[str]:
+        """Détecte les tentatives d'injection de prompt, extraction de secrets ou SQL malveillant."""
+        q_norm = _normalize_text(user_query)
+        if _SECURITY_INJECTION_RE.search(q_norm):
+            return _SECURITY_REFUSAL_REPLY
+        return None
+
+    def _retrieve_rag_chunks(self, query: str, match_count: int = 3) -> list[dict]:
+        return self.provider.retrieve_rag_chunks(query, match_count=match_count)
 
     @staticmethod
     def _extract_volume(q_norm: str) -> tuple[Optional[float], Optional[str]]:
@@ -276,13 +938,10 @@ class FreeDataAIAgent:
     def _extract_entities(self, query: str, history: Optional[list[dict]] = None) -> dict:
         q_norm = _normalize_text(query)
 
-        # 1. Lieux (Villes -> Provinces, ordonnés selon origine -> destination)
-        provinces_found = self._extract_locations(q_norm)
+        provinces_found = self.provider.resolve_locations(q_norm)
+        matched_comm, requested_comms = self.provider.resolve_commodities(q_norm)
 
-        # 2. Produit(s)
-        matched_comm, requested_comms = self._extract_commodities(q_norm)
-
-        # 3. Repli local sur l'historique utilisateur (4 derniers tours utilisateur, < 2 ms)
+        # Repli sur les tours précédents si la question actuelle omet la province ou le produit
         if history and (not provinces_found or matched_comm is None):
             recent_user_msgs = [
                 str(m.get("content", ""))
@@ -290,13 +949,12 @@ class FreeDataAIAgent:
                 if isinstance(m, dict) and m.get("role", "user") == "user" and m.get("content")
             ]
             for prev_text in reversed(recent_user_msgs[-4:]):
-                prev_norm = _normalize_text(prev_text)
                 if not provinces_found:
-                    prev_provs = self._extract_locations(prev_norm)
+                    prev_provs = self.provider.resolve_locations(prev_text)
                     if prev_provs:
                         provinces_found = prev_provs
                 if matched_comm is None:
-                    prev_comm, prev_comms = self._extract_commodities(prev_norm)
+                    prev_comm, prev_comms = self.provider.resolve_commodities(prev_text)
                     if prev_comm is not None:
                         matched_comm, requested_comms = prev_comm, prev_comms
                 if provinces_found and matched_comm is not None:
@@ -306,7 +964,6 @@ class FreeDataAIAgent:
         origin_prov = provinces_found[0] if len(provinces_found) >= 2 else None
         dest_prov = provinces_found[1] if len(provinces_found) >= 2 else None
 
-        # 4. Montant de prêt éventuel et volume éventuel
         loan_amount = _DEFAULT_LOAN_XAF
         m_million = _LOAN_MILLION_RE.search(q_norm)
         if m_million:
@@ -319,7 +976,6 @@ class FreeDataAIAgent:
 
         volume_kg, volume_label = self._extract_volume(q_norm)
 
-        # 5. Intention (mots entiers + arbitrage inter-marchés si 2 lieux distincts)
         if _CREDIT_RE.search(q_norm):
             intent = "credit_passport"
         elif _ALERT_RE.search(q_norm):
@@ -347,15 +1003,10 @@ class FreeDataAIAgent:
         }
 
     def tool_get_greeting(self) -> str:
-        n_series = len(self.forecast_df) if self.forecast_df is not None else 0
-        n_prov = (
-            int(self.forecast_df["province"].nunique())
-            if (self.forecast_df is not None and not self.forecast_df.empty)
-            else 0
-        )
+        ov = self.provider.get_overview()
         return (
             f"Bonjour ! Je suis **FreeData.AI**, votre assistant d'analyse des marchés agricoles au Tchad.\n\n"
-            f"Je surveille actuellement **{n_series} séries de prix** réparties sur **{n_prov} provinces**.\n\n"
+            f"Je surveille actuellement **{ov['series_count']} séries de prix** réparties sur **{len(ov['provinces'])} provinces**.\n\n"
             f"Voici comment je peux vous aider :\n"
             f"- **Prévisions de prix** : *« Quelle est la prévision du mil à N'Djamena ? »*\n"
             f"- **Alertes de tension** : *« Quelles sont les alertes de hausse actuelles ? »*\n"
@@ -363,23 +1014,23 @@ class FreeDataAIAgent:
         )
 
     def tool_get_overview(self) -> str:
-        if self.forecast_df is None or self.forecast_df.empty:
+        return self._format_overview(self.provider.get_overview())
+
+    @staticmethod
+    def _format_overview(ov: dict) -> str:
+        if ov.get("status") != "ok":
             return "Aucune série active n'est actuellement chargée dans le catalogue."
-
-        n_series = len(self.forecast_df)
-        provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique().tolist())
-        commodities = sorted({
-            self._fr_commodity(c)
-            for c in self.forecast_df["commodity_std"].dropna().astype(str).unique().tolist()
-        })
-        n_markets = int(self.forecast_df["market_name"].dropna().nunique())
-        sources = sorted(self.forecast_df["source"].dropna().astype(str).unique().tolist())
-        months = self.forecast_df["last_observed_month"].dropna().astype(str)
-        period_str = f"{months.min()} à {months.max()}" if not months.empty else "non précisée"
-
+        provinces = ov["provinces"]
+        commodities = ov["commodities_fr"]
+        sources = ov["sources"]
+        period_str = (
+            f"{ov['period_start']} à {ov['period_end']}"
+            if ov.get("period_start") and ov.get("period_end")
+            else "non précisée"
+        )
         return (
             f"### Couverture des données FreeData.AI\n"
-            f"- **Séries actives suivies :** `{n_series}` séries sur `{n_markets}` marchés\n"
+            f"- **Séries actives suivies :** `{ov['series_count']}` séries sur `{ov['markets_count']}` marchés\n"
             f"- **Provinces ({len(provinces)}) :** {', '.join(provinces)}\n"
             f"- **Produits ({len(commodities)}) :** {', '.join(commodities)}\n"
             f"- **Sources :** {', '.join(sources) if sources else 'Non précisées'}\n"
@@ -388,233 +1039,159 @@ class FreeDataAIAgent:
 
     def tool_get_forecast(self, province: Optional[str], commodity: Optional[str]) -> str:
         comm = commodity or "Millet"
-        comm_fr = self._fr_commodity(comm)
-        sub = self.forecast_df[self.forecast_df["commodity_std"] == comm]
-        if province:
-            sub = sub[sub["province"] == province]
-        if sub.empty:
+        data = self.provider.get_forecasts(province=province, commodity=comm)
+        return self._format_forecasts(data, province=province, commodity=comm)
+
+    @staticmethod
+    def _format_forecasts(data: dict, province: Optional[str], commodity: Optional[str]) -> str:
+        comm_fr = data.get("commodity_fr") or MarketDataProvider.fr_commodity(commodity or "Millet")
+        if data.get("status") != "ok":
             return f"Aucune série active trouvée pour **{comm_fr}**" + (f" dans la province **{province}**." if province else ".")
 
         if province:
             lines = [f"### Prévisions — {comm_fr} ({province})\n"]
-            cv_val = None
-            if self.passport_df is not None and not self.passport_df.empty:
-                cp_match = self.passport_df[
-                    (self.passport_df["province"] == province)
-                    & (self.passport_df["commodity_std"] == comm)
-                ]
-                if not cp_match.empty and "cv_pct" in cp_match.columns:
-                    raw_cv = cp_match.iloc[0].get("cv_pct")
-                    if pd.notna(raw_cv):
-                        cv_val = float(raw_cv)
-            for _, r in sub.sort_values("market_name").iterrows():
-                delta = r["forecast_t1"] - r["value"]
-                pct = (delta / r["value"]) * 100.0
-                sac_100 = r["forecast_t1"] * 100.0
+            for r in data["records"]:
+                obs_p = r.get("last_observed_price")
+                fc_p = r.get("forecast_t1")
+                pct = r.get("delta_pct") or 0.0
+                sac_100 = r.get("sac_100kg_xaf")
                 metrics_extra = []
-                mae_val = r.get("hist_mae")
-                if pd.notna(mae_val):
-                    metrics_extra.append(f"MAE `{float(mae_val):.1f} XAF`")
-                if cv_val is not None:
-                    metrics_extra.append(f"volatilité CV `{cv_val:.1f}%`")
+                if r.get("hist_mae") is not None:
+                    metrics_extra.append(f"MAE `{r['hist_mae']:.1f} XAF`")
+                if r.get("cv_pct") is not None:
+                    metrics_extra.append(f"volatilité CV `{r['cv_pct']:.1f}%`")
                 extra_str = f" | {' | '.join(metrics_extra)}" if metrics_extra else ""
+                obs_str = f"{obs_p:,.0f} XAF/kg" if obs_p is not None else "n/d"
+                fc_str = f"{fc_p:,.0f} XAF/kg" if fc_p is not None else "n/d"
+                sac_str = f"{sac_100:,.0f} XAF" if sac_100 is not None else "n/d"
+                ci_low = f"{r['ci_low_80']:,.0f}" if r.get("ci_low_80") is not None else "?"
+                ci_high = f"{r['ci_high_80']:,.0f}" if r.get("ci_high_80") is not None else "?"
                 lines.append(
-                    f"- **{r['market_name']}** ({r['source']}) : dernier prix `{r['value']:,.0f} XAF/kg` ({r['last_observed_month']}) "
-                    f"→ prévision **`{r['forecast_t1']:,.0f} XAF/kg`** (sac de 100 kg : `{sac_100:,.0f} XAF`, {r['forecast_month']}, `{pct:+.1f}%`), "
-                    f"IC 80% : `[{r['ci_low_80']:,.0f} – {r['ci_high_80']:,.0f}]`{extra_str}."
+                    f"- **{r['market_name']}** ({r['source']}) : dernier prix `{obs_str}` ({r['last_observed_month']}) "
+                    f"→ prévision **`{fc_str}`** (sac de 100 kg : `{sac_str}`, {r['forecast_month']}, `{pct:+.1f}%`), "
+                    f"IC 80% : `[{ci_low} – {ci_high}]`{extra_str}."
                 )
             return "\n".join(lines)
 
-        agg = sub.groupby("province").agg(
-            dernier_prix=("value", "median"),
-            prevision_t1=("forecast_t1", "median"),
-            mae=("hist_mae", "median"),
-        ).reset_index().sort_values("prevision_t1", ascending=False)
-        top3 = agg.head(3)
-        bot3 = agg.tail(3)
+        summary = data.get("national_summary") or {}
+        top3 = summary.get("most_expensive_provinces") or []
+        bot3 = summary.get("most_affordable_provinces") or []
         return (
             f"### Synthèse Nationale — {comm_fr} (Médiane par province)\n"
             f"- **Provinces les plus chères prévues :** "
-            + ", ".join(f"{r['province']} (`{r['prevision_t1']:,.0f} XAF/kg`)" for _, r in top3.iterrows())
+            + ", ".join(f"{r['province']} (`{r['median_forecast_xaf']:,.0f} XAF/kg`)" for r in top3)
             + "\n- **Provinces les plus abordables prévues :** "
-            + ", ".join(f"{r['province']} (`{r['prevision_t1']:,.0f} XAF/kg`)" for _, r in bot3.iterrows())
+            + ", ".join(f"{r['province']} (`{r['median_forecast_xaf']:,.0f} XAF/kg`)" for r in bot3)
             + "\n\n*Précisez une province ou une ville (ex. N'Djamena, Abéché, Moundou, Kélo) pour le détail par marché.*"
         )
 
     def tool_get_credit_passport(self, province: Optional[str], commodity: Optional[str], loan_amount: int) -> str:
         comm = commodity or "Millet"
-        comm_fr = self._fr_commodity(comm)
-        sub = self.passport_df[self.passport_df["commodity_std"] == comm]
-        if province:
-            sub = sub[sub["province"] == province]
-        if sub.empty:
-            return f"Données insuffisantes pour calculer le Credit Passport sur **{comm_fr}**" + (f" ({province})." if province else ".")
+        data = self.provider.get_credit_passport(province=province, commodity=comm, loan_amount=loan_amount)
+        return self._format_credit_passport(data, province=province, commodity=comm, loan_amount=loan_amount)
+
+    @staticmethod
+    def _format_credit_passport(
+        data: dict, province: Optional[str], commodity: Optional[str], loan_amount: int
+    ) -> str:
+        comm_fr = data.get("commodity_fr") or MarketDataProvider.fr_commodity(commodity or "Millet")
+        if data.get("status") != "ok":
+            return f"Données insuffisantes pour calculer le Credit Passport sur **{comm_fr}**" + (
+                f" ({province})." if province else "."
+            )
 
         if province:
-            r = sub.iloc[0]
-            max_loan = int(loan_amount * r["ltv_ratio"])
+            r = data["records"][0]
             return (
                 f"### Agricultural Credit Passport — {comm_fr} ({province})\n"
                 f"- **Score Global :** **`{r['credit_score']:.1f} / 100`** — **{r['grade']}**\n"
                 f"- **Décision Prudentielle :** {r['policy_recommendation']}\n"
-                f"- **Simulation sur demande de `{loan_amount:,} XAF` :** plafond recommandé LTV `{int(r['ltv_ratio']*100)}%` soit **`{max_loan:,} XAF`**.\n"
+                f"- **Simulation sur demande de `{loan_amount:,} XAF` :** plafond recommandé LTV `{r['ltv_pct']}%` soit **`{r['recommended_max_loan_xaf']:,} XAF`**.\n"
                 f"- **Indicateurs sous-jacents :** prix médian `{r['median_price']:,.0f} XAF/kg`, volatilité CV `{r['cv_pct']:.1f}%`, "
                 f"chute max post-récolte `-{r['max_drawdown_pct']:.1f}%`, observabilité `{r['obs_months']} mois`."
             )
 
-        ranked = sub.sort_values("credit_score", ascending=False)
-        top5 = ranked.head(5)
         lines = [f"### Top 5 Provinces les plus sûres à financer — {comm_fr}\n"]
-        for _, r in top5.iterrows():
+        for r in data["records"][:5]:
             lines.append(
                 f"- **{r['province']}** : Score **`{r['credit_score']:.1f}/100`** ({r['grade']}) | "
-                f"LTV max `{int(r['ltv_ratio']*100)}%` | Volatilité `{r['cv_pct']:.1f}%`"
+                f"LTV max `{r['ltv_pct']}%` | Volatilité `{r['cv_pct']:.1f}%`"
             )
         return "\n".join(lines)
 
     def tool_get_alerts(self, province: Optional[str], commodity: Optional[str]) -> str:
-        recent = self.hist_df.sort_values("year_month").groupby(["source", "province", "market_name", "commodity_std"]).tail(1)
-        alerts = recent[recent["deviation_pct"] >= 15.0].copy()
-        if province:
-            alerts = alerts[alerts["province"] == province]
-        if commodity:
-            alerts = alerts[alerts["commodity_std"] == commodity]
-        alerts = alerts.sort_values("deviation_pct", ascending=False)
-
-        if alerts.empty:
-            return "✅ Aucune alerte de surchauffe (> +15 %) détectée sur ce périmètre lors du dernier relevé."
-
-        lines = [f"### Alertes d'Arbitrage & Tensions de Prix ({len(alerts)} marchés > +15 %)\n"]
-        for _, r in alerts.head(8).iterrows():
-            lines.append(
-                f"- **{r['province']} — {r['market_name']}** (`{self._fr_commodity(r['commodity_std'])}`, {r['year_month']}) : "
-                f"observé **`{r['value']:,.0f} XAF/kg`** vs attendu `{r['predicted_price']:,.0f} XAF/kg` (**`+{r['deviation_pct']:.1f}%`**)."
-            )
-        return "\n".join(lines)
-
-    def _agg_province_commodity_forecasts(self, commodity: Optional[str] = None) -> pd.DataFrame:
-        if self.forecast_df is None or self.forecast_df.empty:
-            return pd.DataFrame()
-        fc = self.forecast_df.dropna(subset=["province", "commodity_std", "forecast_t1"]).copy()
-        fc["forecast_t1"] = pd.to_numeric(fc["forecast_t1"], errors="coerce")
-        fc["value"] = pd.to_numeric(fc["value"], errors="coerce")
-        fc = fc.dropna(subset=["forecast_t1"])
-        if commodity:
-            fc = fc[fc["commodity_std"] == commodity]
-        if fc.empty:
-            return pd.DataFrame()
-        return (
-            fc.groupby(["province", "commodity_std"], as_index=False)
-            .agg(
-                prix_prevu_median=("forecast_t1", "median"),
-                dernier_prix_median=("value", "median"),
-                nb_marches=("market_name", "nunique"),
-            )
-        )
+        data = self.provider.get_alerts(province=province, commodity=commodity)
+        return self._format_alerts(data)
 
     @staticmethod
-    def _compute_arbitrage_corridors(agg: pd.DataFrame, limit: int = 3) -> list[dict]:
-        if agg.empty:
-            return []
-        corridors = []
-        for comm, grp in agg.groupby("commodity_std"):
-            if len(grp) < 2:
-                continue
-            low_row = grp.loc[grp["prix_prevu_median"].idxmin()]
-            high_row = grp.loc[grp["prix_prevu_median"].idxmax()]
-            low_p = float(low_row["prix_prevu_median"])
-            high_p = float(high_row["prix_prevu_median"])
-            spread_xaf = high_p - low_p
-            if spread_xaf <= 0:
-                continue
-            spread_pct = (spread_xaf / low_p) * 100.0 if low_p > 0 else 0.0
-            corridors.append(
-                {
-                    "commodity_std": comm,
-                    "low_province": low_row["province"],
-                    "low_price": low_p,
-                    "high_province": high_row["province"],
-                    "high_price": high_p,
-                    "spread_xaf": spread_xaf,
-                    "spread_pct": spread_pct,
-                }
-            )
-        corridors.sort(key=lambda c: c["spread_xaf"], reverse=True)
-        return corridors[:limit]
+    def _format_alerts(data: dict) -> str:
+        if data.get("status") != "ok":
+            return "✅ Aucune alerte de surchauffe (> +15 %) détectée sur ce périmètre lors du dernier relevé."
 
-    def _top_credit_passport(
-        self, commodity: Optional[str] = None, limit: int = 3
-    ) -> tuple[pd.DataFrame, Optional[str]]:
-        if self.passport_df is None or self.passport_df.empty:
-            return pd.DataFrame(), None
-        score_col = "score_global" if "score_global" in self.passport_df.columns else "credit_score"
-        if score_col not in self.passport_df.columns:
-            return pd.DataFrame(), None
-        cp = self.passport_df.copy()
-        if commodity:
-            cp = cp[cp["commodity_std"] == commodity]
-        if cp.empty:
-            return pd.DataFrame(), score_col
-        return cp.sort_values(score_col, ascending=False).head(limit), score_col
+        records = data["records"]
+        lines = [f"### Alertes d'Arbitrage & Tensions de Prix ({len(records)} marchés > +15 %)\n"]
+        for r in records[:8]:
+            obs = f"{r['observed_price']:,.0f} XAF/kg" if r.get("observed_price") is not None else "n/d"
+            pred = f"{r['predicted_price']:,.0f} XAF/kg" if r.get("predicted_price") is not None else "n/d"
+            dev = r.get("deviation_pct") or 0.0
+            lines.append(
+                f"- **{r['province']} — {r['market_name']}** (`{r['commodity_fr']}`, {r['month']}) : "
+                f"observé **`{obs}`** vs attendu `{pred}` (**`+{dev:.1f}%`**)."
+            )
+        return "\n".join(lines)
 
     def tool_get_business_opportunities(
         self, province: Optional[str] = None, commodity: Optional[str] = None
     ) -> str:
-        """Croise prévisions de prix (achat/revente), écarts bruts et solidité Credit Passport."""
-        agg = self._agg_province_commodity_forecasts(commodity=commodity)
-        if agg.empty:
+        return self._format_opportunities(self.provider.get_business_opportunities(province=province, commodity=commodity))
+
+    @staticmethod
+    def _format_opportunities(data: dict) -> str:
+        if data.get("status") != "ok":
             return "Données insuffisantes pour identifier des opportunités commerciales sur ce périmètre."
 
-        title_scope = f" — {self._fr_commodity(commodity)}" if commodity else ""
+        title_scope = f" — {data['commodity_fr']}" if data.get("commodity_fr") else ""
         lines = [f"### Opportunités Commerciales & Stratégie Marchés{title_scope}\n"]
 
-        if province:
-            local_agg = agg[agg["province"] == province].sort_values("prix_prevu_median", ascending=False)
-            if not local_agg.empty:
-                lines.append(f"- **Focus local ({province}) :**")
-                for _, r in local_agg.head(3).iterrows():
-                    lines.append(
-                        f"  - **{self._fr_commodity(r['commodity_std'])}** : prix prévu médian `{r['prix_prevu_median']:,.0f} XAF/kg` "
-                        f"(dernier observé `{r['dernier_prix_median']:,.0f} XAF/kg`, `{int(r['nb_marches'])}` marché(s))"
-                    )
-
-        cheapest = agg.sort_values("prix_prevu_median", ascending=True).head(3)
-        lines.append("- **Top 3 zones d'approvisionnement (prix prévu médian le plus bas) :**")
-        for _, r in cheapest.iterrows():
-            lines.append(
-                f"  - **{r['province']} ({self._fr_commodity(r['commodity_std'])})** : `{r['prix_prevu_median']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['dernier_prix_median']:,.0f} XAF/kg`)"
-            )
-
-        highest = agg.sort_values("prix_prevu_median", ascending=False).head(3)
-        lines.append("- **Top 3 marchés de revente à plus forte valeur (prix prévu médian le plus élevé) :**")
-        for _, r in highest.iterrows():
-            lines.append(
-                f"  - **{r['province']} ({self._fr_commodity(r['commodity_std'])})** : `{r['prix_prevu_median']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['dernier_prix_median']:,.0f} XAF/kg`)"
-            )
-
-        corridors = self._compute_arbitrage_corridors(agg, limit=3)
-        if corridors:
-            lines.append("- **Écarts de prix bruts par produit (avant frais de transport) :**")
-            for c in corridors:
+        if data["local_focus"]:
+            lines.append(f"- **Focus local ({data['province']}) :**")
+            for r in data["local_focus"]:
                 lines.append(
-                    f"  - **{self._fr_commodity(c['commodity_std'])}** : achat **{c['low_province']}** (`{c['low_price']:,.0f} XAF/kg`) "
+                    f"  - **{r['commodity_fr']}** : prix prévu médian `{r['forecast_median_xaf']:,.0f} XAF/kg` "
+                    f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`, `{r['markets_count']}` marché(s))"
+                )
+
+        lines.append("- **Top 3 zones d'approvisionnement (prix prévu médian le plus bas) :**")
+        for r in data["cheapest_zones"]:
+            lines.append(
+                f"  - **{r['province']} ({r['commodity_fr']})** : `{r['forecast_median_xaf']:,.0f} XAF/kg` "
+                f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`)"
+            )
+
+        lines.append("- **Top 3 marchés de revente à plus forte valeur (prix prévu médian le plus élevé) :**")
+        for r in data["highest_zones"]:
+            lines.append(
+                f"  - **{r['province']} ({r['commodity_fr']})** : `{r['forecast_median_xaf']:,.0f} XAF/kg` "
+                f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`)"
+            )
+
+        if data["corridors"]:
+            lines.append("- **Écarts de prix bruts par produit (avant frais de transport) :**")
+            for c in data["corridors"]:
+                lines.append(
+                    f"  - **{c['commodity_fr']}** : achat **{c['low_province']}** (`{c['low_price']:,.0f} XAF/kg`) "
                     f"→ revente **{c['high_province']}** (`{c['high_price']:,.0f} XAF/kg`) "
                     f"= écart brut **`+{c['spread_xaf']:,.0f} XAF/kg`** (`+{c['spread_pct']:.1f}%`)"
                 )
 
-        top_cp, score_col = self._top_credit_passport(commodity=commodity, limit=3)
-        if not top_cp.empty and score_col:
+        if data["top_credit_passports"]:
             lines.append("- **Top 3 couples (Province, Produit) les plus solides (Credit Passport) :**")
-            for _, r in top_cp.iterrows():
-                grade = r.get("grade", "")
-                ltv = int(float(r.get("ltv_ratio", 0)) * 100)
+            for r in data["top_credit_passports"]:
                 cv = r.get("cv_pct")
-                cv_str = f" | Volatilité `{float(cv):.1f}%`" if pd.notna(cv) else ""
+                cv_str = f" | Volatilité `{cv:.1f}%`" if cv is not None else ""
                 lines.append(
-                    f"  - **{r['province']} — {self._fr_commodity(r['commodity_std'])}** : Score **`{float(r[score_col]):.1f}/100`** "
-                    f"({grade}) | LTV max `{ltv}%`{cv_str}"
+                    f"  - **{r['province']} — {r['commodity_fr']}** : Score **`{r['credit_score']:.1f}/100`** "
+                    f"({r['grade']}) | LTV max `{r['ltv_pct']}%`{cv_str}"
                 )
 
         return "\n".join(lines)
@@ -627,129 +1204,105 @@ class FreeDataAIAgent:
         volume_kg: Optional[float] = None,
         volume_label: Optional[str] = None,
     ) -> str:
-        """Calcule l'écart de prix unitaire et la marge brute (100 kg, tonne, volume demandé) entre deux provinces."""
-        agg = self._agg_province_commodity_forecasts()
-        if agg.empty:
-            return "Données insuffisantes pour calculer un arbitrage entre ces deux zones."
+        data = self.provider.calculate_route_revenue(
+            origin_province,
+            destination_province,
+            commodities=commodities,
+            volume_kg=volume_kg,
+            volume_label=volume_label,
+        )
+        return self._format_route_revenue(data)
 
-        orig_prov = self.prov_lookup.get(_normalize_text(origin_province), origin_province)
-        dest_prov = self.prov_lookup.get(_normalize_text(destination_province), destination_province)
+    @staticmethod
+    def _format_route_revenue(data: dict) -> str:
+        orig_prov = data["origin_province"]
+        dest_prov = data["destination_province"]
+        missing_notes = data.get("missing_notes") or []
+        routes = data.get("routes") or []
 
-        if commodities:
-            target_comms = list(dict.fromkeys(commodities))
-        else:
-            orig_comms = set(agg[agg["province"] == orig_prov]["commodity_std"])
-            dest_comms = set(agg[agg["province"] == dest_prov]["commodity_std"])
-            shared = sorted(orig_comms & dest_comms)
-            target_comms = shared[:3] if shared else ["Millet"]
-
-        lines = [f"### Arbitrage Commercial — {orig_prov} → {dest_prov}\n"]
-        computed_count = 0
-        missing_notes: list[str] = []
-
-        for comm in target_comms:
-            comm_fr = self._fr_commodity(comm)
-            sub = agg[agg["commodity_std"] == comm]
-            orig_rows = sub[sub["province"] == orig_prov]
-            dest_rows = sub[sub["province"] == dest_prov]
-            if orig_rows.empty or dest_rows.empty:
-                absent = []
-                if orig_rows.empty:
-                    absent.append(orig_prov)
-                if dest_rows.empty:
-                    absent.append(dest_prov)
-                missing_notes.append(f"**{comm_fr}** : série absente pour {', '.join(absent)}")
-                continue
-
-            o = orig_rows.iloc[0]
-            d = dest_rows.iloc[0]
-            p_orig = float(o["prix_prevu_median"])
-            p_dest = float(d["prix_prevu_median"])
-            obs_orig = float(o["dernier_prix_median"])
-            obs_dest = float(d["dernier_prix_median"])
-
-            unit_spread = p_dest - p_orig
-            pct_spread = (unit_spread / p_orig) * 100.0 if p_orig > 0 else 0.0
-            rev_sac = p_dest * 100.0
-            margin_sac = unit_spread * 100.0
-            rev_tonne = p_dest * 1000.0
-            margin_tonne = unit_spread * 1000.0
-
-            computed_count += 1
-            lines.append(f"- **{comm_fr}** ({orig_prov} → {dest_prov}) :")
-            lines.append(
-                f"  - Prix prévu achat ({orig_prov}) : `{p_orig:,.0f} XAF/kg` "
-                f"(dernier observé `{obs_orig:,.0f} XAF/kg`) | "
-                f"revente ({dest_prov}) : `{p_dest:,.0f} XAF/kg` (dernier observé `{obs_dest:,.0f} XAF/kg`)"
-            )
-            lines.append(
-                f"  - Écart unitaire brut : **`{unit_spread:+,.0f} XAF/kg`** (`{pct_spread:+.1f}%`)"
-            )
-            lines.append(
-                f"  - Par sac de 100 kg : revenu brut `{rev_sac:,.0f} XAF` | "
-                f"marge brute **`{margin_sac:+,.0f} XAF`** (avant frais de transport)"
-            )
-            lines.append(
-                f"  - Par tonne (1 000 kg) : revenu brut `{rev_tonne:,.0f} XAF` | "
-                f"marge brute **`{margin_tonne:+,.0f} XAF`** (avant frais de transport)"
-            )
-            if volume_kg and volume_kg > 0:
-                total_cost = p_orig * volume_kg
-                total_rev = p_dest * volume_kg
-                total_margin = unit_spread * volume_kg
-                lines.append(
-                    f"  - **Estimation pour {volume_label} :** coût d'achat `{total_cost:,.0f} XAF` → "
-                    f"revenu brut total **`{total_rev:,.0f} XAF`** → "
-                    f"marge brute estimée **`{total_margin:+,.0f} XAF`** (avant frais de transport)"
-                )
-
-        if computed_count == 0:
+        if not routes:
+            if not missing_notes:
+                return "Données insuffisantes pour calculer un arbitrage entre ces deux zones."
             return (
                 f"Impossible de comparer **{orig_prov}** et **{dest_prov}** pour le produit demandé : "
                 + "; ".join(missing_notes)
                 + "."
             )
+
+        lines = [f"### Arbitrage Commercial — {orig_prov} → {dest_prov}\n"]
+        for r in routes:
+            lines.append(f"- **{r['commodity_fr']}** ({orig_prov} → {dest_prov}) :")
+            lines.append(
+                f"  - Prix prévu achat ({orig_prov}) : `{r['origin_forecast_xaf']:,.0f} XAF/kg` "
+                f"(dernier observé `{r['origin_observed_xaf']:,.0f} XAF/kg`) | "
+                f"revente ({dest_prov}) : `{r['destination_forecast_xaf']:,.0f} XAF/kg` "
+                f"(dernier observé `{r['destination_observed_xaf']:,.0f} XAF/kg`)"
+            )
+            lines.append(
+                f"  - Écart unitaire brut : **`{r['unit_spread_xaf']:+,.0f} XAF/kg`** (`{r['pct_spread']:+.1f}%`)"
+            )
+            lines.append(
+                f"  - Par sac de 100 kg : revenu brut `{r['sac_100kg_revenue_xaf']:,.0f} XAF` | "
+                f"marge brute **`{r['sac_100kg_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
+            )
+            lines.append(
+                f"  - Par tonne (1 000 kg) : revenu brut `{r['tonne_revenue_xaf']:,.0f} XAF` | "
+                f"marge brute **`{r['tonne_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
+            )
+            if r.get("volume_margin_xaf") is not None:
+                lines.append(
+                    f"  - **Estimation pour {r['volume_label']} :** coût d'achat `{r['volume_cost_xaf']:,.0f} XAF` → "
+                    f"revenu brut total **`{r['volume_revenue_xaf']:,.0f} XAF`** → "
+                    f"marge brute estimée **`{r['volume_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
+                )
+
         if missing_notes:
             lines.append(f"\n*Séries non suivies sur l'un des deux marchés : {'; '.join(missing_notes)}.*")
         return "\n".join(lines)
 
-    def _build_global_snapshot(self) -> str:
-        """Construit la carte d'identité chiffrée en mémoire (noms français) pour ancrer les réponses du LLM."""
-        if self.forecast_df is None or self.forecast_df.empty:
+    @staticmethod
+    def _format_sources_section(chunks: list[dict]) -> str:
+        if not chunks:
             return ""
-        n_series = len(self.forecast_df)
-        n_markets = int(self.forecast_df["market_name"].dropna().nunique())
-        provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique().tolist())
-        commodities = sorted({
-            self._fr_commodity(c)
-            for c in self.forecast_df["commodity_std"].dropna().astype(str).unique().tolist()
-        })
+        lines = ["### Sources documentaires associées"]
+        for c in chunks:
+            titre = c.get("titre") or "Document"
+            editeur = c.get("editeur") or "Source"
+            page = c.get("page")
+            page_str = f"p.{page}" if page is not None else "p.?"
+            lines.append(f"- **{titre}** ({editeur}, {page_str})")
+        return "\n".join(lines)
 
+    def _build_global_snapshot(self) -> str:
+        """Construit la carte d'identité chiffrée depuis `MarketDataProvider` (noms français)."""
+        ov = self.provider.get_overview()
+        if ov.get("status") != "ok":
+            return ""
+        opp = self.provider.get_business_opportunities()
+        commodities = ov["commodities_fr"]
         lines = [
             "GLOBAL_SNAPSHOT (Agrégats vérifiés en mémoire) :",
-            f"- Base active : {n_series} séries sur {n_markets} marchés, {len(provinces)} provinces et {len(commodities)} produits.",
+            f"- Base active : {ov['series_count']} séries sur {ov['markets_count']} marchés, "
+            f"{len(ov['provinces'])} provinces et {len(commodities)} produits.",
             f"- Produits suivis ({len(commodities)}) : {', '.join(commodities)}.",
         ]
-
-        corridors = self._compute_arbitrage_corridors(self._agg_province_commodity_forecasts(), limit=3)
+        corridors = opp.get("corridors") or []
         if corridors:
             lines.append("- Top 3 opportunités d'écart de prix brut (avant frais de transport) :")
             for c in corridors:
                 lines.append(
-                    f"  * {self._fr_commodity(c['commodity_std'])} : {c['low_province']} ({c['low_price']:,.0f} XAF/kg) "
+                    f"  * {c['commodity_fr']} : {c['low_province']} ({c['low_price']:,.0f} XAF/kg) "
                     f"-> {c['high_province']} ({c['high_price']:,.0f} XAF/kg), "
                     f"écart brut +{c['spread_xaf']:,.0f} XAF/kg (+{c['spread_pct']:.1f}%)"
                 )
-
-        top_cp, score_col = self._top_credit_passport(limit=3)
-        if not top_cp.empty and score_col:
+        top_cp = opp.get("top_credit_passports") or []
+        if top_cp:
             lines.append("- Top 3 scores Credit Passport :")
-            for _, r in top_cp.iterrows():
+            for r in top_cp:
                 lines.append(
-                    f"  * {r['province']} — {self._fr_commodity(r['commodity_std'])} : {float(r[score_col]):.1f}/100 "
-                    f"({r.get('grade', '')}, LTV {int(float(r.get('ltv_ratio', 0)) * 100)}%)"
+                    f"  * {r['province']} — {r['commodity_fr']} : {r['credit_score']:.1f}/100 "
+                    f"({r['grade']}, LTV {r['ltv_pct']}%)"
                 )
-
         return "\n".join(lines)
 
     def _run_deterministic_tools(
@@ -761,23 +1314,29 @@ class FreeDataAIAgent:
         comm = entities["commodity"]
 
         if intent == "credit_passport":
-            facts = self.tool_get_credit_passport(prov, comm, entities["loan_amount"])
+            raw_data = self.provider.get_credit_passport(prov, comm or "Millet", entities["loan_amount"])
+            facts = self._format_credit_passport(raw_data, prov, comm or "Millet", entities["loan_amount"])
         elif intent == "alerts":
-            facts = self.tool_get_alerts(prov, comm)
+            raw_data = self.provider.get_alerts(prov, comm)
+            facts = self._format_alerts(raw_data)
         elif intent == "route_revenue":
-            facts = self.tool_calculate_route_revenue(
+            raw_data = self.provider.calculate_route_revenue(
                 entities["origin_province"],
                 entities["destination_province"],
                 commodities=entities.get("commodities"),
                 volume_kg=entities.get("volume_kg"),
                 volume_label=entities.get("volume_label"),
             )
+            facts = self._format_route_revenue(raw_data)
         elif intent == "opportunity":
-            facts = self.tool_get_business_opportunities(prov, comm)
+            raw_data = self.provider.get_business_opportunities(prov, comm)
+            facts = self._format_opportunities(raw_data)
         elif intent == "dataset_overview":
-            facts = self.tool_get_overview()
+            raw_data = self.provider.get_overview()
+            facts = self._format_overview(raw_data)
         else:
-            facts = self.tool_get_forecast(prov, comm)
+            raw_data = self.provider.get_forecasts(prov, comm or "Millet")
+            facts = self._format_forecasts(raw_data, prov, comm or "Millet")
 
         if comm is None and intent in ("forecast", "credit_passport"):
             known = ", ".join(sorted({self._fr_commodity(c) for c in COMMODITY_ALIASES.values()}))
@@ -787,47 +1346,7 @@ class FreeDataAIAgent:
                 f"l'analyse s'appuie sur le **Mil** (céréale de référence nationale). Produits suivis : {known}.*"
             )
 
-        return facts, intent, {"entities": entities}
-
-    def _retrieve_rag_chunks(self, query: str, match_count: int = 3) -> list[dict]:
-        """Vectorise la question via l'API Embeddings configurée (ex. Jina 1024 dim) et interroge Supabase match_chunks."""
-        read_key = settings.read_key
-        if not settings.embed_api_key or not settings.supabase_url or not read_key:
-            return []
-        try:
-            emb_resp = requests.post(
-                settings.embed_base_url,
-                headers={
-                    "Authorization": f"Bearer {settings.embed_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": settings.embed_model, "input": [query]},
-                timeout=5,
-            )
-            emb_resp.raise_for_status()
-            emb_data = emb_resp.json().get("data") or []
-            if not emb_data:
-                return []
-            query_vec = emb_data[0]["embedding"]
-
-            rpc_url = f"{settings.supabase_url.rstrip('/')}/rest/v1/rpc/match_chunks"
-            rpc_resp = requests.post(
-                rpc_url,
-                headers={
-                    "apikey": read_key,
-                    "Authorization": f"Bearer {read_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"query_embedding": query_vec, "match_count": match_count},
-                timeout=5,
-            )
-            rpc_resp.raise_for_status()
-            rows = rpc_resp.json()
-            if not isinstance(rows, list):
-                return []
-            return [c for c in rows if isinstance(c, dict) and (c.get("similarity") or 0) >= 0.72]
-        except Exception:
-            return []
+        return facts, intent, {"entities": entities, "provider_data": raw_data}
 
     def _refine_with_ollama(self, user_query: str, structured_facts: str) -> str:
         if not settings.ollama_base_url:
@@ -868,7 +1387,7 @@ class FreeDataAIAgent:
         chunks: list[dict],
         history: Optional[list[dict]] = None,
     ) -> str:
-        """Rédaction naturelle par un seul appel LLM OpenAI-compatible (ex. Groq, timeout=7s) avec contrôle des chiffres."""
+        """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
             return self._refine_with_ollama(user_query, structured_facts)
 
@@ -973,15 +1492,27 @@ class FreeDataAIAgent:
 
         return structured_facts
 
-    @staticmethod
-    def _check_security_guardrails(user_query: str) -> Optional[str]:
-        """Détecte les tentatives d'injection de prompt, extraction de secrets ou SQL malveillant."""
-        q_norm = _normalize_text(user_query)
-        if _SECURITY_INJECTION_RE.search(q_norm):
-            return _SECURITY_REFUSAL_REPLY
-        return None
+    def _format_free_reply(self, structured_facts: str, intent: str, chunks: list[dict]) -> str:
+        reply = structured_facts
+        if intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in reply:
+            reply = f"{reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
+        sources_section = self._format_sources_section(chunks)
+        if sources_section:
+            reply = f"{reply}\n\n{sources_section}"
+        return reply
 
-    def answer_with_metadata(self, user_query: str, history: Optional[list[dict]] = None) -> dict:
+    def answer(
+        self,
+        user_query: str,
+        history: Optional[list[dict]] = None,
+        tier: Literal["free", "premium"] = "free",
+    ) -> dict:
+        """
+        Point d'entrée unifié :
+        - Bloque les injections SQL / prompt.
+        - Résout contexte + historique et interroge systématiquement `MarketDataProvider` (données + RAG).
+        - Sert par défaut le rendu déterministe `free` sans dépendance LLM, ou bascule sur `premium` si demandé et configuré.
+        """
         q = user_query.strip()
         refusal = self._check_security_guardrails(q)
         if refusal:
@@ -991,9 +1522,9 @@ class FreeDataAIAgent:
                 "entities": {},
                 "sources": [],
             }
+
         q_norm = _normalize_text(q)
         entities = self._extract_entities(q)
-
         has_domain_request = bool(
             entities["province"]
             or entities["commodity"]
@@ -1016,11 +1547,7 @@ class FreeDataAIAgent:
 
         structured_facts, intent, meta = self._run_deterministic_tools(q, entities=entities)
         entities = meta["entities"]
-        chunks = self._retrieve_rag_chunks(q)
-        final_reply = self._synthesize_with_llm(q, structured_facts, chunks, history=history)
-
-        if intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in final_reply:
-            final_reply = f"{final_reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
+        chunks = self.provider.retrieve_rag_chunks(q)
 
         sources = [
             {
@@ -1031,9 +1558,22 @@ class FreeDataAIAgent:
                 "title": c.get("titre"),
                 "source": c.get("editeur"),
                 "details": f"{c.get('editeur', '')} · p.{c.get('page', '')}".strip(" ·"),
+                "similarity": c.get("similarity"),
             }
             for c in chunks
         ]
+
+        free_reply = self._format_free_reply(structured_facts, intent, chunks)
+
+        if tier == "premium" and settings.llm_api_key:
+            final_reply = self._synthesize_with_llm(q, structured_facts, chunks, history=history)
+            if final_reply == structured_facts:
+                final_reply = free_reply
+            elif intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in final_reply:
+                final_reply = f"{final_reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
+        else:
+            final_reply = free_reply
+
         return {
             "reply": final_reply,
             "intent": intent,
@@ -1041,5 +1581,11 @@ class FreeDataAIAgent:
             "sources": sources,
         }
 
-    def answer(self, user_query: str, history: Optional[list[dict]] = None) -> str:
-        return self.answer_with_metadata(user_query, history=history)["reply"]
+    def answer_with_metadata(
+        self,
+        user_query: str,
+        history: Optional[list[dict]] = None,
+        tier: Literal["free", "premium"] = "free",
+    ) -> dict:
+        """Alias rétrocompatible vers `answer(..., tier=...)`."""
+        return self.answer(user_query, history=history, tier=tier)

@@ -6,7 +6,7 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Literal, Optional
 import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -208,12 +208,13 @@ def get_state() -> dict:
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
     history: list[dict] = Field(default_factory=list, max_length=40)
+    tier: Literal["free", "premium"] = Field(default="free")
 
 
 class ChatResponse(BaseModel):
     reply: str
     intent: str
-    entities: dict
+    entities: dict = Field(default_factory=dict)
     sources: list[dict] = Field(default_factory=list)
 
 
@@ -315,7 +316,7 @@ def get_metadata(state: dict = Depends(get_state)):
 )
 def chat_endpoint(payload: ChatRequest, state: dict = Depends(get_state)):
     agent: FreeDataAIAgent = state["agent"]
-    result = agent.answer_with_metadata(payload.message, history=payload.history[-8:])
+    result = agent.answer(payload.message, history=payload.history[-8:], tier=payload.tier)
     return ChatResponse(**result)
 
 
