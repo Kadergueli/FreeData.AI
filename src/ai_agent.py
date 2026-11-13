@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from src.config import settings
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
+from src.series_view import collapse_near_identical, months_behind
 
 COMMODITY_ALIASES = {
     "mil": "Millet",
@@ -131,13 +132,29 @@ class FreeDataAIAgent:
 
         if province:
             lines = [f"### 🔮 Prévisions à t+1 mois — {comm} ({province})\n"]
-            for _, r in sub.sort_values("market_name").iterrows():
+            latest = self.forecast_df["last_observed_month"].max()
+            groups = collapse_near_identical(sub)
+            # Tri stable : d'abord par nom, puis les données les plus récentes en premier.
+            groups.sort(key=lambda g: g[0]["market_name"])
+            groups.sort(key=lambda g: g[0]["last_observed_month"], reverse=True)
+            for g in groups:
+                r = g[0]
+                names = " / ".join(sorted({row["market_name"] for row in g}))
                 delta = r["forecast_t1"] - r["value"]
                 pct = (delta / r["value"]) * 100.0
+                note = ""
+                if len(g) > 1:
+                    note += " _(relevés quasi identiques regroupés)_"
+                lag = months_behind(r["last_observed_month"], latest)
+                if lag >= 1:
+                    note += (
+                        f" ⚠️ _données arrêtées en {r['last_observed_month']} "
+                        f"({lag} mois de retard sur la source la plus récente)_"
+                    )
                 lines.append(
-                    f"- **{r['market_name']}** ({r['source']}) : dernier prix `{r['value']:,.0f} XAF/kg` ({r['last_observed_month']}) "
+                    f"- **{names}** ({r['source']}) : dernier prix `{r['value']:,.0f} XAF/kg` ({r['last_observed_month']}) "
                     f"→ prévision **`{r['forecast_t1']:,.0f} XAF/kg`** ({r['forecast_month']}, `{pct:+.1f}%`), "
-                    f"IC 80% : `[{r['ci_low_80']:,.0f} – {r['ci_high_80']:,.0f}]`."
+                    f"IC 80% : `[{r['ci_low_80']:,.0f} – {r['ci_high_80']:,.0f}]`.{note}"
                 )
             return "\n".join(lines)
 
