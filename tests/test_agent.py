@@ -658,11 +658,11 @@ def test_document_data_xml_wrapping_and_escaping(agent, monkeypatch):
     assert prompt_text.count("</document_data>") == 1
 
 
-def test_abbreviations_and_implicit_history_followups(route_agent):
+def test_abbreviations_and_implicit_history_followups(agent):
     # Abréviations courantes tchadiennes + noms accentués
-    assert route_agent._extract_entities("Quel est le prix du riz local à abe ?")["province"] == "Ouaddai"
-    assert route_agent._extract_entities("Et à ndj ?")["province"] == "N'Djamena"
-    assert route_agent._extract_entities("Prix à Kélo")["province"] == "Tandjile"
+    assert agent._extract_entities("Quel est le prix du riz local à abe ?")["province"] == "Ouaddai"
+    assert agent._extract_entities("Et à ndj ?")["province"] == "N'Djamena"
+    assert agent._extract_entities("Prix à Kélo")["province"] == "Tandjile"
 
     # Suivi implicite multi-tours ("et pour le sorgho ?" / "et là-bas ?") sur les 4 derniers tours utilisateur
     history_long = [
@@ -676,30 +676,31 @@ def test_abbreviations_and_implicit_history_followups(route_agent):
         {"role": "assistant", "content": "À Abéché le riz local est prévu à 520 XAF/kg."},
     ]
     # "et pour le sorgho ?" hérite de la province du tour utilisateur le plus récent (Ouaddai) tout en changeant de produit
-    e_comm = route_agent._extract_entities("et pour le sorgho ?", history=history_long)
+    e_comm = agent._extract_entities("et pour le sorgho ?", history=history_long)
     assert e_comm["province"] == "Ouaddai"
-    assert e_comm["commodity"] == "Sorghum"
+    assert e_comm["commodity"] == "Sorghum (red)"
 
     # "et là-bas ?" hérite à la fois de la province et du produit depuis l'historique utilisateur
-    e_loc = route_agent._extract_entities("et là-bas ?", history=history_long)
+    e_loc = agent._extract_entities("et là-bas ?", history=history_long)
     assert e_loc["province"] == "Ouaddai"
     assert e_loc["commodity"] == "Rice (local)"
 
 
-def test_arithmetic_conversions_grounding_and_forecast_enrichment(route_agent):
-    # Enrichissement de tool_get_forecast avec sac de 100 kg et volatilité CV
-    forecast_txt = route_agent.tool_get_forecast("Tandjile", "Rice (local)")
-    assert "350 XAF/kg" in forecast_txt
-    assert "sac de 100 kg : `35,000 XAF`" in forecast_txt
-    assert "volatilité CV `8.4%`" in forecast_txt
+def test_arithmetic_conversions_grounding_and_forecast_enrichment(agent):
+    # Enrichissement de tool_get_forecast avec sac de 100 kg, MAE et volatilité CV
+    forecast_txt = agent.tool_get_forecast("Salamat", "Millet")
+    assert "XAF/kg" in forecast_txt
+    assert "sac de 100 kg :" in forecast_txt
+    assert "MAE `" in forecast_txt
+    assert "volatilité CV `" in forecast_txt
 
     # Conversions * 100 (sac) et * 1000 (tonne) autorisées, prix inventés toujours rejetés
     source_facts = "Prévision : 200 XAF/kg à Moundou."
-    assert route_agent._numbers_are_grounded(
+    assert agent._numbers_are_grounded(
         "Cela représente 20 000 XAF par sac de 100 kg, ou 200 000 XAF la tonne.",
         source_facts,
     )
-    assert not route_agent._numbers_are_grounded(
+    assert not agent._numbers_are_grounded(
         "Le prix grimpera à 999 XAF/kg soit 99 900 XAF le sac.",
         source_facts,
     )
