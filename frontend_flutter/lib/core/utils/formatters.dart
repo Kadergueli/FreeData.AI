@@ -33,12 +33,15 @@ String stripMarkdown(String text) {
     '',
   );
   cleaned = cleaned.replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '');
+  cleaned = cleaned.replaceAll(RegExp(r'^\s*[-*_]{3,}\s*$', multiLine: true), '');
+  cleaned = cleaned.replaceAll(RegExp(r'^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*$', multiLine: true), '');
   cleaned = cleaned
       .replaceAll('###', '')
       .replaceAll('**', '')
       .replaceAll('*', '')
       .replaceAll('`', '')
-      .replaceAll('_', '');
+      .replaceAll('_', '')
+      .replaceAll('|', ' ');
   return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 

@@ -216,6 +216,7 @@ class ChatResponse(BaseModel):
     intent: str
     entities: dict = Field(default_factory=dict)
     sources: list[dict] = Field(default_factory=list)
+    chart: Optional[dict[str, float]] = None
 
 
 @app.get("/api/v1/health")

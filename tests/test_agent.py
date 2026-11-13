@@ -481,10 +481,10 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
     assert "Riz importé" in res["reply"]
     assert "Rice (local)" not in res["reply"]
     assert "Rice (imported)" not in res["reply"]
-    # Marge brute Riz local : 520 - 350 = +170 XAF/kg -> +17,000 XAF/sac et +170,000 XAF/tonne
+    # Marge brute Riz local : 520 - 350 = +170 XAF/kg -> +17 000 XAF/sac et +170 000 XAF/tonne
     assert "+170 XAF/kg" in res["reply"]
-    assert "+17,000 XAF" in res["reply"]
-    assert "+170,000 XAF" in res["reply"]
+    assert "+17 000 XAF" in res["reply"]
+    assert "+170 000 XAF" in res["reply"]
 
     # Suivi conversationnel avec volume sur historique (4 derniers tours) + 1 seul appel Groq (timeout=12)
     history = [
@@ -513,8 +513,8 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
         assert len(messages) == 4  # system + 2 historique + user
         user_prompt = messages[-1]["content"]
         # Vérifie que le calcul exact pour 2 tonnes (2 000 kg) a été injecté localement avant l'unique appel LLM
-        assert "340,000 XAF" in user_prompt  # marge brute 2 tonnes Riz local (170 * 2000)
-        assert "1,040,000 XAF" in user_prompt  # revenu brut 2 tonnes Riz local (520 * 2000)
+        assert "340 000 XAF" in user_prompt  # marge brute 2 tonnes Riz local (170 * 2000)
+        assert "1 040 000 XAF" in user_prompt  # revenu brut 2 tonnes Riz local (520 * 2000)
 
         class Resp:
             def raise_for_status(self):
@@ -687,12 +687,13 @@ def test_abbreviations_and_implicit_history_followups(agent):
 
 
 def test_arithmetic_conversions_grounding_and_forecast_enrichment(agent):
-    # Enrichissement de tool_get_forecast avec sac de 100 kg, MAE et volatilité CV
+    # Enrichissement de tool_get_forecast avec sac de 100 kg, MAE et volatilité CV regroupés proprement sans backticks
     forecast_txt = agent.tool_get_forecast("Salamat", "Millet")
     assert "XAF/kg" in forecast_txt
-    assert "sac de 100 kg :" in forecast_txt
-    assert "MAE `" in forecast_txt
-    assert "volatilité CV `" in forecast_txt
+    assert "sac de 100 kg" in forecast_txt
+    assert "MAE" in forecast_txt
+    assert "Volatilité (CV)" in forecast_txt
+    assert "`" not in forecast_txt
 
     # Conversions * 100 (sac) et * 1000 (tonne) autorisées, prix inventés toujours rejetés
     source_facts = "Prévision : 200 XAF/kg à Moundou."
@@ -932,6 +933,89 @@ def test_conversational_smalltalk_fast_path(agent, monkeypatch, query, expected_
     assert res["sources"] == []
     assert "FreeData.AI" in res["reply"]
     assert expected_fragment in res["reply"]
+
+
+def test_city_query_organizes_moundou_numbers_tables_and_chart():
+    import pandas as pd
+    from src.ai_agent import FreeDataAIAgent
+
+    rows = [
+        ("WFP", "Logone Occidental", "Benoye", "Millet", "2026-06", 190.0, "2026-07", 213.73, 168.0, 260.0, 36.0),
+        ("WFP", "Logone Occidental", "Krim Krim", "Millet", "2026-06", 189.0, "2026-07", 202.19, 156.0, 248.0, 36.0),
+        ("WFP", "Logone Occidental", "Mbainamar", "Millet", "2026-06", 165.0, "2026-07", 182.38, 136.0, 229.0, 36.0),
+        ("WFP", "Logone Occidental", "Moundou", "Millet", "2026-06", 204.0, "2026-07", 224.45, 178.0, 271.0, 36.0),
+        ("WFP", "Logone Occidental", "Moundou", "Sorghum (red)", "2026-06", 180.0, "2026-07", 198.00, 160.0, 236.0, 22.0),
+        ("WFP", "Logone Occidental", "Moundou", "Maize (white)", "2026-06", 215.0, "2026-07", 230.00, 190.0, 270.0, 25.0),
+    ]
+    fc_df = pd.DataFrame(
+        rows,
+        columns=[
+            "source",
+            "province",
+            "market_name",
+            "commodity_std",
+            "last_observed_month",
+            "value",
+            "forecast_month",
+            "forecast_t1",
+            "ci_low_80",
+            "ci_high_80",
+            "hist_mae",
+        ],
+    )
+    hist_df = fc_df.copy()
+    hist_df["year_month"] = hist_df["last_observed_month"]
+    cp_df = pd.DataFrame(
+        [
+            {
+                "province": "Logone Occidental",
+                "commodity_std": "Millet",
+                "credit_score": 55.2,
+                "grade": "C (Risque Modéré)",
+                "ltv_ratio": 0.55,
+                "policy_recommendation": "Sous conditions",
+                "median_price": 195.0,
+                "cv_pct": 29.1,
+                "max_drawdown_pct": 25.0,
+                "obs_months": 30,
+            }
+        ]
+    )
+
+    moundou_agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    res = moundou_agent.answer("la ville de moundou", tier="free")
+    reply = res["reply"]
+
+    # Moundou doit être mis en avant dès le titre, En bref et en première ligne du tableau
+    assert "### Prévisions — Mil à Moundou (Logone Occidental)" in reply
+    assert "**En bref :**" in reply
+    assert "| **Moundou** | 204 → **224** (+10.0%) | 22 445 XAF |" in reply
+    assert reply.index("| **Moundou** |") < reply.index("| Benoye |")
+    assert reply.index("| Benoye |") < reply.index("| Mbainamar |")
+
+    # Formatage français propre (espaces, sans virgules anglaises ni backticks autour des nombres)
+    assert "22 445 XAF" in reply
+    assert "21 373 XAF" in reply
+    assert "18 238 XAF" in reply
+    assert "22,445" not in reply
+    assert "`" not in reply
+
+    # Indicateurs techniques regroupés une seule fois au lieu d'être répétés 4 fois
+    assert reply.count("MAE") == 1
+    assert reply.count("Volatilité (CV)") == 1
+
+    # Autres denrées disponibles à Moundou également affichées proprement
+    assert "**Autres produits suivis à Moundou**" in reply
+    assert "| **Maïs blanc** |" in reply
+    assert "| **Sorgho rouge** |" in reply
+
+    # Données graphiques pour ChartCard
+    assert res["chart"] == {
+        "Moundou": 224.0,
+        "Benoye": 214.0,
+        "Krim Krim": 202.0,
+        "Mbainamar": 182.0,
+    }
 
 
 

@@ -129,6 +129,46 @@ def _clean_int(val: object) -> Optional[int]:
     return int(round(f)) if f is not None else None
 
 
+def _fmt_int(val: Optional[float]) -> str:
+    """Formate un entier avec séparateur de milliers français (espace)."""
+    if val is None or not math.isfinite(float(val)):
+        return "n/d"
+    return f"{int(round(float(val))):,}".replace(",", " ")
+
+
+def _fmt_signed_int(val: Optional[float]) -> str:
+    """Formate un entier signé avec séparateur de milliers français."""
+    if val is None or not math.isfinite(float(val)):
+        return "n/d"
+    num = int(round(float(val)))
+    if num > 0:
+        return f"+{num:,}".replace(",", " ")
+    if num < 0:
+        return f"-{abs(num):,}".replace(",", " ")
+    return "0"
+
+
+def _fmt_pct(val: Optional[float], signed: bool = True) -> str:
+    """Formate un pourcentage lisible à 1 décimale."""
+    if val is None or not math.isfinite(float(val)):
+        return "n/d"
+    num = float(val)
+    if signed:
+        sign = "+" if num > 0 else ("-" if num < 0 else "")
+        return f"{sign}{abs(num):.1f}%"
+    return f"{num:.1f}%"
+
+
+_CITY_CANONICAL_HINTS = {
+    "abe": "abeche",
+    "ndj": "djamena",
+    "ndjamena": "djamena",
+    "n'djamena": "djamena",
+    "n djamena": "djamena",
+    "faya-largeau": "faya",
+}
+
+
 # Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
 _GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|salam|merci|aide|help)\b")
 _SMALLTALK_HOW_RE = re.compile(
@@ -281,24 +321,29 @@ class MarketDataProvider:
     def fr_commodity(commodity_std: str) -> str:
         return COMMODITY_FR.get(commodity_std, commodity_std)
 
-    def resolve_locations(self, text: str) -> list[str]:
-        """Extrait les provinces résolues (villes -> provinces) ordonnées origine -> destination."""
+    def resolve_location_details(self, text: str) -> list[tuple[str, str]]:
+        """Extrait les couples `(terme_detecte, province)` ordonnés origine -> destination."""
         if not text or self._location_re is None:
             return []
         q_norm = _normalize_text(text)
-        hits: list[tuple[int, str]] = []
+        hits: list[tuple[int, str, str]] = []
         seen_provs: set[str] = set()
         for m in self._location_re.finditer(q_norm):
-            prov = self._location_map[m.group(1)]
+            term = m.group(1)
+            prov = self._location_map[term]
             if prov not in seen_provs:
                 seen_provs.add(prov)
-                hits.append((m.start(), prov))
+                hits.append((m.start(), term, prov))
         if len(hits) >= 2:
             ctx0 = q_norm[max(0, hits[0][0] - 24) : hits[0][0]]
             ctx1 = q_norm[max(0, hits[1][0] - 24) : hits[1][0]]
             if _ORIGIN_PREP_RE.search(ctx1) and not _ORIGIN_PREP_RE.search(ctx0):
                 hits[0], hits[1] = hits[1], hits[0]
-        return [prov for _, prov in hits]
+        return [(term, prov) for _, term, prov in hits]
+
+    def resolve_locations(self, text: str) -> list[str]:
+        """Extrait les provinces résolues (villes -> provinces) ordonnées origine -> destination."""
+        return [prov for _, prov in self.resolve_location_details(text)]
 
     def resolve_location(self, text: str) -> Optional[str]:
         """Détecte une province officielle ou une ville tchadienne dans `text`."""
@@ -390,7 +435,12 @@ class MarketDataProvider:
             "period_end": str(months.max()) if not months.empty else None,
         }
 
-    def get_forecasts(self, province: Optional[str] = None, commodity: Optional[str] = None) -> dict:
+    def get_forecasts(
+        self,
+        province: Optional[str] = None,
+        commodity: Optional[str] = None,
+        focus_city: Optional[str] = None,
+    ) -> dict:
         """Interroge `forecast_df` et retourne un dictionnaire pur avec détails par marché et synthèse nationale."""
         comm_fr = self.fr_commodity(commodity) if commodity else None
         if self.forecast_df.empty:
@@ -401,6 +451,7 @@ class MarketDataProvider:
                 "commodity_fr": comm_fr,
                 "count": 0,
                 "records": [],
+                "province_summary": {},
                 "national_summary": {},
             }
 
@@ -417,6 +468,7 @@ class MarketDataProvider:
                 "commodity_fr": comm_fr,
                 "count": 0,
                 "records": [],
+                "province_summary": {},
                 "national_summary": {},
             }
 
@@ -463,6 +515,7 @@ class MarketDataProvider:
                 "commodity_fr": comm_fr,
                 "count": 0,
                 "records": [],
+                "province_summary": {},
                 "national_summary": national_summary,
             }
 
@@ -471,10 +524,12 @@ class MarketDataProvider:
             sub = sub.sort_values(sort_cols)
 
         cv_map = self._cv_lookup()
+        focus_hint = _CITY_CANONICAL_HINTS.get(_normalize_text(focus_city or ""), _normalize_text(focus_city or ""))
         records: list[dict] = []
         for _, r in sub.iterrows():
             prov_val = str(r.get("province", ""))
             comm_val = str(r.get("commodity_std", ""))
+            mkt_name = str(r.get("market_name", ""))
             obs_price = _clean_float(r.get(price_col)) if price_col else None
             fc_price = _clean_float(r.get("forecast_t1"))
             delta_xaf = (fc_price - obs_price) if (fc_price is not None and obs_price is not None) else None
@@ -487,11 +542,12 @@ class MarketDataProvider:
                 {
                     "source": str(r.get("source", "")),
                     "province": prov_val,
-                    "market_name": str(r.get("market_name", "")),
+                    "market_name": mkt_name,
                     "commodity_std": comm_val,
                     "commodity_fr": self.fr_commodity(comm_val),
                     "last_observed_month": str(r.get("last_observed_month", "")),
                     "last_observed_price": obs_price,
+                    "observed_sac_100kg_xaf": (obs_price * 100.0) if obs_price is not None else None,
                     "forecast_month": str(r.get("forecast_month", "")),
                     "forecast_t1": fc_price,
                     "sac_100kg_xaf": (fc_price * 100.0) if fc_price is not None else None,
@@ -504,6 +560,32 @@ class MarketDataProvider:
                 }
             )
 
+        if focus_hint and records:
+            records.sort(
+                key=lambda rec: (
+                    0 if focus_hint in _normalize_text(rec["market_name"]) else 1,
+                    -(rec["forecast_t1"] or 0.0),
+                    rec["market_name"],
+                )
+            )
+
+        province_summary: dict = {}
+        valid_fc = [rec for rec in records if rec.get("forecast_t1") is not None]
+        if province and valid_fc:
+            min_rec = min(valid_fc, key=lambda rec: rec["forecast_t1"])
+            max_rec = max(valid_fc, key=lambda rec: rec["forecast_t1"])
+            spread_xaf = max_rec["forecast_t1"] - min_rec["forecast_t1"]
+            spread_sac = round((max_rec["sac_100kg_xaf"] or 0.0) - (min_rec["sac_100kg_xaf"] or 0.0))
+            province_summary = {
+                "focus_market_name": records[0]["market_name"],
+                "min_market": min_rec["market_name"],
+                "min_forecast_xaf": min_rec["forecast_t1"],
+                "max_market": max_rec["market_name"],
+                "max_forecast_xaf": max_rec["forecast_t1"],
+                "spread_xaf": spread_xaf,
+                "spread_sac_100kg_xaf": float(spread_sac),
+            }
+
         return {
             "status": "ok",
             "province": province,
@@ -511,8 +593,74 @@ class MarketDataProvider:
             "commodity_fr": comm_fr,
             "count": len(records),
             "records": records,
+            "province_summary": province_summary,
             "national_summary": national_summary,
         }
+
+    def get_location_commodities_summary(
+        self,
+        province: str,
+        focus_city: Optional[str] = None,
+        exclude_commodity: Optional[str] = "Millet",
+    ) -> dict:
+        """Retourne l'aperçu des autres produits suivis pour une ville ou province."""
+        if self.forecast_df.empty or not province:
+            return {"status": "empty", "scope_label": province or "", "records": []}
+        sub = self.forecast_df[self.forecast_df["province"] == province].copy()
+        if sub.empty:
+            return {"status": "empty", "scope_label": province, "records": []}
+
+        scope_label = province
+        focus_hint = _CITY_CANONICAL_HINTS.get(_normalize_text(focus_city or ""), _normalize_text(focus_city or ""))
+        if focus_hint and "market_name" in sub.columns:
+            city_mask = sub["market_name"].astype(str).map(lambda m: focus_hint in _normalize_text(m))
+            if city_mask.any():
+                matched_names = sorted(sub.loc[city_mask, "market_name"].astype(str).unique())
+                scope_label = matched_names[0]
+                sub = sub[city_mask].copy()
+
+        if exclude_commodity:
+            sub = sub[sub["commodity_std"] != exclude_commodity].copy()
+        if sub.empty:
+            return {"status": "empty", "scope_label": scope_label, "records": []}
+
+        price_col = self._price_col(sub)
+        sub["_fc"] = pd.to_numeric(sub["forecast_t1"], errors="coerce")
+        sub["_obs"] = pd.to_numeric(sub[price_col], errors="coerce") if price_col else float("nan")
+        sub = sub.dropna(subset=["commodity_std", "_fc"])
+        if sub.empty:
+            return {"status": "empty", "scope_label": scope_label, "records": []}
+
+        agg = (
+            sub.groupby("commodity_std", as_index=False)
+            .agg(
+                last_observed_price=("_obs", "median"),
+                forecast_t1=("_fc", "median"),
+                last_observed_month=("last_observed_month", "max"),
+                forecast_month=("forecast_month", "max"),
+            )
+            .copy()
+        )
+        records: list[dict] = []
+        for _, r in agg.iterrows():
+            comm_std = str(r["commodity_std"])
+            obs_p = _clean_float(r.get("last_observed_price"))
+            fc_p = _clean_float(r.get("forecast_t1"))
+            delta_pct = ((fc_p - obs_p) / obs_p * 100.0) if (fc_p is not None and obs_p and obs_p > 0) else None
+            records.append(
+                {
+                    "commodity_std": comm_std,
+                    "commodity_fr": self.fr_commodity(comm_std),
+                    "last_observed_price": obs_p,
+                    "forecast_t1": fc_p,
+                    "sac_100kg_xaf": (fc_p * 100.0) if fc_p is not None else None,
+                    "delta_pct": delta_pct,
+                    "last_observed_month": str(r.get("last_observed_month", "")),
+                    "forecast_month": str(r.get("forecast_month", "")),
+                }
+            )
+        records.sort(key=lambda rec: rec["commodity_fr"])
+        return {"status": "ok", "scope_label": scope_label, "records": records}
 
     def get_alerts(
         self,
@@ -936,23 +1084,25 @@ class FreeDataAIAgent:
             qty = float(m_tonne.group(1).replace(",", "."))
             kg = qty * 1000.0
             qty_str = f"{qty:g}".replace(".", ",")
-            return kg, f"{qty_str} tonne(s) ({kg:,.0f} kg)"
+            return kg, f"{qty_str} tonne(s) ({_fmt_int(kg)} kg)"
         m_sac = _VOL_SAC_RE.search(q_norm)
         if m_sac:
             qty = float(m_sac.group(1).replace(",", "."))
             kg = qty * 100.0
             qty_str = f"{qty:g}".replace(".", ",")
-            return kg, f"{qty_str} sac(s) de 100 kg ({kg:,.0f} kg)"
+            return kg, f"{qty_str} sac(s) de 100 kg ({_fmt_int(kg)} kg)"
         m_kg = _VOL_KG_RE.search(q_norm)
         if m_kg:
             qty = float(m_kg.group(1).replace(",", "."))
-            return qty, f"{qty:,.0f} kg"
+            return qty, f"{_fmt_int(qty)} kg"
         return None, None
 
     def _extract_entities(self, query: str, history: Optional[list[dict]] = None) -> dict:
         q_norm = _normalize_text(query)
 
-        provinces_found = self.provider.resolve_locations(q_norm)
+        loc_details = self.provider.resolve_location_details(q_norm)
+        provinces_found = [prov for _, prov in loc_details]
+        focus_city = loc_details[0][0] if loc_details else None
         matched_comm, requested_comms = self.provider.resolve_commodities(q_norm)
 
         # Repli sur les tours précédents si la question actuelle omet la province ou le produit
@@ -964,9 +1114,10 @@ class FreeDataAIAgent:
             ]
             for prev_text in reversed(recent_user_msgs[-4:]):
                 if not provinces_found:
-                    prev_provs = self.provider.resolve_locations(prev_text)
-                    if prev_provs:
-                        provinces_found = prev_provs
+                    prev_details = self.provider.resolve_location_details(prev_text)
+                    if prev_details:
+                        provinces_found = [prov for _, prov in prev_details]
+                        focus_city = prev_details[0][0]
                 if matched_comm is None:
                     prev_comm, prev_comms = self.provider.resolve_commodities(prev_text)
                     if prev_comm is not None:
@@ -1005,6 +1156,7 @@ class FreeDataAIAgent:
 
         return {
             "province": matched_prov,
+            "focus_city": focus_city,
             "origin_province": origin_prov,
             "destination_province": dest_prov,
             "provinces": provinces_found,
@@ -1068,61 +1220,165 @@ class FreeDataAIAgent:
             else "non précisée"
         )
         return (
-            f"### Couverture des données FreeData.AI\n"
-            f"- **Séries actives suivies :** `{ov['series_count']}` séries sur `{ov['markets_count']}` marchés\n"
-            f"- **Provinces ({len(provinces)}) :** {', '.join(provinces)}\n"
-            f"- **Produits ({len(commodities)}) :** {', '.join(commodities)}\n"
-            f"- **Sources :** {', '.join(sources) if sources else 'Non précisées'}\n"
-            f"- **Période observée :** {period_str}"
+            f"### Couverture des données FreeData.AI\n\n"
+            f"| Dimension | Détail |\n"
+            f"| :--- | :--- |\n"
+            f"| Séries actives suivies | **{_fmt_int(ov['series_count'])}** séries sur **{_fmt_int(ov['markets_count'])}** marchés |\n"
+            f"| Période observée | {period_str} |\n"
+            f"| Sources | {', '.join(sources) if sources else 'Non précisées'} |\n\n"
+            f"**Provinces ({len(provinces)}) :** {', '.join(provinces)}\n\n"
+            f"**Produits suivis ({len(commodities)}) :** {', '.join(commodities)}"
         )
 
-    def tool_get_forecast(self, province: Optional[str], commodity: Optional[str]) -> str:
+    def tool_get_forecast(
+        self,
+        province: Optional[str],
+        commodity: Optional[str],
+        focus_city: Optional[str] = None,
+    ) -> str:
         comm = commodity or "Millet"
-        data = self.provider.get_forecasts(province=province, commodity=comm)
-        return self._format_forecasts(data, province=province, commodity=comm)
+        data = self.provider.get_forecasts(province=province, commodity=comm, focus_city=focus_city)
+        return self._format_forecasts(data, province=province, commodity=comm, focus_city=focus_city)
 
     @staticmethod
-    def _format_forecasts(data: dict, province: Optional[str], commodity: Optional[str]) -> str:
+    def _format_forecasts(
+        data: dict,
+        province: Optional[str],
+        commodity: Optional[str],
+        focus_city: Optional[str] = None,
+        city_commodities: Optional[dict] = None,
+    ) -> str:
         comm_fr = data.get("commodity_fr") or MarketDataProvider.fr_commodity(commodity or "Millet")
         if data.get("status") != "ok":
             return f"Aucune série active trouvée pour **{comm_fr}**" + (f" dans la province **{province}**." if province else ".")
 
         if province:
-            lines = [f"### Prévisions — {comm_fr} ({province})\n"]
-            for r in data["records"]:
-                obs_p = r.get("last_observed_price")
-                fc_p = r.get("forecast_t1")
-                pct = r.get("delta_pct") or 0.0
-                sac_100 = r.get("sac_100kg_xaf")
-                metrics_extra = []
-                if r.get("hist_mae") is not None:
-                    metrics_extra.append(f"MAE `{r['hist_mae']:.1f} XAF`")
-                if r.get("cv_pct") is not None:
-                    metrics_extra.append(f"volatilité CV `{r['cv_pct']:.1f}%`")
-                extra_str = f" | {' | '.join(metrics_extra)}" if metrics_extra else ""
-                obs_str = f"{obs_p:,.0f} XAF/kg" if obs_p is not None else "n/d"
-                fc_str = f"{fc_p:,.0f} XAF/kg" if fc_p is not None else "n/d"
-                sac_str = f"{sac_100:,.0f} XAF" if sac_100 is not None else "n/d"
-                ci_low = f"{r['ci_low_80']:,.0f}" if r.get("ci_low_80") is not None else "?"
-                ci_high = f"{r['ci_high_80']:,.0f}" if r.get("ci_high_80") is not None else "?"
+            records = data["records"]
+            focus = records[0]
+            focus_hint = _CITY_CANONICAL_HINTS.get(_normalize_text(focus_city or ""), _normalize_text(focus_city or ""))
+            focus_matches = bool(focus_hint and focus_hint in _normalize_text(focus["market_name"]))
+            heading = (
+                f"### Prévisions — {comm_fr} à {focus['market_name']} ({province})"
+                if focus_matches
+                else f"### Prévisions — {comm_fr} ({province})"
+            )
+
+            lines = [heading, ""]
+            obs_str = f"{_fmt_int(focus.get('last_observed_price'))} XAF/kg"
+            fc_str = f"{_fmt_int(focus.get('forecast_t1'))} XAF/kg"
+            sac_str = f"{_fmt_int(focus.get('sac_100kg_xaf'))} XAF"
+            pct_str = _fmt_pct(focus.get("delta_pct"))
+
+            lines.append("**En bref :**")
+            lines.append(
+                f"- **{focus['market_name']} :** **{obs_str}** ({focus['last_observed_month']}) → "
+                f"**{fc_str}** prévus en {focus['forecast_month']} (**{pct_str}**, soit **{sac_str}** / sac de 100 kg)"
+            )
+
+            ps = data.get("province_summary") or {}
+            if len(records) >= 2 and ps.get("spread_xaf", 0) > 0:
                 lines.append(
-                    f"- **{r['market_name']}** ({r['source']}) : dernier prix `{obs_str}` ({r['last_observed_month']}) "
-                    f"→ prévision **`{fc_str}`** (sac de 100 kg : `{sac_str}`, {r['forecast_month']}, `{pct:+.1f}%`), "
-                    f"IC 80% : `[{ci_low} – {ci_high}]`{extra_str}."
+                    f"- **Fourchette dans la province ({len(records)} marchés) :** "
+                    f"de **{_fmt_int(ps['min_forecast_xaf'])} XAF/kg** ({ps['min_market']}) "
+                    f"à **{_fmt_int(ps['max_forecast_xaf'])} XAF/kg** ({ps['max_market']}) "
+                    f"— écart de **{_fmt_int(ps['spread_sac_100kg_xaf'])} XAF** par sac de 100 kg"
                 )
+
+            lines.append("")
+            if len(records) >= 2:
+                lines.append(f"**Détail par marché ({comm_fr})** *(XAF/kg · prévision {focus['forecast_month']})*")
+                lines.append("")
+                lines.append("| Marché | Actuel → Prévu | Sac 100 kg |")
+                lines.append("| :--- | :---: | ---: |")
+                for idx, r in enumerate(records):
+                    mkt_label = f"**{r['market_name']}**" if idx == 0 else r["market_name"]
+                    obs_v = _fmt_int(r.get("last_observed_price"))
+                    fc_v = _fmt_int(r.get("forecast_t1"))
+                    pct_v = _fmt_pct(r.get("delta_pct"))
+                    sac_v = _fmt_int(r.get("sac_100kg_xaf"))
+                    lines.append(f"| {mkt_label} | {obs_v} → **{fc_v}** ({pct_v}) | {sac_v} XAF |")
+            else:
+                lines.append(f"| Indicateur ({focus['market_name']}) | Valeur |")
+                lines.append("| :--- | ---: |")
+                lines.append(f"| Dernier prix observé ({focus['last_observed_month']}) | **{obs_str}** |")
+                lines.append(f"| Prévision ({focus['forecast_month']}) | **{fc_str}** ({pct_str}) |")
+                lines.append(f"| Prix du sac (100 kg) | **{sac_str}** |")
+
+            if city_commodities and city_commodities.get("status") == "ok" and city_commodities.get("records"):
+                lines.extend(
+                    [
+                        "",
+                        f"**Autres produits suivis à {city_commodities['scope_label']}** *(prix en XAF/kg)*",
+                        "",
+                        "| Produit | Actuel → Prévu | Sac 100 kg |",
+                        "| :--- | :---: | ---: |",
+                    ]
+                )
+                for cr in city_commodities["records"]:
+                    obs_c = _fmt_int(cr.get("last_observed_price"))
+                    fc_c = _fmt_int(cr.get("forecast_t1"))
+                    pct_c = _fmt_pct(cr.get("delta_pct"))
+                    sac_c = _fmt_int(cr.get("sac_100kg_xaf"))
+                    lines.append(f"| **{cr['commodity_fr']}** | {obs_c} → **{fc_c}** ({pct_c}) | {sac_c} XAF |")
+
+            # Repères statistiques regroupés une seule fois
+            sources_list = sorted({r["source"] for r in records if r.get("source")})
+            sources_str = ", ".join(sources_list) if sources_list else "Source suivie"
+            stats_parts = []
+            if focus.get("ci_low_80") is not None and focus.get("ci_high_80") is not None:
+                stats_parts.append(
+                    f"- Fourchette probable à 80 % ({focus['market_name']}) : "
+                    f"**{_fmt_int(focus['ci_low_80'])} – {_fmt_int(focus['ci_high_80'])} XAF/kg** *(IC 80%)*"
+                )
+            mae_vals = [r["hist_mae"] for r in records if r.get("hist_mae") is not None]
+            cv_vals = [r["cv_pct"] for r in records if r.get("cv_pct") is not None]
+            sub_metrics = []
+            if mae_vals:
+                if max(mae_vals) - min(mae_vals) < 0.2:
+                    sub_metrics.append(f"Erreur moyenne historique (MAE) : **{mae_vals[0]:.1f} XAF/kg**")
+                else:
+                    sub_metrics.append(f"Erreur moyenne (MAE {focus['market_name']}) : **{focus['hist_mae']:.1f} XAF/kg**")
+            if cv_vals:
+                if max(cv_vals) - min(cv_vals) < 0.2:
+                    sub_metrics.append(f"Volatilité (CV) : **{cv_vals[0]:.1f}%**")
+                else:
+                    sub_metrics.append(f"Volatilité (CV) : **{focus['cv_pct']:.1f}%**")
+            if sub_metrics:
+                stats_parts.append("- " + " · ".join(sub_metrics))
+
+            if stats_parts:
+                lines.extend(["", f"**Repères statistiques ({sources_str}) :**", *stats_parts])
+
             return "\n".join(lines)
 
         summary = data.get("national_summary") or {}
         top3 = summary.get("most_expensive_provinces") or []
         bot3 = summary.get("most_affordable_provinces") or []
-        return (
-            f"### Synthèse Nationale — {comm_fr} (Médiane par province)\n"
-            f"- **Provinces les plus chères prévues :** "
-            + ", ".join(f"{r['province']} (`{r['median_forecast_xaf']:,.0f} XAF/kg`)" for r in top3)
-            + "\n- **Provinces les plus abordables prévues :** "
-            + ", ".join(f"{r['province']} (`{r['median_forecast_xaf']:,.0f} XAF/kg`)" for r in bot3)
-            + "\n\n*Précisez une province ou une ville (ex. N'Djamena, Abéché, Moundou, Kélo) pour le détail par marché.*"
-        )
+        med_fc = summary.get("median_forecast_xaf")
+        lines = [f"### Prévisions — Synthèse Nationale ({comm_fr})", ""]
+        if med_fc is not None:
+            lines.append(
+                f"**En bref :** sur **{summary['provinces_count']} provinces** ({summary['series_count']} séries), "
+                f"la médiane nationale prévue est de **{_fmt_int(med_fc)} XAF/kg** "
+                f"*(**{_fmt_int(med_fc * 100)} XAF** / sac de 100 kg)*."
+            )
+            lines.append("")
+
+        def _append_nat_table(title: str, rows: list[dict]) -> None:
+            if not rows:
+                return
+            lines.extend([title, "", "| Province | Actuel → Prévu | Sac 100 kg |", "| :--- | :---: | ---: |"])
+            for r in rows:
+                obs_m = _fmt_int(r.get("median_last_observed_xaf"))
+                fc_m = r.get("median_forecast_xaf")
+                sac_m = _fmt_int(fc_m * 100.0 if fc_m is not None else None)
+                lines.append(f"| **{r['province']}** | {obs_m} → **{_fmt_int(fc_m)} XAF** | {sac_m} XAF |")
+            lines.append("")
+
+        _append_nat_table("**Provinces les plus chères prévues :**", top3)
+        _append_nat_table("**Provinces les plus abordables prévues :**", bot3)
+        lines.append("*Précisez une province ou une ville (ex. Moundou, N'Djamena, Abéché, Kélo) pour le détail par marché.*")
+        return "\n".join(lines)
 
     def tool_get_credit_passport(self, province: Optional[str], commodity: Optional[str], loan_amount: int) -> str:
         comm = commodity or "Millet"
@@ -1142,19 +1398,28 @@ class FreeDataAIAgent:
         if province:
             r = data["records"][0]
             return (
-                f"### Agricultural Credit Passport — {comm_fr} ({province})\n"
-                f"- **Score Global :** **`{r['credit_score']:.1f} / 100`** — **{r['grade']}**\n"
-                f"- **Décision Prudentielle :** {r['policy_recommendation']}\n"
-                f"- **Simulation sur demande de `{loan_amount:,} XAF` :** plafond recommandé LTV `{r['ltv_pct']}%` soit **`{r['recommended_max_loan_xaf']:,} XAF`**.\n"
-                f"- **Indicateurs sous-jacents :** prix médian `{r['median_price']:,.0f} XAF/kg`, volatilité CV `{r['cv_pct']:.1f}%`, "
-                f"chute max post-récolte `-{r['max_drawdown_pct']:.1f}%`, observabilité `{r['obs_months']} mois`."
+                f"### Agricultural Credit Passport — {comm_fr} ({province})\n\n"
+                f"**Décision prudentielle :** {r['policy_recommendation']}\n\n"
+                f"| Indicateur clé | Résultat |\n"
+                f"| :--- | ---: |\n"
+                f"| Score global | **{r['credit_score']:.1f}/100** ({r['grade']}) |\n"
+                f"| Montant demandé | **{_fmt_int(loan_amount)} XAF** |\n"
+                f"| Plafond recommandé (LTV {r['ltv_pct']}%) | **{_fmt_int(r['recommended_max_loan_xaf'])} XAF** |\n"
+                f"| Prix médian de référence | {_fmt_int(r['median_price'])} XAF/kg |\n"
+                f"| Volatilité (CV) | {r['cv_pct']:.1f}% |\n"
+                f"| Chute max post-récolte | -{r['max_drawdown_pct']:.1f}% |\n"
+                f"| Historique observé | {r['obs_months']} mois |"
             )
 
-        lines = [f"### Top 5 Provinces les plus sûres à financer — {comm_fr}\n"]
+        lines = [
+            f"### Agricultural Credit Passport — Top 5 Provinces ({comm_fr})",
+            "",
+            "| Province | Score | LTV max | Volatilité |",
+            "| :--- | :---: | :---: | ---: |",
+        ]
         for r in data["records"][:5]:
             lines.append(
-                f"- **{r['province']}** : Score **`{r['credit_score']:.1f}/100`** ({r['grade']}) | "
-                f"LTV max `{r['ltv_pct']}%` | Volatilité `{r['cv_pct']:.1f}%`"
+                f"| **{r['province']}** | **{r['credit_score']:.1f}/100** ({r['grade']}) | {r['ltv_pct']}% | {r['cv_pct']:.1f}% |"
             )
         return "\n".join(lines)
 
@@ -1165,17 +1430,27 @@ class FreeDataAIAgent:
     @staticmethod
     def _format_alerts(data: dict) -> str:
         if data.get("status") != "ok":
-            return "✅ Aucune alerte de surchauffe (> +15 %) détectée sur ce périmètre lors du dernier relevé."
+            return "✅ Aucune alerte de surchauffe (> +15%) détectée sur ce périmètre lors du dernier relevé."
 
         records = data["records"]
-        lines = [f"### Alertes d'Arbitrage & Tensions de Prix ({len(records)} marchés > +15 %)\n"]
+        top = records[0]
+        lines = [
+            f"### Alertes d'Arbitrage & Tensions de Prix ({len(records)} marchés > +15%)",
+            "",
+            f"**Tension la plus forte :** **{top['province']} — {top['market_name']}** ({top['commodity_fr']}) "
+            f"à **{_fmt_int(top.get('observed_price'))} XAF/kg** au lieu de {_fmt_int(top.get('predicted_price'))} XAF/kg "
+            f"(**+{top['deviation_pct']:.1f}%** en {top['month']}).",
+            "",
+            "| Marché & Produit | Observé vs Attendu | Écart |",
+            "| :--- | :---: | ---: |",
+        ]
         for r in records[:8]:
-            obs = f"{r['observed_price']:,.0f} XAF/kg" if r.get("observed_price") is not None else "n/d"
-            pred = f"{r['predicted_price']:,.0f} XAF/kg" if r.get("predicted_price") is not None else "n/d"
+            obs = f"{_fmt_int(r.get('observed_price'))}" if r.get("observed_price") is not None else "n/d"
+            pred = f"{_fmt_int(r.get('predicted_price'))}" if r.get("predicted_price") is not None else "n/d"
             dev = r.get("deviation_pct") or 0.0
             lines.append(
-                f"- **{r['province']} — {r['market_name']}** (`{r['commodity_fr']}`, {r['month']}) : "
-                f"observé **`{obs}`** vs attendu `{pred}` (**`+{dev:.1f}%`**)."
+                f"| **{r['province']} — {r['market_name']}** ({r['commodity_fr']}) | "
+                f"**{obs}** vs {pred} XAF | **+{dev:.1f}%** |"
             )
         return "\n".join(lines)
 
@@ -1190,47 +1465,106 @@ class FreeDataAIAgent:
             return "Données insuffisantes pour identifier des opportunités commerciales sur ce périmètre."
 
         title_scope = f" — {data['commodity_fr']}" if data.get("commodity_fr") else ""
-        lines = [f"### Opportunités Commerciales & Stratégie Marchés{title_scope}\n"]
+        lines = [f"### Opportunités Commerciales & Stratégie Marchés{title_scope}", ""]
+
+        corridors = data.get("corridors") or []
+        top_cp = data.get("top_credit_passports") or []
+        if corridors or top_cp:
+            lines.append("**En bref :**")
+            if corridors:
+                best = corridors[0]
+                lines.append(
+                    f"- **Meilleur écart brut :** **{best['commodity_fr']}** entre {best['low_province']} "
+                    f"({_fmt_int(best['low_price'])} XAF/kg) et {best['high_province']} "
+                    f"({_fmt_int(best['high_price'])} XAF/kg) soit **+{_fmt_int(best['spread_xaf'])} XAF/kg** "
+                    f"(+{best['spread_pct']:.1f}%)"
+                )
+            if top_cp:
+                safest = top_cp[0]
+                lines.append(
+                    f"- **Dossier le plus solide (Credit Passport) :** **{safest['province']} — {safest['commodity_fr']}** "
+                    f"(**{safest['credit_score']:.1f}/100**, LTV max {safest['ltv_pct']}%)"
+                )
+            lines.append("")
 
         if data["local_focus"]:
-            lines.append(f"- **Focus local ({data['province']}) :**")
+            lines.extend(
+                [
+                    f"**Focus local ({data['province']}) :**",
+                    "",
+                    "| Produit | Actuel → Prévu | Marchés |",
+                    "| :--- | :---: | ---: |",
+                ]
+            )
             for r in data["local_focus"]:
                 lines.append(
-                    f"  - **{r['commodity_fr']}** : prix prévu médian `{r['forecast_median_xaf']:,.0f} XAF/kg` "
-                    f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`, `{r['markets_count']}` marché(s))"
+                    f"| **{r['commodity_fr']}** | {_fmt_int(r['observed_median_xaf'])} → "
+                    f"**{_fmt_int(r['forecast_median_xaf'])} XAF/kg** | {r['markets_count']} |"
                 )
+            lines.append("")
 
-        lines.append("- **Top 3 zones d'approvisionnement (prix prévu médian le plus bas) :**")
+        lines.extend(
+            [
+                "**Top 3 zones d'approvisionnement (prix prévu médian le plus bas) :**",
+                "",
+                "| Province (Produit) | Actuel → Prévu |",
+                "| :--- | ---: |",
+            ]
+        )
         for r in data["cheapest_zones"]:
             lines.append(
-                f"  - **{r['province']} ({r['commodity_fr']})** : `{r['forecast_median_xaf']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`)"
+                f"| **{r['province']}** ({r['commodity_fr']}) | "
+                f"{_fmt_int(r['observed_median_xaf'])} → **{_fmt_int(r['forecast_median_xaf'])} XAF/kg** |"
             )
 
-        lines.append("- **Top 3 marchés de revente à plus forte valeur (prix prévu médian le plus élevé) :**")
+        lines.extend(
+            [
+                "",
+                "**Top 3 marchés de revente à plus forte valeur (prix prévu médian le plus élevé) :**",
+                "",
+                "| Province (Produit) | Actuel → Prévu |",
+                "| :--- | ---: |",
+            ]
+        )
         for r in data["highest_zones"]:
             lines.append(
-                f"  - **{r['province']} ({r['commodity_fr']})** : `{r['forecast_median_xaf']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['observed_median_xaf']:,.0f} XAF/kg`)"
+                f"| **{r['province']}** ({r['commodity_fr']}) | "
+                f"{_fmt_int(r['observed_median_xaf'])} → **{_fmt_int(r['forecast_median_xaf'])} XAF/kg** |"
             )
 
-        if data["corridors"]:
-            lines.append("- **Écarts de prix bruts par produit (avant frais de transport) :**")
-            for c in data["corridors"]:
+        if corridors:
+            lines.extend(
+                [
+                    "",
+                    "**Écarts de prix bruts par produit (avant frais de transport) :**",
+                    "",
+                    "| Produit | Trajet | Écart brut |",
+                    "| :--- | :--- | ---: |",
+                ]
+            )
+            for c in corridors:
                 lines.append(
-                    f"  - **{c['commodity_fr']}** : achat **{c['low_province']}** (`{c['low_price']:,.0f} XAF/kg`) "
-                    f"→ revente **{c['high_province']}** (`{c['high_price']:,.0f} XAF/kg`) "
-                    f"= écart brut **`+{c['spread_xaf']:,.0f} XAF/kg`** (`+{c['spread_pct']:.1f}%`)"
+                    f"| **{c['commodity_fr']}** | {c['low_province']} ({_fmt_int(c['low_price'])}) → "
+                    f"{c['high_province']} ({_fmt_int(c['high_price'])}) | "
+                    f"**+{_fmt_int(c['spread_xaf'])} XAF/kg** (+{c['spread_pct']:.1f}%) |"
                 )
 
-        if data["top_credit_passports"]:
-            lines.append("- **Top 3 couples (Province, Produit) les plus solides (Credit Passport) :**")
-            for r in data["top_credit_passports"]:
+        if top_cp:
+            lines.extend(
+                [
+                    "",
+                    "**Top 3 couples (Province, Produit) les plus solides (Credit Passport) :**",
+                    "",
+                    "| Province — Produit | Score Credit Passport | LTV / Volatilité |",
+                    "| :--- | :---: | ---: |",
+                ]
+            )
+            for r in top_cp:
                 cv = r.get("cv_pct")
-                cv_str = f" | Volatilité `{cv:.1f}%`" if cv is not None else ""
+                cv_str = f" · CV {cv:.1f}%" if cv is not None else ""
                 lines.append(
-                    f"  - **{r['province']} — {r['commodity_fr']}** : Score **`{r['credit_score']:.1f}/100`** "
-                    f"({r['grade']}) | LTV max `{r['ltv_pct']}%`{cv_str}"
+                    f"| **{r['province']} — {r['commodity_fr']}** | **{r['credit_score']:.1f}/100** ({r['grade']}) | "
+                    f"LTV {r['ltv_pct']}%{cv_str} |"
                 )
 
         return "\n".join(lines)
@@ -1268,31 +1602,32 @@ class FreeDataAIAgent:
                 + "."
             )
 
-        lines = [f"### Arbitrage Commercial — {orig_prov} → {dest_prov}\n"]
+        lines = [
+            f"### Arbitrage Commercial — {orig_prov} → {dest_prov}",
+            "",
+            "*Estimations brutes (avant frais de transport et manutention)*",
+        ]
         for r in routes:
-            lines.append(f"- **{r['commodity_fr']}** ({orig_prov} → {dest_prov}) :")
-            lines.append(
-                f"  - Prix prévu achat ({orig_prov}) : `{r['origin_forecast_xaf']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['origin_observed_xaf']:,.0f} XAF/kg`) | "
-                f"revente ({dest_prov}) : `{r['destination_forecast_xaf']:,.0f} XAF/kg` "
-                f"(dernier observé `{r['destination_observed_xaf']:,.0f} XAF/kg`)"
-            )
-            lines.append(
-                f"  - Écart unitaire brut : **`{r['unit_spread_xaf']:+,.0f} XAF/kg`** (`{r['pct_spread']:+.1f}%`)"
-            )
-            lines.append(
-                f"  - Par sac de 100 kg : revenu brut `{r['sac_100kg_revenue_xaf']:,.0f} XAF` | "
-                f"marge brute **`{r['sac_100kg_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
-            )
-            lines.append(
-                f"  - Par tonne (1 000 kg) : revenu brut `{r['tonne_revenue_xaf']:,.0f} XAF` | "
-                f"marge brute **`{r['tonne_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
+            lines.extend(
+                [
+                    "",
+                    f"#### {r['commodity_fr']}",
+                    f"- **Prix prévu :** achat **{orig_prov}** à **{_fmt_int(r['origin_forecast_xaf'])} XAF/kg** "
+                    f"*(observé : {_fmt_int(r['origin_observed_xaf'])})* → revente **{dest_prov}** à "
+                    f"**{_fmt_int(r['destination_forecast_xaf'])} XAF/kg** *(observé : {_fmt_int(r['destination_observed_xaf'])})*",
+                    f"- **Écart unitaire brut :** **{_fmt_signed_int(r['unit_spread_xaf'])} XAF/kg** "
+                    f"(**{_fmt_pct(r['pct_spread'])}**)",
+                    "",
+                    "| Volume | Revenu brut | Marge brute |",
+                    "| :--- | ---: | ---: |",
+                    f"| Sac de 100 kg | {_fmt_int(r['sac_100kg_revenue_xaf'])} XAF | **{_fmt_signed_int(r['sac_100kg_margin_xaf'])} XAF** |",
+                    f"| Tonne (1 000 kg) | {_fmt_int(r['tonne_revenue_xaf'])} XAF | **{_fmt_signed_int(r['tonne_margin_xaf'])} XAF** |",
+                ]
             )
             if r.get("volume_margin_xaf") is not None:
                 lines.append(
-                    f"  - **Estimation pour {r['volume_label']} :** coût d'achat `{r['volume_cost_xaf']:,.0f} XAF` → "
-                    f"revenu brut total **`{r['volume_revenue_xaf']:,.0f} XAF`** → "
-                    f"marge brute estimée **`{r['volume_margin_xaf']:+,.0f} XAF`** (avant frais de transport)"
+                    f"| **{r['volume_label']}** | **{_fmt_int(r['volume_revenue_xaf'])} XAF** | "
+                    f"**{_fmt_signed_int(r['volume_margin_xaf'])} XAF** *(coût achat : {_fmt_int(r['volume_cost_xaf'])} XAF)* |"
                 )
 
         if missing_notes:
@@ -1330,9 +1665,9 @@ class FreeDataAIAgent:
             lines.append("- Top 3 opportunités d'écart de prix brut (avant frais de transport) :")
             for c in corridors:
                 lines.append(
-                    f"  * {c['commodity_fr']} : {c['low_province']} ({c['low_price']:,.0f} XAF/kg) "
-                    f"-> {c['high_province']} ({c['high_price']:,.0f} XAF/kg), "
-                    f"écart brut +{c['spread_xaf']:,.0f} XAF/kg (+{c['spread_pct']:.1f}%)"
+                    f"  * {c['commodity_fr']} : {c['low_province']} ({_fmt_int(c['low_price'])} XAF/kg) "
+                    f"-> {c['high_province']} ({_fmt_int(c['high_price'])} XAF/kg), "
+                    f"écart brut +{_fmt_int(c['spread_xaf'])} XAF/kg (+{c['spread_pct']:.1f}%)"
                 )
         top_cp = opp.get("top_credit_passports") or []
         if top_cp:
@@ -1351,6 +1686,7 @@ class FreeDataAIAgent:
         intent = entities["intent"]
         prov = entities["province"]
         comm = entities["commodity"]
+        focus_city = entities.get("focus_city")
 
         if intent == "credit_passport":
             raw_data = self.provider.get_credit_passport(prov, comm or "Millet", entities["loan_amount"])
@@ -1374,15 +1710,31 @@ class FreeDataAIAgent:
             raw_data = self.provider.get_overview()
             facts = self._format_overview(raw_data)
         else:
-            raw_data = self.provider.get_forecasts(prov, comm or "Millet")
-            facts = self._format_forecasts(raw_data, prov, comm or "Millet")
+            raw_data = self.provider.get_forecasts(prov, comm or "Millet", focus_city=focus_city)
+            city_comms = (
+                self.provider.get_location_commodities_summary(
+                    prov,
+                    focus_city=focus_city,
+                    exclude_commodity="Millet",
+                )
+                if (prov and comm is None)
+                else None
+            )
+            facts = self._format_forecasts(
+                raw_data,
+                prov,
+                comm or "Millet",
+                focus_city=focus_city,
+                city_commodities=city_comms,
+            )
 
         if comm is None and intent in ("forecast", "credit_passport"):
             known = ", ".join(sorted({self._fr_commodity(c) for c in COMMODITY_ALIASES.values()}))
             facts = (
                 f"{facts}\n\n"
-                f"*Note de référence : aucun produit spécifique suivi n'a été reconnu dans la question ; "
-                f"l'analyse s'appuie sur le **Mil** (céréale de référence nationale). Produits suivis : {known}.*"
+                f"---\n"
+                f"*Analyse de référence appuyée sur le **Mil** (aucun autre produit ciblé dans la question). "
+                f"Produits suivis : {known}.*"
             )
 
         return facts, intent, {"entities": entities, "provider_data": raw_data}
@@ -1466,14 +1818,16 @@ class FreeDataAIAgent:
             "Adopte un ton naturel, fluide et conversationnel (comme un conseiller humain à la façon de ChatGPT ou Gemini), "
             "en utilisant les noms de produits en français ('Mil', 'Sorgho', 'Maïs blanc', 'Riz local', 'Riz importé', 'Niébé', 'Arachide', etc.) "
             "et jamais les noms de colonnes techniques.\n\n"
-            "STYLE DE RÉPONSE :\n"
-            "- Réponds d'abord directement à la question de l'utilisateur en 1 ou 2 phrases claires, sans recopier mécaniquement "
-            "les titres techniques bruts (comme '### Arbitrage Commercial') ni toutes les lignes de tableau.\n"
-            "- Synthétise ensuite les chiffres essentiels (prix au kg, valeur par sac de 100 kg, marge ou score) de manière aérée et digeste.\n"
-            "- Termine par une courte question utile pour aider l'utilisateur à préciser son besoin (quantité, budget, coût de transport).\n\n"
+            "STYLE & ORGANISATION DES CHIFFRES :\n"
+            "- Commence par 1 à 2 phrases directes donnant immédiatement la réponse clé à la question posée.\n"
+            "- Organise les chiffres de façon ultra-lisible : privilégie un tableau Markdown compact (3 colonnes maximum, ex. Marché | Actuel → Prévu | Sac 100 kg) "
+            "ou des puces courtes clairement hiérarchisées (**En bref**, **Détail par marché**, **À retenir**).\n"
+            "- Formate toujours les montants à la française avec un espace pour les milliers (ex. 22 445 XAF) et n'entoure jamais les chiffres de backticks (`).\n"
+            "- Regroupe les indicateurs techniques (IC 80%, MAE, CV) en 1 court bloc **Repères statistiques** à la fin, sans les répéter après chaque marché.\n"
+            "- Termine par une courte question utile pour aider l'utilisateur à préciser son besoin (produit, quantité, budget, transport).\n\n"
             "PÉRIMÈTRE & VÉRITÉ DES DONNÉES :\n"
             "- Utilise exclusivement les chiffres et faits présents dans les blocs [DONNÉES VÉRIFIÉES] et les extraits <document_data>.\n"
-            "- N'invente jamais de prix, de score, de pourcentage ou de statistique absente du contexte. "
+            "- N'invente jamais de prix, de score, de pourcentage ou de statistique absente du contexte. Conserve les décimales exactes fournies. "
             "Seules les conversions arithmétiques directes à partir d'un prix vérifié (sac de 100 kg = prix au kg × 100, "
             "tonne = prix au kg × 1 000, marge brute = écart entre prix de revente et d'achat) sont autorisées.\n"
             "- Si une information demandée manque, indique-le honnêtement sans extrapoler.\n"
@@ -1545,6 +1899,32 @@ class FreeDataAIAgent:
             reply = f"{reply}\n\n{sources_section}"
         return reply
 
+    @staticmethod
+    def _extract_chart_data(intent: str, provider_data: dict) -> Optional[dict[str, float]]:
+        """Extrait jusqu'à 5 barres comparatives pour l'affichage visuel `ChartCard`."""
+        if not isinstance(provider_data, dict) or provider_data.get("status") != "ok":
+            return None
+        chart: dict[str, float] = {}
+        if intent == "forecast":
+            records = provider_data.get("records") or []
+            if provider_data.get("province") and 2 <= len(records) <= 6:
+                for r in records:
+                    fc = r.get("forecast_t1")
+                    if fc is not None and r.get("market_name"):
+                        chart[str(r["market_name"])] = float(round(fc))
+            elif not provider_data.get("province"):
+                top3 = (provider_data.get("national_summary") or {}).get("most_expensive_provinces") or []
+                for r in top3:
+                    fc = r.get("median_forecast_xaf")
+                    if fc is not None and r.get("province"):
+                        chart[str(r["province"])] = float(round(fc))
+        elif intent == "credit_passport" and not provider_data.get("province"):
+            for r in (provider_data.get("records") or [])[:5]:
+                sc = r.get("credit_score")
+                if sc is not None and r.get("province"):
+                    chart[str(r["province"])] = round(float(sc), 1)
+        return chart if len(chart) >= 2 else None
+
     def answer(
         self,
         user_query: str,
@@ -1565,6 +1945,7 @@ class FreeDataAIAgent:
                 "intent": "security_blocked",
                 "entities": {},
                 "sources": [],
+                "chart": None,
             }
 
         q_norm = _normalize_text(q)
@@ -1584,6 +1965,7 @@ class FreeDataAIAgent:
                 "intent": "greeting",
                 "entities": entities,
                 "sources": [],
+                "chart": None,
             }
 
         if history:
@@ -1623,6 +2005,7 @@ class FreeDataAIAgent:
             "intent": intent,
             "entities": entities,
             "sources": sources,
+            "chart": self._extract_chart_data(intent, meta["provider_data"]),
         }
 
     def answer_with_metadata(

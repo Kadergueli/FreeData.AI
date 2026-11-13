@@ -222,4 +222,7 @@ class TestChatRateLimit:
         bad = client.post("/api/v1/chat", json={"message": "Prix du mil", "tier": "enterprise"})
         assert bad.status_code == 422
 
+        # La réponse expose le champ optionnel `chart` sans erreur de schéma
+        assert "chart" in resp.json()
+
 

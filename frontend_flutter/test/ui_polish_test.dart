@@ -82,6 +82,19 @@ void main() {
     expect(cleaned.contains('_'), isFalse);
     expect(cleaned, contains('Synthèse Nationale — Millet'));
     expect(cleaned, contains('229 XAF/kg'));
+
+    const tableMd =
+        '### Prévisions — Mil à Moundou\n\n'
+        '| Marché | Actuel → Prévu | Sac 100 kg |\n'
+        '| :--- | :---: | ---: |\n'
+        '| **Moundou** | 204 → **224** (+10.3%) | 22 445 XAF |\n\n'
+        '---\n'
+        '*Analyse de référence*';
+    final cleanedTable = stripMarkdown(tableMd);
+    expect(cleanedTable.contains('|'), isFalse);
+    expect(cleanedTable.contains(':---'), isFalse);
+    expect(cleanedTable.contains('---'), isFalse);
+    expect(cleanedTable, contains('Moundou 204 → 224 (+10.3%) 22 445 XAF'));
   });
 
   test('LocalConversationStorage refuses empty conversations', () async {
@@ -259,6 +272,63 @@ void main() {
     expect(find.text('32 mois'), findsOneWidget);
     expect(find.textContaining('Indicateur informatif fondé sur la volatilité'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AssistantMessage renders structured Markdown tables and ChartCard cleanly on mobile and desktop',
+      (tester) async {
+    const structuredReply = '''
+### Prévisions — Mil à Moundou (Logone Occidental)
+
+**En bref :**
+- **Moundou :** **204 XAF/kg** (2026-06) → **224 XAF/kg** prévus en 2026-07 (**+10.3%**, soit **22 445 XAF** / sac de 100 kg)
+
+| Marché | Actuel → Prévu | Sac 100 kg |
+| :--- | :---: | ---: |
+| **Moundou** | 204 → **224** (+10.3%) | 22 445 XAF |
+| Benoye | 190 → **214** (+12.7%) | 21 373 XAF |
+| Krim Krim | 189 → **202** (+7.0%) | 20 219 XAF |
+| Mbainamar | 165 → **182** (+10.8%) | 18 238 XAF |
+
+**Repères statistiques (WFP) :**
+- Fourchette probable à 80 % (Moundou) : **178 – 271 XAF/kg** *(IC 80%)*
+- Erreur moyenne historique (MAE) : **36.0 XAF/kg** · Volatilité (CV) : **29.1%**
+''';
+    final msg = ChatMessage.assistant(
+      text: structuredReply,
+      metadata: {
+        'chart': {
+          'Moundou': 224,
+          'Benoye': 214,
+          'Krim Krim': 202,
+          'Mbainamar': 182,
+        },
+      },
+    );
+
+    for (final size in [const Size(375, 812), const Size(1440, 900)]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.physicalSize = const Size(800, 600);
+        tester.view.devicePixelRatio = 1.0;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: AssistantMessage(message: msg),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aperçu comparatif'), findsOneWidget);
+      expect(find.text('224'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
   });
 }
 
