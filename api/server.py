@@ -207,6 +207,7 @@ def get_state() -> dict:
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
+    history: list[dict] = Field(default_factory=list, max_length=40)
 
 
 class ChatResponse(BaseModel):
@@ -314,7 +315,7 @@ def get_metadata(state: dict = Depends(get_state)):
 )
 def chat_endpoint(payload: ChatRequest, state: dict = Depends(get_state)):
     agent: FreeDataAIAgent = state["agent"]
-    result = agent.answer_with_metadata(payload.message)
+    result = agent.answer_with_metadata(payload.message, history=payload.history[-8:])
     return ChatResponse(**result)
 
 

@@ -151,3 +151,21 @@ class TestChatRateLimit:
 
         resp_empty = client.post("/api/v1/chat", json={"message": ""})
         assert resp_empty.status_code == 422
+
+    def test_chat_accepts_optional_history_for_followup(self, client):
+        resp = client.post(
+            "/api/v1/chat",
+            json={
+                "message": "Et le risque de crédit ?",
+                "history": [
+                    {"role": "user", "content": "Quel est le prix du mil au Salamat ?"},
+                    {"role": "assistant", "content": "Voici l'analyse pour le Mil au Salamat."},
+                ],
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["intent"] == "credit_passport"
+        assert body["entities"]["province"] == "Salamat"
+        assert body["entities"]["commodity"] == "Millet"
+
