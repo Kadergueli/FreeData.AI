@@ -81,30 +81,53 @@ CITY_TO_PROVINCE = {
     "kélo": "Tandjile",
     "lai": "Tandjile",
     "laï": "Tandjile",
+    "bere": "Tandjile",
+    "béré": "Tandjile",
     "abeche": "Ouaddai",
     "abéché": "Ouaddai",
     "abe": "Ouaddai",
     "moundou": "Logone Occidental",
     "doba": "Logone Oriental",
+    "gore": "Logone Oriental",
+    "goré": "Logone Oriental",
+    "bebedjia": "Logone Oriental",
     "sarh": "Moyen-Chari",
+    "kyabe": "Moyen-Chari",
+    "kyabé": "Moyen-Chari",
     "mongo": "Guera",
+    "bitkine": "Guera",
+    "melfi": "Guera",
     "am timan": "Salamat",
     "amtiman": "Salamat",
+    "haraze": "Salamat",
     "bongor": "Mayo-Kebbi Est",
+    "fianga": "Mayo-Kebbi Est",
     "pala": "Mayo-Kebbi Ouest",
-    "mao": "Kanem",
+    "lere": "Mayo-Kebbi Ouest",
+    "léré": "Mayo-Kebbi Ouest",
     "bol": "Lac",
+    "bagasola": "Lac",
+    "mao": "Kanem",
+    "nokou": "Kanem",
     "ati": "Batha",
+    "oumm hadjer": "Batha",
     "biltine": "Wadi Fira",
+    "guereda": "Wadi Fira",
     "faya": "Borkou",
     "faya-largeau": "Borkou",
+    "faya largeau": "Borkou",
     "fada": "Ennedi Ouest",
     "amdjarass": "Ennedi Est",
+    "am-djarass": "Ennedi Est",
+    "am djarass": "Ennedi Est",
     "massakory": "Hadjer-Lamis",
+    "bokoro": "Hadjer-Lamis",
     "moussoro": "Barh El Gazel",
     "massenya": "Chari-Baguirmi",
+    "bousso": "Chari-Baguirmi",
     "bardai": "Tibesti",
     "bardaï": "Tibesti",
+    "zouar": "Tibesti",
     "ndjamena": "N'Djamena",
     "n'djamena": "N'Djamena",
     "n djamena": "N'Djamena",
@@ -159,6 +182,18 @@ def _fmt_pct(val: Optional[float], signed: bool = True) -> str:
     return f"{num:.1f}%"
 
 
+def _fmt_num(val: Optional[float]) -> str:
+    """Formate un montant/prix (entier si exact, sinon 1 décimale) avec séparateur d'espace."""
+    if val is None or not math.isfinite(float(val)):
+        return "n/d"
+    num = round(float(val), 1)
+    if abs(num - round(num)) < 0.05:
+        return _fmt_int(round(num))
+    whole = int(num) if num >= 0 else -int(abs(num))
+    frac = int(round(abs(num - whole) * 10))
+    return f"{_fmt_int(whole)}.{frac}"
+
+
 _CITY_CANONICAL_HINTS = {
     "abe": "abeche",
     "ndj": "djamena",
@@ -202,6 +237,23 @@ _OPPORTUNITY_RE = re.compile(
     r"approvisionner|approvisionnement|revendre|revente|"
     r"meilleur marche|meilleurs marches|approprie|lancer|conseil|conseils)\b"
 )
+_MARKET_CHOICE_OPPORTUNITY_RE = re.compile(
+    r"\b(?:quel(?:s)?\s+marche(?:s)?|meilleur(?:s)?\s+marche(?:s)?|approprie|opportunite(?:s)?\s+(?:commerciales?|d[\s']?arbitrage)?)\b"
+)
+_BEGINNER_BUSINESS_RE = re.compile(
+    r"\b(?:debuter|debutant|debutante|se\s+lancer|pour\s+commencer|comment\s+commencer|guide\s+debutant)\b"
+)
+_PROFIT_SIM_RE = re.compile(
+    r"\b(?:profit|profits|benefice|benefices|marge\s+nette|marges\s+nettes|"
+    r"rentable|rentables|rentabilite|combien\s+je\s+gagne|combien\s+puis[\s-]+je\s+gagner|"
+    r"seuil\s+de\s+rentabilite|compte\s+d[\s']?exploitation|simuler|simulation|"
+    r"capital|budget)\b"
+)
+_BIZ_TRIGGER_RE = re.compile(
+    r"\b(?:profit|profits|benefice|benefices|revenu|revenus|marge|marges|capital|budget|"
+    r"debuter|debutant|se\s+lancer|lancer|business|rentable|rentables|rentabilite|"
+    r"combien\s+je\s+gagne|investir)\b"
+)
 # "3 millions", "2,5 m" ...
 _LOAN_MILLION_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:millions?|m)\b")
 # Montant explicite avec une unité monétaire : "500 000 fcfa", "3.000.000 xaf", "800000 francs".
@@ -209,6 +261,22 @@ _LOAN_UNIT_RE = re.compile(r"(\d{1,3}(?:[ .]\d{3})+|\d+)\s*(?:xaf|fcfa|f\s?cfa|c
 _VOL_TONNE_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(?:tonnes?|t(?=\s|$|[.,;!?]))\b")
 _VOL_SAC_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*sacs?\b")
 _VOL_KG_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*(?:kg|kilos?|kilogrammes?)\b")
+_TRANSPORT_KW_RE = re.compile(
+    r"(?:transport|fret|acheminement|cout\s*(?:de\s*)?transport|frais\s*(?:de\s*)?(?:transport|route|logistique))"
+    r"(?:\s*(?:est|de|a|:|=|estime\s*a))?\s*(\d+(?:[.,]\d+)?)"
+    r"(?!\s*(?:tonnes?|sacs?|kg|kilos?|kilogrammes?|millions?)\b)"
+    r"(?:\s*(?:xaf|fcfa|f\s?cfa|cfa|francs?))?(?:\s*(?:/|par)\s*kg)?"
+)
+_TRANSPORT_UNIT_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:xaf|fcfa|f\s?cfa|cfa|francs?)\s*(?:/|par)\s*kg\b"
+)
+_CAPITAL_CTX_RE = re.compile(
+    r"(?:capital|budget|investir|avec|enveloppe|mise|disponible|fonds?)\s*(?:de|d[' ]|est|:|=)?\s*"
+    r"(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d+)(?!\s*(?:%|kg|kilos?|kilogrammes?|sacs?|tonnes?)\b)\b"
+)
+_NON_CAPITAL_FRAG_RE = re.compile(
+    r"(?:\d+(?:[.,]\d+)?)\s*(?:tonnes?|sacs?|kg|kilos?|kilogrammes?|%|(?:xaf|fcfa|f\s?cfa|cfa|francs?)\s*(?:/|par)\s*kg)\b"
+)
 _ORIGIN_PREP_RE = re.compile(r"(?:^|\b)(?:depuis|venant\s+de|partir\s+de|de|du|d')\s*$")
 _MIN_LOAN_XAF = 10_000  # même plancher que l'API (/credit-passport)
 _DEFAULT_LOAN_XAF = 1_000_000
@@ -276,6 +344,116 @@ def numbers_are_grounded(candidate: str, *sources: str) -> bool:
     return not _ungrounded_numbers(candidate, *sources)
 
 
+def _parse_fr_number(raw: str) -> Optional[float]:
+    """Convertit un nombre saisi à la française ou anglaise (`500 000`, `1.5`, `1,5`) en float."""
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if re.fullmatch(r"\d{1,3}(?:[ .\u00a0\u202f]\d{3})+", cleaned):
+        cleaned = re.sub(r"[ .\u00a0\u202f]", "", cleaned)
+    else:
+        cleaned = re.sub(r"[ \u00a0\u202f]", "", cleaned).replace(",", ".")
+    try:
+        val = float(cleaned)
+        return val if math.isfinite(val) else None
+    except ValueError:
+        return None
+
+
+def _extract_business_params_with_meta(text: str) -> dict:
+    """Extrait les paramètres commerciaux + drapeaux d'utilisation des valeurs par défaut."""
+    q_norm = _normalize_text(text or "")
+
+    transport_cost = 25.0
+    is_default_transport = True
+    masked = q_norm
+
+    m_tr_unit = _TRANSPORT_UNIT_RE.search(q_norm)
+    m_tr_kw = _TRANSPORT_KW_RE.search(q_norm)
+    tr_match = m_tr_kw or m_tr_unit
+    if m_tr_kw and m_tr_unit and m_tr_unit.start() < m_tr_kw.start():
+        tr_match = m_tr_unit
+    if tr_match:
+        parsed_tr = _parse_fr_number(tr_match.group(1))
+        if parsed_tr is not None and parsed_tr >= 0:
+            transport_cost = float(parsed_tr)
+            is_default_transport = False
+            masked = masked[: tr_match.start()] + (" " * (tr_match.end() - tr_match.start())) + masked[tr_match.end() :]
+
+    quantity_kg: Optional[float] = None
+    quantity_label: Optional[str] = None
+    m_tonne = _VOL_TONNE_RE.search(q_norm)
+    m_sac = _VOL_SAC_RE.search(q_norm)
+    m_kg = _VOL_KG_RE.search(q_norm)
+    if m_tonne:
+        qty = float(m_tonne.group(1).replace(",", "."))
+        quantity_kg = qty * 1000.0
+        qty_str = f"{qty:g}".replace(".", ",")
+        quantity_label = f"{qty_str} tonne(s) ({_fmt_int(quantity_kg)} kg)"
+    elif m_sac:
+        qty = float(m_sac.group(1).replace(",", "."))
+        quantity_kg = qty * 100.0
+        qty_str = f"{qty:g}".replace(".", ",")
+        quantity_label = f"{qty_str} sac(s) de 100 kg ({_fmt_int(quantity_kg)} kg)"
+    elif m_kg:
+        qty = float(m_kg.group(1).replace(",", "."))
+        quantity_kg = qty
+        quantity_label = f"{_fmt_int(qty)} kg"
+
+    # Masque les volumes, pourcentages et tarifs /kg afin de ne jamais les confondre avec un capital.
+    masked = _NON_CAPITAL_FRAG_RE.sub(" ", masked)
+
+    capital_xaf = 500000.0
+    is_default_capital = True
+    m_cap_million = _LOAN_MILLION_RE.search(masked)
+    if m_cap_million:
+        val = _parse_fr_number(m_cap_million.group(1))
+        if val is not None and val > 0:
+            capital_xaf = float(val * 1_000_000.0)
+            is_default_capital = False
+    else:
+        m_cap_unit = re.search(
+            r"(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d+(?:[.,]\d+)?)\s*(?:xaf|fcfa|f\s?cfa|cfa|francs?)\b",
+            masked,
+        )
+        if m_cap_unit:
+            val = _parse_fr_number(m_cap_unit.group(1))
+            if val is not None and val >= 100.0:
+                capital_xaf = float(val)
+                is_default_capital = False
+        else:
+            m_cap_ctx = _CAPITAL_CTX_RE.search(masked)
+            if m_cap_ctx:
+                val = _parse_fr_number(m_cap_ctx.group(1))
+                if val is not None and val >= 1000.0:
+                    capital_xaf = float(val)
+                    is_default_capital = False
+
+    return {
+        "capital_xaf": capital_xaf,
+        "transport_cost_per_kg": transport_cost,
+        "quantity_kg": quantity_kg,
+        "quantity_label": quantity_label,
+        "is_default_capital": is_default_capital,
+        "is_default_transport": is_default_transport,
+    }
+
+
+def extract_business_params(text: str) -> dict:
+    """
+    Extrait les paramètres financiers et logistiques d'une requête commerciale :
+    - `capital_xaf` (float, défaut `500000.0`)
+    - `transport_cost_per_kg` (float, défaut `25.0`)
+    - `quantity_kg` (float | None, défaut `None`)
+    """
+    meta = _extract_business_params_with_meta(text)
+    return {
+        "capital_xaf": meta["capital_xaf"],
+        "transport_cost_per_kg": meta["transport_cost_per_kg"],
+        "quantity_kg": meta["quantity_kg"],
+    }
+
+
 class MarketDataProvider:
     """
     Couche pure d'accès aux données (Tables Gold + recherche vectorielle RAG).
@@ -314,8 +492,22 @@ class MarketDataProvider:
         if loc_map:
             alts = "|".join(re.escape(k) for k in sorted(loc_map, key=len, reverse=True))
             self._location_re = re.compile(rf"(?<![a-z0-9])({alts})(?![a-z0-9])")
+            self._dir_forward_re = re.compile(
+                rf"(?:\bdepuis|\bde|\bvenant\s+de|\bpartir\s+de|\bd[\s'])\s*({alts})"
+                rf"(?![a-z0-9])(?:\s+(?:jusqu[\s']?a|vers|pour|a|en\s+direction\s+de)\s+|\s*(?:->|→)\s*)({alts})(?![a-z0-9])"
+            )
+            self._dir_reverse_re = re.compile(
+                rf"(?:\ba|\bvers|\bpour|\bdestination\s+de)\s+({alts})(?![a-z0-9]).*?"
+                rf"(?:\bdepuis|\bvenant\s+de|\bpartir\s+de)\s+({alts})(?![a-z0-9])"
+            )
+            self._dir_arrow_re = re.compile(
+                rf"(?<![a-z0-9])({alts})(?![a-z0-9])\s*(?:->|→)\s*({alts})(?![a-z0-9])"
+            )
         else:
             self._location_re = None
+            self._dir_forward_re = None
+            self._dir_reverse_re = None
+            self._dir_arrow_re = None
 
     @staticmethod
     def fr_commodity(commodity_std: str) -> str:
@@ -326,6 +518,34 @@ class MarketDataProvider:
         if not text or self._location_re is None:
             return []
         q_norm = _normalize_text(text)
+
+        if self._dir_forward_re is not None:
+            m_fwd = self._dir_forward_re.search(q_norm)
+            if m_fwd:
+                orig_term, dest_term = m_fwd.group(1), m_fwd.group(2)
+                orig_prov = self._location_map[orig_term]
+                dest_prov = self._location_map[dest_term]
+                if orig_prov != dest_prov:
+                    return [(orig_term, orig_prov), (dest_term, dest_prov)]
+
+        if self._dir_reverse_re is not None:
+            m_rev = self._dir_reverse_re.search(q_norm)
+            if m_rev:
+                dest_term, orig_term = m_rev.group(1), m_rev.group(2)
+                orig_prov = self._location_map[orig_term]
+                dest_prov = self._location_map[dest_term]
+                if orig_prov != dest_prov:
+                    return [(orig_term, orig_prov), (dest_term, dest_prov)]
+
+        if self._dir_arrow_re is not None:
+            m_arr = self._dir_arrow_re.search(q_norm)
+            if m_arr:
+                orig_term, dest_term = m_arr.group(1), m_arr.group(2)
+                orig_prov = self._location_map[orig_term]
+                dest_prov = self._location_map[dest_term]
+                if orig_prov != dest_prov:
+                    return [(orig_term, orig_prov), (dest_term, dest_prov)]
+
         hits: list[tuple[int, str, str]] = []
         seen_provs: set[str] = set()
         for m in self._location_re.finditer(q_norm):
@@ -349,6 +569,15 @@ class MarketDataProvider:
         """Détecte une province officielle ou une ville tchadienne dans `text`."""
         locs = self.resolve_locations(text)
         return locs[0] if locs else None
+
+    def resolve_route(self, text: str) -> tuple[Optional[str], Optional[str]]:
+        """Résout un corridor `(origin_province, dest_province)` depuis une requête textuelle."""
+        locs = self.resolve_locations(text)
+        if not locs:
+            return None, None
+        origin = locs[0]
+        dest = locs[1] if len(locs) >= 2 else None
+        return origin, dest
 
     def resolve_commodities(self, text: str) -> tuple[Optional[str], Optional[list[str]]]:
         """Retourne `(commodity_std_principal, liste_cibles)` à partir d'un texte français ou anglais."""
@@ -987,6 +1216,300 @@ class MarketDataProvider:
             "missing_notes": missing_notes,
         }
 
+    @staticmethod
+    def _resolve_price_series(df: pd.DataFrame) -> pd.Series:
+        """Retourne la série de prix prioritaire par ligne (`predicted_price`, sinon `last_price`, `forecast_t1`, `last_observed_price`, `value`)."""
+        series = pd.Series(float("nan"), index=df.index, dtype="float64")
+        for col in ("predicted_price", "last_price", "forecast_t1", "last_observed_price", "value"):
+            if col in df.columns:
+                col_vals = pd.to_numeric(df[col], errors="coerce")
+                series = series.fillna(col_vals)
+        return series
+
+    def _median_province_commodity_price(self, province: str, commodity: str) -> Optional[float]:
+        """Calcule la médiane des prix (`predicted_price` ou `last_price` à défaut) pour `(province, commodity)`."""
+        if self.forecast_df.empty or not province or not commodity:
+            return None
+        comm_col = "commodity_std" if "commodity_std" in self.forecast_df.columns else "commodity"
+        if comm_col not in self.forecast_df.columns or "province" not in self.forecast_df.columns:
+            return None
+        sub = self.forecast_df[
+            (self.forecast_df["province"] == province) & (self.forecast_df[comm_col] == commodity)
+        ]
+        if sub.empty:
+            return None
+        prices = self._resolve_price_series(sub).dropna()
+        if prices.empty:
+            return None
+        med = float(prices.median())
+        return med if (math.isfinite(med) and med > 0) else None
+
+    def simulate_trade_pnl(
+        self,
+        commodity: str,
+        origin_province: str,
+        dest_province: str,
+        capital_xaf: float = 500000.0,
+        transport_cost_per_kg: float = 25.0,
+        loss_rate_pct: float = 5.0,
+    ) -> dict:
+        """
+        Simule un compte d'exploitation net réel entre deux provinces en intégrant
+        transport, pertes techniques, seuil de rentabilité et marge nette en FCFA.
+        """
+        resolved_comm = self.resolve_commodity(commodity) or commodity
+        if not self.forecast_df.empty and "commodity_std" in self.forecast_df.columns:
+            known_comms = set(self.forecast_df["commodity_std"].dropna().astype(str))
+            if commodity in known_comms:
+                resolved_comm = commodity
+        orig_prov = self.prov_lookup.get(_normalize_text(origin_province), origin_province)
+        dest_prov = self.prov_lookup.get(_normalize_text(dest_province), dest_province)
+
+        capital = max(float(capital_xaf), 0.0)
+        transport = max(float(transport_cost_per_kg), 0.0)
+        loss_pct = min(max(float(loss_rate_pct), 0.0), 99.9)
+        comm_fr = self.fr_commodity(resolved_comm)
+
+        buy_price = self._median_province_commodity_price(orig_prov, resolved_comm)
+        sell_price = self._median_province_commodity_price(dest_prov, resolved_comm)
+
+        if buy_price is None:
+            return {
+                "status": "missing_origin_data",
+                "commodity": resolved_comm,
+                "commodity_fr": comm_fr,
+                "origin_province": orig_prov,
+                "dest_province": dest_prov,
+                "buy_price": None,
+                "sell_price": round(sell_price, 1) if sell_price is not None else None,
+            }
+
+        unit_landed_cost = round(buy_price + transport, 1)
+        purchasable_kg = int(capital // unit_landed_cost) if unit_landed_cost > 0 else 0
+        loss_factor = max(1.0 - loss_pct / 100.0, 1e-6)
+
+        if sell_price is None:
+            break_even_missing = round(unit_landed_cost / loss_factor, 1)
+            return {
+                "status": "missing_dest_data",
+                "commodity": resolved_comm,
+                "commodity_fr": comm_fr,
+                "origin_province": orig_prov,
+                "dest_province": dest_prov,
+                "buy_price": round(buy_price, 1),
+                "sell_price": None,
+                "unit_landed_cost": unit_landed_cost,
+                "purchasable_kg": purchasable_kg,
+                "purchasable_bags_100kg": round(purchasable_kg / 100.0, 2),
+                "break_even_price_per_kg": break_even_missing,
+                "assumptions": {
+                    "capital_xaf": capital,
+                    "transport_cost_per_kg": transport,
+                    "loss_rate_pct": loss_pct,
+                },
+            }
+
+        purchasable_bags_100kg = round(purchasable_kg / 100.0, 2)
+        actual_invested_xaf = round(purchasable_kg * unit_landed_cost, 0)
+        sellable_kg = round(purchasable_kg * (1.0 - loss_pct / 100.0), 1)
+        break_even_price_per_kg = round(actual_invested_xaf / max(sellable_kg, 1.0), 1)
+        gross_revenue_xaf = round(sellable_kg * sell_price, 0)
+        net_profit_xaf = round(gross_revenue_xaf - actual_invested_xaf, 0)
+        net_margin_pct = round((net_profit_xaf / max(actual_invested_xaf, 1.0)) * 100.0, 1)
+        is_profitable = bool(net_profit_xaf > 0)
+
+        return {
+            "status": "ok",
+            "commodity": resolved_comm,
+            "commodity_fr": comm_fr,
+            "origin_province": orig_prov,
+            "dest_province": dest_prov,
+            "buy_price": round(buy_price, 1),
+            "sell_price": round(sell_price, 1),
+            "unit_landed_cost": unit_landed_cost,
+            "purchasable_kg": purchasable_kg,
+            "purchasable_bags_100kg": purchasable_bags_100kg,
+            "actual_invested_xaf": actual_invested_xaf,
+            "sellable_kg": sellable_kg,
+            "break_even_price_per_kg": break_even_price_per_kg,
+            "gross_revenue_xaf": gross_revenue_xaf,
+            "net_profit_xaf": net_profit_xaf,
+            "net_margin_pct": net_margin_pct,
+            "is_profitable": is_profitable,
+            "assumptions": {
+                "capital_xaf": capital,
+                "transport_cost_per_kg": transport,
+                "loss_rate_pct": loss_pct,
+            },
+        }
+
+    def get_beginner_market_guide(self, capital_xaf: float = 500000.0) -> dict:
+        """
+        Génère un guide structuré pour débuter selon le capital disponible :
+        Top 3 filières 'Tremplin' accessibles (<= 450 XAF/kg), 3 pièges à éviter et checklist en 4 étapes.
+        """
+        capital = max(float(capital_xaf), 0.0)
+        checklist = [
+            {
+                "step": 1,
+                "title": "Calibrage du capital et réserve de trésorerie",
+                "description": (
+                    f"N'engagez pas plus de 85 % du capital ({_fmt_int(capital * 0.85)} XAF) dans l'achat de stock "
+                    f"et gardez 15 % ({_fmt_int(capital * 0.15)} XAF) pour le fret, la sacherie et les frais de marché."
+                ),
+            },
+            {
+                "step": 2,
+                "title": "Achat au champ ou sur marché primaire et tri qualité",
+                "description": (
+                    "Achetez au plus près des zones de production juste après récolte en vérifiant le séchage, "
+                    "la propreté du grain et l'absence de charançons."
+                ),
+            },
+            {
+                "step": 3,
+                "title": "Logistique, ensachage 100 kg et stockage sur palettes",
+                "description": (
+                    "Conditionnez en sacs standards de 100 kg, mutualisez le transport retour et stockez sur palettes "
+                    "dans un magasin sec et ventilé pour contenir les pertes sous 5 %."
+                ),
+            },
+            {
+                "step": 4,
+                "title": "Rotation rapide et suivi des alertes FreeData.AI",
+                "description": (
+                    "Visez une rotation de stock de 2 à 4 semaines et surveillez les alertes de hausse (>15 %) "
+                    "sur FreeData.AI pour écouler vos lots avant tout retournement."
+                ),
+            },
+        ]
+
+        if self.passport_df.empty:
+            return {
+                "status": "empty",
+                "capital_xaf": capital,
+                "tremplin_sectors": [],
+                "pitfalls": [],
+                "checklist": checklist,
+            }
+
+        score_col = "score_global" if "score_global" in self.passport_df.columns else "credit_score"
+        cp_df = self.passport_df.copy()
+        if score_col not in cp_df.columns:
+            cp_df[score_col] = 0.0
+        cp_df["_score"] = pd.to_numeric(cp_df[score_col], errors="coerce")
+        cp_df["_cv"] = (
+            pd.to_numeric(cp_df["cv_pct"], errors="coerce")
+            if "cv_pct" in cp_df.columns
+            else float("nan")
+        )
+        cp_df["_dd"] = (
+            pd.to_numeric(cp_df["max_drawdown_pct"], errors="coerce")
+            if "max_drawdown_pct" in cp_df.columns
+            else float("nan")
+        )
+
+        # Médiane des prix par (province, commodity_std) depuis forecast_df
+        tremplin_sectors: list[dict] = []
+        if not self.forecast_df.empty and "province" in self.forecast_df.columns and "commodity_std" in self.forecast_df.columns:
+            fc = self.forecast_df.copy()
+            fc["_unit_price"] = self._resolve_price_series(fc)
+            fc_prices = (
+                fc.dropna(subset=["province", "commodity_std", "_unit_price"])
+                .groupby(["province", "commodity_std"], as_index=False)
+                .agg(unit_price_xaf=("_unit_price", "median"))
+            )
+            merged = cp_df.merge(fc_prices, on=["province", "commodity_std"], how="inner")
+            eligible = merged[
+                merged["unit_price_xaf"].notna()
+                & (merged["unit_price_xaf"] > 0)
+                & (merged["unit_price_xaf"] <= 450.0)
+                & merged["_cv"].notna()
+                & merged["_score"].notna()
+            ].copy()
+            if not eligible.empty:
+                eligible = eligible.sort_values(by=["_score", "_cv"], ascending=[False, True])
+                seen_pairs: set[tuple[str, str]] = set()
+                for _, r in eligible.iterrows():
+                    prov = str(r.get("province", ""))
+                    comm = str(r.get("commodity_std", ""))
+                    if (prov, comm) in seen_pairs:
+                        continue
+                    seen_pairs.add((prov, comm))
+                    unit_p = float(r["unit_price_xaf"])
+                    bags = round(capital / (unit_p * 100.0), 1)
+                    bags_int = int(capital // (unit_p * 100.0))
+                    sc_val = round(float(r["_score"]), 1)
+                    cv_val = round(float(r["_cv"]), 1)
+                    dd_val = _clean_float(r.get("_dd"))
+                    tremplin_sectors.append(
+                        {
+                            "province": prov,
+                            "commodity_std": comm,
+                            "commodity_fr": self.fr_commodity(comm),
+                            "unit_price_xaf": round(unit_p, 1),
+                            "bag_100kg_price_xaf": round(unit_p * 100.0, 0),
+                            "purchasable_bags_100kg": bags,
+                            "full_bags_100kg": bags_int,
+                            "purchasable_kg": int(capital // unit_p),
+                            "score_global": sc_val,
+                            "credit_score": sc_val,
+                            "grade": str(r.get("grade", "")),
+                            "cv_pct": cv_val,
+                            "max_drawdown_pct": round(dd_val, 1) if dd_val is not None else None,
+                        }
+                    )
+                    if len(tremplin_sectors) >= 3:
+                        break
+
+        # Top 3 pièges à éviter : plus forte volatilité (cv_pct) ou plus fort drawdown (max_drawdown_pct)
+        risk_df = cp_df[cp_df["_cv"].notna() | cp_df["_dd"].notna()].copy()
+        pitfalls: list[dict] = []
+        if not risk_df.empty:
+            risk_df["_risk_index"] = risk_df["_cv"].fillna(0.0).abs() + risk_df["_dd"].fillna(0.0).abs()
+            risk_df = risk_df.sort_values(by=["_risk_index", "_cv"], ascending=[False, False])
+            seen_risk: set[tuple[str, str]] = set()
+            for _, r in risk_df.iterrows():
+                prov = str(r.get("province", ""))
+                comm = str(r.get("commodity_std", ""))
+                if (prov, comm) in seen_risk:
+                    continue
+                seen_risk.add((prov, comm))
+                cv_val = _clean_float(r.get("_cv"))
+                dd_val = _clean_float(r.get("_dd"))
+                sc_val = _clean_float(r.get("_score"))
+                reasons = []
+                if cv_val is not None:
+                    reasons.append(f"une forte instabilité des prix (volatilité {cv_val:.1f} %)")
+                if dd_val is not None:
+                    reasons.append(f"un décrochage maximal historique de {abs(dd_val):.1f} %")
+                risk_reason = (
+                    f"Risque élevé d'achat à contre-cycle lié à {' et '.join(reasons)} : "
+                    "évitez d'engager un gros stock sans couverture ou pré-commande."
+                )
+                pitfalls.append(
+                    {
+                        "province": prov,
+                        "commodity_std": comm,
+                        "commodity_fr": self.fr_commodity(comm),
+                        "cv_pct": round(cv_val, 1) if cv_val is not None else None,
+                        "max_drawdown_pct": round(dd_val, 1) if dd_val is not None else None,
+                        "score_global": round(sc_val, 1) if sc_val is not None else None,
+                        "grade": str(r.get("grade", "")),
+                        "risk_reason": risk_reason,
+                    }
+                )
+                if len(pitfalls) >= 3:
+                    break
+
+        return {
+            "status": "ok" if (tremplin_sectors or pitfalls) else "empty",
+            "capital_xaf": capital,
+            "tremplin_sectors": tremplin_sectors,
+            "pitfalls": pitfalls,
+            "checklist": checklist,
+        }
+
     def retrieve_rag_chunks(self, query: str, match_count: int = 3) -> list[dict]:
         """Vectorise la question via Jina (1024 dim) et interroge Supabase `match_chunks` (clé publique `anon`)."""
         if not query or not settings.embed_api_key or not settings.supabase_url or not settings.supabase_key:
@@ -1140,11 +1663,42 @@ class FreeDataAIAgent:
             loan_amount = candidate
 
         volume_kg, volume_label = self._extract_volume(q_norm)
+        biz_meta = _extract_business_params_with_meta(q_norm)
+        if volume_kg is None and biz_meta["quantity_kg"] is not None:
+            volume_kg = biz_meta["quantity_kg"]
+            volume_label = biz_meta["quantity_label"]
+
+        is_opportunity_market_choice = bool(_MARKET_CHOICE_OPPORTUNITY_RE.search(q_norm))
+        is_explicit_biz_param = (not biz_meta["is_default_capital"]) or (not biz_meta["is_default_transport"])
+        is_pure_gross_route_revenue = bool(
+            origin_prov
+            and dest_prov
+            and origin_prov != dest_prov
+            and re.search(r"\brevenus?\b", q_norm)
+            and not re.search(
+                r"\b(?:profit|profits|benefice|benefices|marge|marges|capital|budget|"
+                r"investir|debuter|se\s+lancer|rentable|rentables|rentabilite|combien\s+je\s+gagne)\b",
+                q_norm,
+            )
+            and not is_explicit_biz_param
+        )
+        has_business_sim_signal = bool(
+            _BEGINNER_BUSINESS_RE.search(q_norm)
+            or _PROFIT_SIM_RE.search(q_norm)
+            or is_explicit_biz_param
+            or (
+                _BIZ_TRIGGER_RE.search(q_norm)
+                and not is_opportunity_market_choice
+                and not is_pure_gross_route_revenue
+            )
+        )
 
         if _CREDIT_RE.search(q_norm):
             intent = "credit_passport"
         elif _ALERT_RE.search(q_norm):
             intent = "alerts"
+        elif has_business_sim_signal:
+            intent = "business_simulator"
         elif origin_prov and dest_prov and origin_prov != dest_prov:
             intent = "route_revenue"
         elif _OPPORTUNITY_RE.search(q_norm):
@@ -1165,6 +1719,10 @@ class FreeDataAIAgent:
             "loan_amount": loan_amount,
             "volume_kg": volume_kg,
             "volume_label": volume_label,
+            "capital_xaf": biz_meta["capital_xaf"],
+            "transport_cost_per_kg": biz_meta["transport_cost_per_kg"],
+            "is_default_capital": biz_meta["is_default_capital"],
+            "is_default_transport": biz_meta["is_default_transport"],
             "intent": intent,
         }
 
@@ -1635,10 +2193,166 @@ class FreeDataAIAgent:
         return "\n".join(lines)
 
     @staticmethod
-    def _format_sources_section(chunks: list[dict]) -> str:
+    def _format_business_simulator(
+        data: dict,
+        mode: str,
+        is_default_transport: bool = True,
+        is_default_capital: bool = True,
+        quantity_label: Optional[str] = None,
+    ) -> str:
+        """Formate la simulation P&L nette ou le guide débutant en français pédagogique sans jargon technique."""
+        if mode == "trade_pnl":
+            comm_fr = data.get("commodity_fr") or MarketDataProvider.fr_commodity(str(data.get("commodity", "")))
+            orig = data.get("origin_province") or "Origine"
+            dest = data.get("dest_province") or "Destination"
+            status = data.get("status")
+
+            if status == "missing_origin_data":
+                return (
+                    f"### 1. Diagnostic de l'opération — {comm_fr} ({orig} → {dest})\n\n"
+                    f"Aucun prix vérifié n'est actuellement suivi pour **{comm_fr}** dans la province d'origine **{orig}**.\n\n"
+                    f"### 2. Hypothèses & Points de Vigilance\n"
+                    f"- Sans prix d'achat mesuré à **{orig}**, il est impossible de chiffrer le coût de revient sans extrapoler.\n"
+                    f"- Précisez une autre province d'approvisionnement ou un autre produit suivi (Mil, Sorgho rouge, Riz, Maïs blanc, Niébé)."
+                )
+
+            assumptions = data.get("assumptions") or {}
+            cap_val = float(assumptions.get("capital_xaf", 500000.0))
+            tr_val = float(assumptions.get("transport_cost_per_kg", 25.0))
+            loss_val = float(assumptions.get("loss_rate_pct", 5.0))
+            if is_default_transport:
+                transport_note = (
+                    f"*(Hypothèse transport utilisée : {_fmt_num(tr_val)} XAF/kg, pertes techniques estimées : "
+                    f"{_fmt_num(loss_val)} % — précisez vos propres frais si besoin)*"
+                )
+            else:
+                transport_note = (
+                    f"- Frais de transport saisis : **{_fmt_num(tr_val)} XAF/kg** | "
+                    f"Pertes techniques de manutention et d'humidité estimées : **{_fmt_num(loss_val)} %**."
+                )
+
+            if status == "missing_dest_data":
+                lines = [
+                    f"### 1. Diagnostic de l'opération — {comm_fr} ({orig} → {dest})",
+                    "",
+                    f"Aucun prix de revente n'est suivi pour **{comm_fr}** dans la province cible **{dest}** : "
+                    "la simulation ne peut donc pas estimer le chiffre d'affaires ni le bénéfice final sans inventer de prix.",
+                    "",
+                    "### 2. Repères connus à l'achat",
+                    "",
+                    "| Indicateur | Valeur estimée |",
+                    "| :--- | ---: |",
+                    f"| Capital de référence | {_fmt_int(cap_val)} XAF |",
+                    f"| Prix d'achat origine ({orig}) | {_fmt_num(data.get('buy_price'))} XAF/kg |",
+                    f"| Coût de revient rendu | {_fmt_num(data.get('unit_landed_cost'))} XAF/kg |",
+                    f"| Volume achetable | {_fmt_int(data.get('purchasable_kg'))} kg ({data.get('purchasable_bags_100kg', 0):.2f} sacs de 100 kg) |",
+                    f"| **Seuil de rentabilité minimum** | **{_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg** |",
+                    "",
+                    f"**Pour ne pas perdre d'argent, vous devez revendre au minimum à {_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg** à **{dest}**.",
+                    "",
+                    "### 3. Hypothèses & Points de Vigilance",
+                    transport_note,
+                    "- Renseignez-vous sur le prix local du sac de 100 kg à destination pour valider si le marché dépasse ce seuil plancher.",
+                ]
+                return "\n".join(lines)
+
+            is_prof = bool(data.get("is_profitable"))
+            net_profit = float(data.get("net_profit_xaf") or 0.0)
+            net_margin = float(data.get("net_margin_pct") or 0.0)
+            verdict_title = "Opération rentable estimée" if is_prof else "Opération risquée ou déficitaire"
+            verdict_detail = (
+                f"Sur le corridor **{orig} → {dest}** en **{comm_fr}**, le prix prévu à destination "
+                f"(**{_fmt_num(data.get('sell_price'))} XAF/kg**) dépasse le seuil de rentabilité "
+                f"(**{_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg**), dégageant un bénéfice net estimé de "
+                f"**{_fmt_signed_int(net_profit)} XAF** (**{_fmt_pct(net_margin)}** de marge nette)."
+                if is_prof
+                else f"Sur le corridor **{orig} → {dest}** en **{comm_fr}**, le prix prévu à destination "
+                f"(**{_fmt_num(data.get('sell_price'))} XAF/kg**) ne couvre pas le seuil de rentabilité après transport et pertes "
+                f"(**{_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg**), soit un résultat net de "
+                f"**{_fmt_signed_int(net_profit)} XAF** (**{_fmt_pct(net_margin)}**)."
+            )
+            qty_context = f" *(calibré pour {quantity_label})*" if (quantity_label and is_default_capital) else ""
+
+            lines = [
+                f"### 1. Diagnostic de l'opération — {comm_fr} ({orig} → {dest})",
+                "",
+                f"**{verdict_title}** : {verdict_detail}",
+                "",
+                "### 2. Détail du Compte d'Exploitation Estimé",
+                "",
+                "| Poste financier & volume | Estimation |",
+                "| :--- | ---: |",
+                f"| Budget disponible{qty_context} | {_fmt_int(cap_val)} XAF |",
+                f"| Capital réellement engagé | {_fmt_int(data.get('actual_invested_xaf'))} XAF |",
+                f"| Volume acheté | {_fmt_int(data.get('purchasable_kg'))} kg ({data.get('purchasable_bags_100kg', 0):.2f} sacs de 100 kg) |",
+                f"| Volume revendable net (après {_fmt_num(loss_val)} % de pertes) | {_fmt_num(data.get('sellable_kg'))} kg |",
+                f"| Prix d'achat ({orig}) → Coût rendu | {_fmt_num(data.get('buy_price'))} → {_fmt_num(data.get('unit_landed_cost'))} XAF/kg |",
+                f"| **Seuil de rentabilité minimum** | **{_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg** |",
+                f"| Prix de revente estimé ({dest}) | {_fmt_num(data.get('sell_price'))} XAF/kg |",
+                f"| Chiffre d'affaires brut | {_fmt_int(data.get('gross_revenue_xaf'))} XAF |",
+                f"| **Bénéfice net estimé** | **{_fmt_signed_int(net_profit)} XAF** |",
+                f"| **Marge nette estimée** | **{_fmt_pct(net_margin)}** |",
+                "",
+                "### 3. Hypothèses & Points de Vigilance",
+                transport_note,
+                f"- Gardez au moins **10 à 15 %** de trésorerie libre hors stock pour les imprévus de route, taxes communales et sacherie.",
+                "- Vous pouvez ajuster votre capital ou vos frais réels de transport (ex. « avec transport 35 XAF/kg ») pour recalculer immédiatement.",
+            ]
+            return "\n".join(lines)
+
+        # Mode Guide Débutant (`get_beginner_market_guide`)
+        cap_val = float(data.get("capital_xaf", 500000.0))
+        tremplins = data.get("tremplin_sectors") or []
+        pitfalls = data.get("pitfalls") or []
+        checklist = data.get("checklist") or []
+
+        lines = [
+            f"### 1. Diagnostic pour débuter avec {_fmt_int(cap_val)} XAF",
+            "",
+            f"Pour lancer une activité agricole avec un capital de **{_fmt_int(cap_val)} XAF** tout en limitant le risque de perte, "
+            f"privilégiez les denrées accessibles (prix unitaire inférieur ou égal à **450 XAF/kg**) affichant une bonne stabilité "
+            f"historique et un profil Credit Passport solide, tout en conservant **15 %** de trésorerie de sécurité ({_fmt_int(cap_val * 0.15)} XAF).",
+            "",
+            "### 2. Top 3 Filières « Tremplin » recommandées",
+        ]
+        if tremplins:
+            lines.extend(
+                [
+                    "",
+                    "| Filière | Province | Prix | Pouvoir d'achat | Solidité & Stabilité |",
+                    "| :--- | :--- | ---: | ---: | :--- |",
+                ]
+            )
+            for item in tremplins:
+                bags_str = f"{item['purchasable_bags_100kg']:.1f} sacs de 100 kg"
+                lines.append(
+                    f"| **{item['commodity_fr']}** | {item['province']} | "
+                    f"{_fmt_num(item['unit_price_xaf'])} XAF/kg | {bags_str} | "
+                    f"Score {item['score_global']:.1f}/100 ({item['grade']}) · volatilité {item['cv_pct']:.1f} % |"
+                )
+        else:
+            lines.append("- Aucune filière ne remplit actuellement les critères d'entrée sous 450 XAF/kg dans les données actives.")
+
+        lines.extend(["", "### 3. 3 Pièges à éviter"])
+        if pitfalls:
+            for idx, p in enumerate(pitfalls, start=1):
+                lines.append(
+                    f"- **Piège {idx} — {p['commodity_fr']} ({p['province']}) :** {p['risk_reason']}"
+                )
+        else:
+            lines.append("- Surveillez les denrées saisonnières périssables sans débouché pré-identifié.")
+
+        lines.extend(["", "### 4. Checklist opérationnelle en 4 étapes"])
+        for step in checklist:
+            lines.append(f"{step['step']}. **{step['title']} :** {step['description']}")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_sources_section(chunks: list[dict], heading: str = "Sources documentaires associées") -> str:
         if not chunks:
             return ""
-        lines = ["### Sources documentaires associées"]
+        lines = [f"### {heading}"]
         for c in chunks:
             titre = c.get("titre") or "Document"
             editeur = c.get("editeur") or "Source"
@@ -1694,6 +2408,58 @@ class FreeDataAIAgent:
         elif intent == "alerts":
             raw_data = self.provider.get_alerts(prov, comm)
             facts = self._format_alerts(raw_data)
+        elif intent == "business_simulator":
+            orig_prov = entities.get("origin_province")
+            dest_prov = entities.get("destination_province")
+            capital_xaf = float(entities.get("capital_xaf") or 500000.0)
+            transport_cost = float(entities.get("transport_cost_per_kg") or 25.0)
+            is_default_cap = bool(entities.get("is_default_capital", True))
+            is_default_tr = bool(entities.get("is_default_transport", True))
+            qty_kg = entities.get("volume_kg")
+            qty_label = entities.get("volume_label")
+
+            if orig_prov and dest_prov and orig_prov != dest_prov:
+                candidates = entities.get("commodities") or [comm or "Millet"]
+                chosen_data = None
+                for cand_comm in candidates:
+                    eff_cap = capital_xaf
+                    if is_default_cap and qty_kg and qty_kg > 0:
+                        buy_p = self.provider._median_province_commodity_price(orig_prov, cand_comm)
+                        if buy_p is not None and (buy_p + transport_cost) > 0:
+                            eff_cap = float(math.ceil(qty_kg * (buy_p + transport_cost)))
+                    cand_res = self.provider.simulate_trade_pnl(
+                        cand_comm,
+                        orig_prov,
+                        dest_prov,
+                        capital_xaf=eff_cap,
+                        transport_cost_per_kg=transport_cost,
+                        loss_rate_pct=5.0,
+                    )
+                    if chosen_data is None:
+                        chosen_data = cand_res
+                    elif chosen_data.get("status") != "ok" and cand_res.get("status") == "ok":
+                        chosen_data = cand_res
+                    elif chosen_data.get("status") == "missing_origin_data" and cand_res.get("status") != "missing_origin_data":
+                        chosen_data = cand_res
+                    if chosen_data.get("status") == "ok":
+                        break
+                raw_data = chosen_data or {}
+                facts = self._format_business_simulator(
+                    raw_data,
+                    mode="trade_pnl",
+                    is_default_transport=is_default_tr,
+                    is_default_capital=is_default_cap,
+                    quantity_label=qty_label,
+                )
+            else:
+                raw_data = self.provider.get_beginner_market_guide(capital_xaf=capital_xaf)
+                facts = self._format_business_simulator(
+                    raw_data,
+                    mode="beginner_guide",
+                    is_default_transport=is_default_tr,
+                    is_default_capital=is_default_cap,
+                    quantity_label=qty_label,
+                )
         elif intent == "route_revenue":
             raw_data = self.provider.calculate_route_revenue(
                 entities["origin_province"],
@@ -1894,7 +2660,12 @@ class FreeDataAIAgent:
         reply = structured_facts
         if intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in reply:
             reply = f"{reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
-        sources_section = self._format_sources_section(chunks)
+        sources_heading = (
+            "Références documentaires associées"
+            if intent == "business_simulator"
+            else "Sources documentaires associées"
+        )
+        sources_section = self._format_sources_section(chunks, heading=sources_heading)
         if sources_section:
             reply = f"{reply}\n\n{sources_section}"
         return reply
@@ -1954,6 +2725,7 @@ class FreeDataAIAgent:
             entities["province"]
             or entities["commodity"]
             or entities.get("volume_kg")
+            or entities.get("intent") == "business_simulator"
             or _CREDIT_RE.search(q_norm)
             or _ALERT_RE.search(q_norm)
             or _OPPORTUNITY_RE.search(q_norm)
