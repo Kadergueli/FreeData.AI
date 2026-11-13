@@ -3,11 +3,13 @@ import logging
 import os
 import sys
 import threading
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Optional
 import requests
 import pandas as pd
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -27,6 +29,40 @@ logger = logging.getLogger("freedata.api")
 # état entièrement construit : une requête ne voit jamais un mélange ancien/nouveau.
 STATE: dict = {}
 _REFRESH_LOCK = threading.Lock()
+_RATE_LIMIT_BUCKET: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_LOCK = threading.Lock()
+
+
+def check_rate_limit(request: Request, max_per_minute: int = 20):
+    """Limite à `max_per_minute` requêtes par minute et par IP sur l'endpoint chat."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    with _RATE_LIMIT_LOCK:
+        window = [ts for ts in _RATE_LIMIT_BUCKET.get(client_ip, ()) if now - ts < 60.0]
+        if len(window) >= max_per_minute:
+            _RATE_LIMIT_BUCKET[client_ip] = window
+            raise HTTPException(
+                status_code=429,
+                detail="Trop de requêtes. Réessayez dans une minute.",
+            )
+        window.append(now)
+        _RATE_LIMIT_BUCKET[client_ip] = window
+        if len(_RATE_LIMIT_BUCKET) > 1000:
+            stale_ips = [
+                ip
+                for ip, timestamps in _RATE_LIMIT_BUCKET.items()
+                if not timestamps or now - timestamps[-1] >= 60.0
+            ]
+            for ip in stale_ips:
+                _RATE_LIMIT_BUCKET.pop(ip, None)
+
+
+enforce_rate_limit = check_rate_limit
+
+
+def _chat_rate_limit_dependency(request: Request):
+    # Encapsule check_rate_limit sans paramètre scalaire pour éviter l'exposition en query param.
+    check_rate_limit(request)
 
 
 def _fetch_gold_table(table_name: str) -> pd.DataFrame:
@@ -170,13 +206,14 @@ def get_state() -> dict:
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=2, max_length=1000)
+    message: str = Field(..., min_length=1, max_length=1000)
 
 
 class ChatResponse(BaseModel):
     reply: str
     intent: str
     entities: dict
+    sources: list[dict] = Field(default_factory=list)
 
 
 @app.get("/api/v1/health")
@@ -212,13 +249,69 @@ def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
 @app.get("/api/v1/metadata")
 def get_metadata(state: dict = Depends(get_state)):
     fc = state["forecast_df"]
+    products = sorted(fc["commodity_std"].dropna().astype(str).unique().tolist())
+    cereals = sorted({
+        product for product in products
+        if any(keyword in product.lower() for keyword in ["millet", "maiz", "sorghum", "rice", "wheat", "cereal", "grain"])
+    })
+    markets = sorted(fc["market_name"].dropna().astype(str).unique().tolist())
+    provinces = sorted(fc["province"].dropna().astype(str).unique().tolist())
+    sources = sorted(fc["source"].dropna().astype(str).unique().tolist())
+
+    observed_months = pd.Series(fc["last_observed_month"].dropna().astype(str).unique())
+    start_period = observed_months.min() if not observed_months.empty else None
+    end_period = observed_months.max() if not observed_months.empty else None
+
+    active_domain = {
+        "slug": "markets_and_prices",
+        "label": "Marchés et prix des produits",
+        "status": "operational",
+        "description": "Catalogue en cours d'exploitation : marchés, produits, provinces et sources de données.",
+    }
+
+    domains = [
+        active_domain,
+        {"slug": "agriculture", "label": "Agriculture", "status": "in_preparation", "description": "Données agricoles, climat et production."},
+        {"slug": "economy", "label": "Économie", "status": "in_preparation", "description": "Indicateurs et tendances économiques."},
+        {"slug": "health", "label": "Santé", "status": "in_preparation", "description": "Données de santé et de vulnérabilité."},
+        {"slug": "population", "label": "Population", "status": "in_preparation", "description": "Données démographiques et sociales."},
+        {"slug": "environment", "label": "Environnement", "status": "in_preparation", "description": "Conditions environnementales et risques."},
+        {"slug": "infrastructure", "label": "Infrastructures", "status": "in_preparation", "description": "Transport, routes et services essentiels."},
+        {"slug": "transport", "label": "Transport", "status": "in_preparation", "description": "Flux et mobilité des biens et des personnes."},
+    ]
+
     return {
-        "provinces": sorted(fc["province"].dropna().unique().tolist()),
-        "commodities": sorted(fc["commodity_std"].dropna().unique().tolist()),
+        "active_domain": active_domain,
+        "domains": domains,
+        "products": products,
+        "cereals": cereals,
+        "markets": markets,
+        "provinces": provinces,
+        "sources": sources,
+        "periods_covered": {
+            "start": start_period,
+            "end": end_period,
+        },
+        "last_updated": end_period,
+        "count": {
+            "products": len(products),
+            "cereals": len(cereals),
+            "markets": len(markets),
+            "provinces": len(provinces),
+            "sources": len(sources),
+        },
+        "legacy_fields": {
+            "commodities": products,
+            "provinces": provinces,
+        },
     }
 
 
-@app.post("/api/v1/chat", response_model=ChatResponse)
+@app.post(
+    "/api/v1/chat",
+    response_model=ChatResponse,
+    dependencies=[Depends(_chat_rate_limit_dependency)],
+)
 def chat_endpoint(payload: ChatRequest, state: dict = Depends(get_state)):
     agent: FreeDataAIAgent = state["agent"]
     result = agent.answer_with_metadata(payload.message)

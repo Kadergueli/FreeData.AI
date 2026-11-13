@@ -1,132 +1,474 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../core/models/chat_models.dart';
 import '../services/api_service.dart';
+import '../services/conversation_storage.dart';
+import '../widgets/chat/chat_widgets.dart';
 
 class ChatScreen extends StatefulWidget {
   final ApiService apiService;
-  const ChatScreen({super.key, required this.apiService});
+  final String? conversationId;
+  final VoidCallback? onConversationUpdated;
+  final String? initialPrompt;
+
+  const ChatScreen({
+    super.key,
+    required this.apiService,
+    this.conversationId,
+    this.onConversationUpdated,
+    this.initialPrompt,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
+class _QuickAction {
+  final IconData icon;
+  final String label;
+  final String prompt;
+
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.prompt,
+  });
+}
+
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final List<Map<String, String>> _messages = [
-    {
-      'role': 'assistant',
-      'text': 'Bonjour ! Je suis FreeData.AI, connecté aux séries WFP et FEWS NET du Tchad.\n\n'
-          'Exemples de questions :\n'
-          '• Quelle est la prévision du prix du mil à N\'Djamena ?\n'
-          '• Évalue le risque de financer 3 millions de FCFA de mil au Salamat.\n'
-          '• Quelles sont les alertes de hausse de prix actuelles ?',
-    }
-  ];
+  final ScrollController _scrollController = ScrollController();
+
+  ConversationThread? _thread;
   bool _loading = false;
+  String? _lastPrompt;
 
-  Future<void> _send([String? preset]) async {
-    final text = (preset ?? _controller.text).trim();
-    if (text.isEmpty || _loading) return;
-    setState(() {
-      _messages.add({'role': 'user', 'text': text});
-      _loading = true;
-      if (preset == null) _controller.clear();
-    });
+  static const List<_QuickAction> _quickActions = [
+    _QuickAction(
+      icon: Icons.show_chart_rounded,
+      label: "Prévision Mil · N'Djamena",
+      prompt: "Quelle est la prévision du prix du mil à N'Djamena ?",
+    ),
+    _QuickAction(
+      icon: Icons.shield_outlined,
+      label: "Crédit 3M FCFA · Salamat",
+      prompt: "Évalue le risque de financer 3 millions de FCFA de mil au Salamat.",
+    ),
+    _QuickAction(
+      icon: Icons.warning_amber_rounded,
+      label: "Alertes de hausse (>15%)",
+      prompt: "Quelles sont les alertes de hausse de prix actuelles ?",
+    ),
+    _QuickAction(
+      icon: Icons.swap_horiz_rounded,
+      label: "Tendance Sorgho rouge",
+      prompt: "Quelle est la prévision du prix du sorgho rouge au Tchad ?",
+    ),
+  ];
 
-    try {
-      final res = await widget.apiService.sendChatMessage(text);
-      setState(() {
-        _messages.add({'role': 'assistant', 'text': res['reply'] ?? 'Réponse vide.'});
+  @override
+  void initState() {
+    super.initState();
+    // Pré-réveil silencieux Render
+    widget.apiService.getMetadata().catchError((_) => <String, dynamic>{});
+    _loadConversation(widget.conversationId);
+
+    if (widget.initialPrompt != null && widget.initialPrompt!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _sendMessage(widget.initialPrompt!);
       });
-    } catch (e) {
-      setState(() {
-        _messages.add({
-          'role': 'assistant',
-          'text': 'Impossible de joindre le serveur FreeData.AI ($e). Vérifiez que FastAPI tourne sur ${ApiService.baseUrl}.',
-        });
-      });
-    } finally {
-      setState(() => _loading = false);
     }
   }
 
   @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversationId != widget.conversationId) {
+      _loadConversation(widget.conversationId);
+    }
+    if (widget.initialPrompt != null &&
+        widget.initialPrompt!.isNotEmpty &&
+        widget.initialPrompt != oldWidget.initialPrompt) {
+      _sendMessage(widget.initialPrompt!);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadConversation(String? id) async {
+    if (id != null) {
+      final found = await LocalConversationStorage.instance.getConversation(id);
+      if (!mounted) return;
+      if (found != null) {
+        setState(() => _thread = found);
+        _scrollToBottom();
+        return;
+      }
+
+      final now = DateTime.now();
+      setState(() {
+        _thread = ConversationThread(
+          id: id,
+          title: 'Nouvelle conversation',
+          createdAt: now,
+          updatedAt: now,
+        );
+      });
+      return;
+    }
+
+    // Sinon, charger la plus récente active ou préparer un brouillon vide en mémoire
+    final conversations = await LocalConversationStorage.instance.loadConversations();
+    if (!mounted) return;
+
+    if (conversations.isNotEmpty) {
+      setState(() => _thread = conversations.first);
+    } else {
+      final draft = await LocalConversationStorage.instance.createConversation();
+      if (!mounted) return;
+      setState(() => _thread = draft);
+    }
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  String _titleFromPrompt(String prompt) {
+    final normalized = prompt.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= 30) return normalized;
+    return '${normalized.substring(0, 27)}...';
+  }
+
+  List<Map<String, dynamic>> _extractSources(Map<String, dynamic> response) {
+    final rawSources = response['sources'];
+    if (rawSources is List) {
+      return rawSources.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    }
+    final metadataSources = response['metadata'];
+    if (metadataSources is Map && metadataSources['sources'] is List) {
+      return (metadataSources['sources'] as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+    }
+    return const [];
+  }
+
+  Future<void> _sendMessage(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || _loading) return;
+
+    if (_thread == null) {
+      _thread = await LocalConversationStorage.instance.createConversation();
+      if (!mounted) return;
+    }
+
+    _lastPrompt = trimmed;
+    _controller.clear();
+
+    final userMessage = ChatMessage.user(trimmed);
+    final currentThread = _thread!;
+    final updatedMessages = [...currentThread.messages, userMessage];
+
+    final nextTitle = currentThread.title == 'Nouvelle conversation'
+        ? _titleFromPrompt(trimmed)
+        : currentThread.title;
+
+    final updatedThread = currentThread.copyWith(
+      title: nextTitle,
+      updatedAt: DateTime.now(),
+      messages: updatedMessages,
+    );
+
+    setState(() {
+      _thread = updatedThread;
+      _loading = true;
+    });
+    _scrollToBottom();
+    await LocalConversationStorage.instance.saveConversation(updatedThread);
+    widget.onConversationUpdated?.call();
+
+    try {
+      final response = await widget.apiService.sendChatMessage(trimmed);
+      if (!mounted) return;
+
+      final raw = Map<String, dynamic>.from(response);
+      final reply = raw['reply']?.toString() ??
+          raw['message']?.toString() ??
+          'Réponse reçue.';
+
+      final assistantMessage = ChatMessage.assistant(
+        text: reply,
+        sources: _extractSources(raw),
+        metadata: {
+          'intent': raw['intent'] ?? '',
+          'summary': raw['summary'] ?? raw['analysis'],
+          'table': raw['table'] ?? raw['data'] ?? raw['results'],
+          'chart': raw['chart'] ?? raw['chart_data'],
+          if (raw['disclaimer'] != null) 'disclaimer': raw['disclaimer'].toString(),
+          'error': false,
+        },
+      );
+
+      final finalThread = updatedThread.copyWith(
+        updatedAt: DateTime.now(),
+        messages: [...updatedMessages, assistantMessage],
+      );
+
+      setState(() {
+        _thread = finalThread;
+        _loading = false;
+      });
+      await LocalConversationStorage.instance.saveConversation(finalThread);
+      widget.onConversationUpdated?.call();
+    } catch (e) {
+      if (!mounted) return;
+      final errorText = kDebugMode
+          ? 'Erreur : $e'
+          : 'Une erreur est survenue lors de la communication avec le serveur. Veuillez réessayer.';
+
+      final errorMessage = ChatMessage.assistant(
+        text: errorText,
+        metadata: {'error': true},
+      );
+
+      final finalThread = updatedThread.copyWith(
+        updatedAt: DateTime.now(),
+        messages: [...updatedMessages, errorMessage],
+      );
+
+      setState(() {
+        _thread = finalThread;
+        _loading = false;
+      });
+      await LocalConversationStorage.instance.saveConversation(finalThread);
+      widget.onConversationUpdated?.call();
+    }
+
+    _scrollToBottom();
+  }
+
+  Future<void> _toggleSaveLibrary() async {
+    if (_thread == null || _thread!.messages.isEmpty) return;
+    final next = !_thread!.isSavedInLibrary;
+    final updated = _thread!.copyWith(isSavedInLibrary: next, updatedAt: DateTime.now());
+    setState(() => _thread = updated);
+    await LocalConversationStorage.instance.saveConversation(updated);
+    widget.onConversationUpdated?.call();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next
+            ? 'Conversation ajoutée à la Library'
+            : 'Conversation retirée de la Library'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
+    final messages = _thread?.messages ?? const <ChatMessage>[];
+
+    return ColoredBox(
+      color: Colors.white,
+      child: Column(
+        children: [
+          Expanded(
+            child: messages.isEmpty
+                ? _buildEmptyState()
+                : _buildConversationState(messages),
+          ),
+          _buildInputBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              ActionChip(
-                label: const Text('Prévision Mil N\'Djamena'),
-                onPressed: () => _send('Quelle est la prévision du prix du mil à N\'Djamena ?'),
+              const Text(
+                'Que souhaitez-vous analyser ?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
               ),
-              ActionChip(
-                label: const Text('Crédit 3M FCFA Mil Salamat'),
-                onPressed: () => _send('Quel est le risque de financer 3 millions de FCFA de mil au Salamat ?'),
-              ),
-              ActionChip(
-                label: const Text('Alertes prix actuelles'),
-                onPressed: () => _send('Quelles sont les alertes de hausse de prix actuelles ?'),
+              const SizedBox(height: 18),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: _quickActions.map(_buildQuickActionButton).toList(),
               ),
             ],
           ),
         ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _messages.length,
-            itemBuilder: (context, idx) {
-              final msg = _messages[idx];
-              final isUser = msg['role'] == 'user';
-              return Align(
-                alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isUser
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: SelectableText(
-                    msg['text'] ?? '',
-                    style: const TextStyle(fontSize: 15, height: 1.4),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        if (_loading) const LinearProgressIndicator(),
-        Padding(
-          padding: const EdgeInsets.all(12),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton(_QuickAction action) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _sendMessage(action.prompt),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  onSubmitted: (_) => _send(),
-                  decoration: const InputDecoration(
-                    hintText: 'Posez votre question à FreeData.AI...',
-                    border: OutlineInputBorder(),
+              Icon(action.icon, size: 16, color: const Color(0xFF1D4ED8)),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  action.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF0F172A),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _loading ? null : _send,
-                icon: const Icon(Icons.send),
-                label: const Text('Envoyer'),
               ),
             ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildConversationState(List<ChatMessage> messages) {
+    final isSaved = _thread?.isSavedInLibrary ?? false;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          itemCount: messages.length + (_loading ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index == messages.length && _loading) {
+              return const LoadingIndicator();
+            }
+            final msg = messages[index];
+            if (msg.role == 'user') {
+              return UserMessageBubble(message: msg);
+            } else {
+              return AssistantMessage(
+                message: msg,
+                isSavedInLibrary: isSaved,
+                onRetry: _lastPrompt != null ? () => _sendMessage(_lastPrompt!) : null,
+                onSaveToLibrary: _toggleSaveLibrary,
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+              borderRadius: BorderRadius.circular(26),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.send,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 16,
+                      height: 1.45,
+                    ),
+                    onSubmitted: (_) {
+                      if (!_loading) _sendMessage(_controller.text);
+                    },
+                    decoration: const InputDecoration(
+                      hintText: 'Interroger un marché, un produit ou un risque...',
+                      hintStyle: TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 15.5,
+                      ),
+                      filled: false,
+                      hoverColor: Colors.transparent,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: IconButton(
+                    onPressed: _loading ? null : () => _sendMessage(_controller.text),
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 22),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFE2E8F0),
+                      disabledForegroundColor: const Color(0xFF94A3B8),
+                      shape: const CircleBorder(),
+                      padding: const EdgeInsets.all(10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

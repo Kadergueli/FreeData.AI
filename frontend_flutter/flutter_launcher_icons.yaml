@@ -1,0 +1,13 @@
+flutter_launcher_icons:
+  image_path: "web/favicon.png"
+  android: false
+  ios: false
+  web:
+    generate: true
+    image_path: "web/favicon.png"
+    background_color: "#ffffff"
+    theme_color: "#0175C2"
+  windows:
+    generate: false
+  macos:
+    generate: false

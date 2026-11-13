@@ -20,6 +20,12 @@ class Settings:
     allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*").strip()
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "").strip()
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2").strip()
+    llm_api_key: str = os.getenv("LLM_API_KEY", "").strip()
+    llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1").strip()
+    llm_chat_model: str = os.getenv("LLM_CHAT_MODEL", "llama-3.3-70b-versatile").strip()
+    embed_api_key: str = os.getenv("EMBED_API_KEY", "").strip()
+    embed_base_url: str = os.getenv("EMBED_BASE_URL", "https://api.jina.ai/v1/embeddings").strip()
+    embed_model: str = os.getenv("EMBED_MODEL", "jina-embeddings-v3").strip()
     # Jeton exigé (en-tête X-Admin-Token) par POST /api/v1/refresh. Vide = endpoint désactivé.
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
     # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
