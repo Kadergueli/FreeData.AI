@@ -318,7 +318,7 @@ def test_opportunity_llm_uses_global_snapshot_and_logs_fallback_on_ungrounded(ag
 
     def fake_post(url, *args, **kwargs):
         assert url == "https://api.groq.com/openai/v1/chat/completions"
-        assert kwargs["timeout"] == 10
+        assert kwargs["timeout"] == 12
         assert kwargs["json"]["temperature"] == 0.3
         assert kwargs["json"]["max_tokens"] == 750
         messages = kwargs["json"]["messages"]
@@ -486,7 +486,7 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
     assert "+17,000 XAF" in res["reply"]
     assert "+170,000 XAF" in res["reply"]
 
-    # Suivi conversationnel avec volume sur historique (4 derniers tours) + 1 seul appel Groq (timeout=10)
+    # Suivi conversationnel avec volume sur historique (4 derniers tours) + 1 seul appel Groq (timeout=12)
     history = [
         {"role": "user", "content": query},
         {"role": "assistant", "content": res["reply"]},
@@ -508,7 +508,7 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
 
     def fake_post(url, *args, **kwargs):
         llm_calls.append(url)
-        assert kwargs["timeout"] == 10
+        assert kwargs["timeout"] == 12
         messages = kwargs["json"]["messages"]
         assert len(messages) == 4  # system + 2 historique + user
         user_prompt = messages[-1]["content"]
@@ -901,6 +901,38 @@ def test_agent_free_mode_skips_llm_and_renders_rag_sources_section(agent, monkey
     res_fallback = agent.answer("Quel est le prix du mil au Salamat ?", tier="premium")
     assert "Sources documentaires associées" in res_fallback["reply"]
     assert "Prévisions" in res_fallback["reply"]
+
+
+@pytest.mark.parametrize(
+    "query, expected_fragment",
+    [
+        ("comment vas tu", "Je vais très bien"),
+        ("Ça va ?", "Je vais très bien"),
+        ("qui es-tu ?", "assistant économique et agricole"),
+        ("tu peux m'aider", "assistant économique et agricole"),
+        ("merci beaucoup !", "Avec plaisir"),
+    ],
+)
+def test_conversational_smalltalk_fast_path(agent, monkeypatch, query, expected_fragment):
+    from src import ai_agent
+
+    # Même après une conversation métier dans l'historique, une question sociale ne doit pas
+    # déclencher d'appel HTTP (Jina/Groq) ni réhériter du calcul précédent.
+    monkeypatch.setattr(
+        ai_agent.requests,
+        "post",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("HTTP interdit sur smalltalk")),
+    )
+    history = [
+        {"role": "user", "content": "Quel est le prix du mil à Kélo ?"},
+        {"role": "assistant", "content": "Le mil à Kélo est prévu à 200 XAF/kg."},
+    ]
+    res = agent.answer(query, history=history, tier="premium")
+    assert res["intent"] == "greeting"
+    assert res["sources"] == []
+    assert "FreeData.AI" in res["reply"]
+    assert expected_fragment in res["reply"]
+
 
 
 

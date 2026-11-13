@@ -314,10 +314,30 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_comment_outlined, size: 22, color: Color(0xFF1D4ED8)),
-            tooltip: 'Nouvelle conversation',
-            onPressed: _createNewConversation,
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Tooltip(
+              message: 'Nouvelle conversation',
+              child: InkWell(
+                onTap: _createNewConversation,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.edit_square,
+                    size: 19,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -389,13 +409,13 @@ class _SidebarContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Bouton primaire + Nouvelle conversation
+        // Bouton primaire Nouvelle conversation
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
           child: FilledButton.icon(
             onPressed: onNewConversation,
             icon: const Icon(Icons.add_rounded, size: 20),
-            label: const Text('+ Nouvelle conversation', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            label: const Text('Nouvelle conversation', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF1D4ED8),
               foregroundColor: Colors.white,

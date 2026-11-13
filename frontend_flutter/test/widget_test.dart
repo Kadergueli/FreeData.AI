@@ -25,7 +25,8 @@ void main() {
     expect(find.text('FreeData.AI'), findsWidgets);
     expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
 
-    // Ouvre le Drawer
+    // Vérifie le bouton moderne nouvelle conversation et ouvre le Drawer
+    expect(find.byIcon(Icons.edit_square), findsOneWidget);
     final menuButton = find.byIcon(Icons.menu_rounded);
     expect(menuButton, findsOneWidget);
     await tester.tap(menuButton);
@@ -37,7 +38,8 @@ void main() {
     expect(find.text('Library'), findsOneWidget);
     expect(find.text('Prévisions'), findsOneWidget);
     expect(find.text('Credit Passport'), findsOneWidget);
-    expect(find.text('+ Nouvelle conversation'), findsOneWidget);
+    expect(find.text('Nouvelle conversation'), findsOneWidget);
+    expect(find.text('+ Nouvelle conversation'), findsNothing);
   });
 
   testWidgets('Workspace shows fixed Sidebar on Desktop (>= 900px)', (WidgetTester tester) async {
@@ -60,6 +62,7 @@ void main() {
     expect(find.text('Library'), findsOneWidget);
     expect(find.text('Prévisions'), findsOneWidget);
     expect(find.text('Credit Passport'), findsOneWidget);
-    expect(find.text('+ Nouvelle conversation'), findsOneWidget);
+    expect(find.text('Nouvelle conversation'), findsOneWidget);
+    expect(find.text('+ Nouvelle conversation'), findsNothing);
   });
 }

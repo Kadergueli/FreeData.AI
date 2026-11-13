@@ -203,7 +203,24 @@ class _ChatScreenState extends State<ChatScreen> {
     widget.onConversationUpdated?.call();
 
     try {
-      final response = await widget.apiService.sendChatMessage(trimmed);
+      final validPrevious = currentThread.messages
+          .where((m) => m.metadata['error'] != true && m.text.trim().isNotEmpty)
+          .toList();
+      final historySlice = validPrevious.length > 8
+          ? validPrevious.sublist(validPrevious.length - 8)
+          : validPrevious;
+      final recentHistory = historySlice
+          .map((m) => <String, String>{
+                'role': m.role == 'assistant' ? 'assistant' : 'user',
+                'content': m.text,
+              })
+          .toList();
+
+      final response = await widget.apiService.sendChatMessage(
+        trimmed,
+        history: recentHistory,
+        tier: 'premium',
+      );
       if (!mounted) return;
 
       final raw = Map<String, dynamic>.from(response);
@@ -237,9 +254,11 @@ class _ChatScreenState extends State<ChatScreen> {
       widget.onConversationUpdated?.call();
     } catch (e) {
       if (!mounted) return;
-      final errorText = kDebugMode
-          ? 'Erreur : $e'
-          : 'Une erreur est survenue lors de la communication avec le serveur. Veuillez réessayer.';
+      final errorText = e.toString().contains('429')
+          ? 'Trop de messages envoyés en peu de temps. Veuillez patienter une minute.'
+          : (kDebugMode
+              ? 'Erreur : $e'
+              : 'Une erreur est survenue lors de la communication avec le serveur. Veuillez réessayer.');
 
       final errorMessage = ChatMessage.assistant(
         text: errorText,

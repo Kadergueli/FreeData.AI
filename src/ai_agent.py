@@ -130,7 +130,21 @@ def _clean_int(val: object) -> Optional[int]:
 
 
 # Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
-_GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|merci|aide|help)\b")
+_GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|salam|merci|aide|help)\b")
+_SMALLTALK_HOW_RE = re.compile(
+    r"\b(?:comment\s+(?:vas?\s*tu|tu\s+vas|allez\s*vous|vous\s+allez)|"
+    r"ca\s+va|tu\s+vas\s+bien|vous\s+allez\s+bien|quoi\s+de\s+neuf)\b"
+)
+_SMALLTALK_IDENTITY_RE = re.compile(
+    r"\b(?:qui\s+es[\s-]+tu|tu\s+es\s+qui|que\s+(?:fais|peux|sais)[\s-]+tu|"
+    r"c\s*est\s+quoi\s+freedata|presente[\s-]+toi|tu\s+peux\s+m[\s']aider)\b"
+)
+_SMALLTALK_THANKS_RE = re.compile(
+    r"\b(?:merci(?:\s+beaucoup)?|d[\s']accord|parfait|super|genial|top|au\s+revoir|a\s+bientot|bye|ok)\b"
+)
+_SMALLTALK_RE = re.compile(
+    rf"(?:{_GREETING_RE.pattern}|{_SMALLTALK_HOW_RE.pattern}|{_SMALLTALK_IDENTITY_RE.pattern}|{_SMALLTALK_THANKS_RE.pattern})"
+)
 _OVERVIEW_RE = re.compile(
     r"\b(dataset|donnees|combien|marches|provinces|produits|sources|couverture)\b"
 )
@@ -1013,6 +1027,31 @@ class FreeDataAIAgent:
             f"- **Évaluation Credit Passport** : *« Évalue le risque de financer 3 millions de FCFA de mil au Salamat. »*"
         )
 
+    def tool_handle_smalltalk(self, query: str) -> str:
+        q_norm = _normalize_text(query)
+        if _SMALLTALK_HOW_RE.search(q_norm):
+            return (
+                "Je vais très bien, merci de demander ! Je suis **FreeData.AI**, prêt à vous accompagner sur "
+                "l'analyse des marchés agricoles, les marges commerciales ou l'évaluation Credit Passport au Tchad.\n\n"
+                "Sur quelle ville, province ou denrée souhaitez-vous que je vous aide aujourd'hui ?"
+            )
+        if _SMALLTALK_IDENTITY_RE.search(q_norm):
+            ov = self.provider.get_overview()
+            return (
+                f"Je suis **FreeData.AI**, votre assistant économique et agricole spécialisé sur le Tchad "
+                f"({ov['series_count']} séries de prix suivies sur {len(ov['provinces'])} provinces).\n\n"
+                f"Vous pouvez discuter avec moi naturellement, par exemple :\n"
+                f"- *« Quel est le prix du mil à Moundou ? »*\n"
+                f"- *« Combien je peux gagner en vendant du riz de Kélo à Abéché ? »*\n"
+                f"- *« Quel est le risque de financer 3 millions de FCFA de mil au Salamat ? »*"
+            )
+        if _SMALLTALK_THANKS_RE.search(q_norm) and not re.search(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|aide|help)\b", q_norm):
+            return (
+                "Avec plaisir ! Je suis **FreeData.AI**, toujours disponible si vous souhaitez comparer d'autres marchés, "
+                "estimer une marge sur un volume ou analyser un dossier de financement."
+            )
+        return self.tool_get_greeting()
+
     def tool_get_overview(self) -> str:
         return self._format_overview(self.provider.get_overview())
 
@@ -1424,8 +1463,14 @@ class FreeDataAIAgent:
 
         system_prompt = (
             "Tu es FreeData.AI, l'assistant économique, agricole et financier spécialisé sur le Tchad.\n"
-            "Exprime-toi dans un français naturel, clair et fluide en utilisant les noms de produits en français "
-            "('Mil', 'Sorgho', 'Maïs blanc', 'Riz local', 'Riz importé', 'Niébé', 'Arachide', etc.) et jamais les noms de colonnes techniques.\n\n"
+            "Adopte un ton naturel, fluide et conversationnel (comme un conseiller humain à la façon de ChatGPT ou Gemini), "
+            "en utilisant les noms de produits en français ('Mil', 'Sorgho', 'Maïs blanc', 'Riz local', 'Riz importé', 'Niébé', 'Arachide', etc.) "
+            "et jamais les noms de colonnes techniques.\n\n"
+            "STYLE DE RÉPONSE :\n"
+            "- Réponds d'abord directement à la question de l'utilisateur en 1 ou 2 phrases claires, sans recopier mécaniquement "
+            "les titres techniques bruts (comme '### Arbitrage Commercial') ni toutes les lignes de tableau.\n"
+            "- Synthétise ensuite les chiffres essentiels (prix au kg, valeur par sac de 100 kg, marge ou score) de manière aérée et digeste.\n"
+            "- Termine par une courte question utile pour aider l'utilisateur à préciser son besoin (quantité, budget, coût de transport).\n\n"
             "PÉRIMÈTRE & VÉRITÉ DES DONNÉES :\n"
             "- Utilise exclusivement les chiffres et faits présents dans les blocs [DONNÉES VÉRIFIÉES] et les extraits <document_data>.\n"
             "- N'invente jamais de prix, de score, de pourcentage ou de statistique absente du contexte. "
@@ -1437,8 +1482,7 @@ class FreeDataAIAgent:
             "ADAPTATION AU PROFIL :\n"
             "- Commerçant / Agriculteur : prix au kg et conversion directe en sac de 100 kg, pistes concrètes d'achat/stockage/revente et marges brutes avant frais.\n"
             "- Étudiant / Chercheur : précision méthodologique, citation des sources, intervalles de confiance (IC 80%), volatilité (CV), erreur (MAE) et limites.\n"
-            "- ONG / Microfinance / Décideur : lecture risque crédit (Credit Passport, score/grade, LTV), alertes de tension/surchauffe et priorités opérationnelles.\n\n"
-            "Structure la réponse en paragraphes ou puces courts et aérés, puis termine par une courte question utile pour préciser le besoin (quantité, budget, coût de transport)."
+            "- ONG / Microfinance / Décideur : lecture risque crédit (Credit Passport, score/grade, LTV), alertes de tension/surchauffe et priorités opérationnelles."
         )
         user_prompt = (
             f"Question utilisateur : {user_query}\n\n"
@@ -1473,7 +1517,7 @@ class FreeDataAIAgent:
                     "temperature": 0.3,
                     "max_tokens": 750,
                 },
-                timeout=10,
+                timeout=12,
             )
             resp.raise_for_status()
             choices = resp.json().get("choices") or []
@@ -1534,9 +1578,9 @@ class FreeDataAIAgent:
             or _OPPORTUNITY_RE.search(q_norm)
             or _OVERVIEW_RE.search(q_norm)
         )
-        if _GREETING_RE.search(q_norm) and len(q.split()) <= 6 and not has_domain_request:
+        if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request:
             return {
-                "reply": self.tool_get_greeting(),
+                "reply": self.tool_handle_smalltalk(q),
                 "intent": "greeting",
                 "entities": entities,
                 "sources": [],
