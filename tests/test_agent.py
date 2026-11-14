@@ -1193,3 +1193,24 @@ def test_router_not_used_for_free_tier_or_business_routes(agent, monkeypatch):
     assert calls == []
     agent.answer_with_metadata("Je veux acheter du mil à Abéché et le revendre à N'Djamena, rentable ?", tier="premium")
     assert "router" not in calls
+
+
+def test_router_only_offers_tracked_commodities(agent, monkeypatch):
+    from src import ai_agent
+    import dataclasses
+
+    seen = {}
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": '{"intent": "forecast"}'}}]}
+
+    def fake_post(url, **kw):
+        seen["system"] = kw["json"]["messages"][0]["content"]
+        return Resp()
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+    agent._route_with_llm("prix du mil", {}, None)
+    tracked = set(agent.forecast_df["commodity_std"])
+    assert "Millet" in seen["system"] and "Fish (dry)" not in seen["system"] or "Fish (dry)" in tracked

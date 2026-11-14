@@ -2471,7 +2471,9 @@ class FreeDataAIAgent:
         les faits viennent toujours des outils déterministes. Toute erreur -> None (règles seules).
         """
         provinces = list(self.provider.provinces)
-        commodities = sorted({v for v in COMMODITY_ALIASES.values()})
+        # Seuls les produits réellement présents dans les données sont proposables au routeur.
+        tracked = set(self.forecast_df["commodity_std"].dropna().astype(str)) if not self.forecast_df.empty else set()
+        commodities = sorted(tracked & set(COMMODITY_ALIASES.values())) or sorted(set(COMMODITY_ALIASES.values()))
         recent_user = [
             str(m.get("content", ""))[:200]
             for m in (history or [])[-6:]
