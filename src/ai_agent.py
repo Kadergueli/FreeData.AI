@@ -296,6 +296,11 @@ _SECURITY_REFUSAL_REPLY = (
     "au Tchad sur la base de données vérifiées. Je ne peux pas donner suite à cette demande."
 )
 
+_FORECAST_HINT_RE = re.compile(
+    r"\b(prix|prevision|previsions|prevoir|prediction|evolution|tendance|cout|couter|coute|kg|"
+    r"tonne|tonnes|sac|sacs|monter|baisser|baisse|augmentation|augmenter|vendre|acheter|"
+    r"marche|cereale|cereales|recolte|saison|simulateur|simuler|debutant|guide)\b"
+)
 _SECURITY_INJECTION_RE = re.compile(
     r"(?:"
     r"ignore\s+(?:tes|toutes?\s+les|all\s+previous|previous)(?:\s+instructions?)?"
@@ -2617,8 +2622,14 @@ class FreeDataAIAgent:
                     continue
                 role = item.get("role")
                 content = str(item.get("content") or "").strip()
-                if role in ("user", "assistant") and content:
-                    history_msgs.append({"role": role, "content": content[:500]})
+                if role not in ("user", "assistant") or not content:
+                    continue
+                # L'historique vient du client : il est filtré comme une question et ses
+                # messages "assistant" (forgeables) ne rendent aucun chiffre "vérifié".
+                if _SECURITY_INJECTION_RE.search(_normalize_text(content)):
+                    continue
+                history_msgs.append({"role": role, "content": content[:500]})
+                if role == "user":
                     history_text_parts.append(content[:500])
 
         messages = [{"role": "system", "content": system_prompt}, *history_msgs, {"role": "user", "content": user_prompt}]
@@ -2742,6 +2753,26 @@ class FreeDataAIAgent:
 
         if history:
             entities = self._extract_entities(q, history=history)
+
+        # Demande trop floue : on interroge l'utilisateur plutôt que d'afficher le Mil national.
+        has_context = bool(
+            entities.get("province") or entities.get("commodity") or entities.get("volume_kg")
+            or entities.get("intent") not in (None, "forecast")
+        )
+        if not (has_domain_request or has_context or _FORECAST_HINT_RE.search(q_norm)):
+            return {
+                "reply": (
+                    "Je veux être sûr de bien vous répondre. Quel **produit** (mil, sorgho, maïs, riz…) "
+                    "ou quelle **province** (N'Djamena, Salamat, Lac…) vous intéresse ? "
+                    "Vous pouvez aussi me demander des alertes de prix, une évaluation de financement "
+                    "ou le calcul d'une marge.\n\n"
+                    "Par exemple : *« Quelle est la prévision du prix du mil à N'Djamena ? »*"
+                ),
+                "intent": "clarification",
+                "entities": entities,
+                "sources": [],
+                "chart": None,
+            }
 
         structured_facts, intent, meta = self._run_deterministic_tools(q, entities=entities)
         entities = meta["entities"]
