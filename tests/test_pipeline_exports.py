@@ -48,3 +48,18 @@ def test_filter_fresh_accepts_period_column():
     df = pd.DataFrame({"year_month": pd.period_range("2025-01", periods=12, freq="M")})
     out, n = filter_fresh(df, "year_month", 3)
     assert len(out) == 4 and n == 8
+
+
+def test_flagged_outliers_are_dropped_before_the_model(monkeypatch):
+    import dataclasses
+    import pandas as pd
+    from src import data_loader
+
+    df = pd.DataFrame({"value": [300.0, 12482.0, 310.0], "is_flagged_outlier": [0, 1, 0]})
+    assert data_loader.drop_flagged_outliers(df)["value"].tolist() == [300.0, 310.0]
+
+    monkeypatch.setattr(data_loader, "_load_clean_markets_raw", lambda p=None: df)
+    monkeypatch.setattr(data_loader, "settings", dataclasses.replace(data_loader.settings, exclude_flagged_outliers=True))
+    assert len(data_loader.load_clean_markets()) == 2
+    monkeypatch.setattr(data_loader, "settings", dataclasses.replace(data_loader.settings, exclude_flagged_outliers=False))
+    assert len(data_loader.load_clean_markets()) == 3

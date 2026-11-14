@@ -30,6 +30,11 @@ class Settings:
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
     # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
     # récent n'est plus servie par l'API (0 = pas de filtre).
+    # Écarte les relevés marqués OUTLIER (is_flagged_outlier) AVANT le modèle : un prix aberrant
+    # (jusqu'à 12 482 XAF/kg pour une moyenne de ~900) fausse prévisions et volatilité. 0 = désactivé.
+    exclude_flagged_outliers: bool = os.getenv("EXCLUDE_FLAGGED_OUTLIERS", "1").strip().lower() not in ("0", "false", "no")
+    # Le LLM (tier premium) choisit l'analyse à lancer parmi une liste fermée ; 0 = règles seules.
+    llm_routing: bool = os.getenv("LLM_ROUTING", "1").strip().lower() not in ("0", "false", "no")
     max_staleness_months: int = int(os.getenv("MAX_STALENESS_MONTHS", "3"))
 
     @property

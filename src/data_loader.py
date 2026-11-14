@@ -1,7 +1,10 @@
+import logging
 from typing import Optional
 import requests
 import pandas as pd
 from src.config import settings
+
+logger = logging.getLogger("freedata.data")
 
 COMMODITY_NORM = {
     "Millet (Pearl)": "Millet",
@@ -52,7 +55,7 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
     return df_clean
 
 
-def load_clean_markets(csv_path: Optional[str] = None) -> pd.DataFrame:
+def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
     """
     Charge et standardise les séries de marchés (unité homogène xaf/kg).
     Priorité : 1) API HTTPS Supabase, 2) PostgreSQL direct, 3) CSV local.
@@ -104,3 +107,23 @@ def load_clean_markets(csv_path: Optional[str] = None) -> pd.DataFrame:
     markets["commodity_std"] = markets["commodity"].replace(COMMODITY_NORM)
 
     return markets[markets["unit_clean"] == "xaf/kg"].copy()
+
+
+def drop_flagged_outliers(df: pd.DataFrame) -> pd.DataFrame:
+    """Retire les relevés marqués comme aberrants. Ne modifie aucune autre valeur."""
+    if "is_flagged_outlier" not in df.columns:
+        return df
+    flagged = pd.to_numeric(df["is_flagged_outlier"], errors="coerce").fillna(0) > 0
+    return df[~flagged].copy()
+
+
+def load_clean_markets(csv_path: Optional[str] = None) -> pd.DataFrame:
+    """Charge les séries XAF/kg puis (par défaut) écarte les relevés aberrants avant le modèle."""
+    df = _load_clean_markets_raw(csv_path)
+    if settings.exclude_flagged_outliers:
+        before = len(df)
+        df = drop_flagged_outliers(df)
+        removed = before - len(df)
+        if removed:
+            logger.info("%d relevés marqués OUTLIER écartés avant le modèle.", removed)
+    return df

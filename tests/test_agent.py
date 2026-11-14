@@ -1133,3 +1133,63 @@ def test_rag_lookup_skipped_when_knowledge_base_is_empty(agent, monkeypatch):
     monkeypatch.setattr(ai_agent.requests, "get", lambda *a, **k: EmptyResp())
     monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("embedding payant interdit")))
     assert agent.provider.retrieve_rag_chunks("prix du mil") == []
+
+
+def _fake_llm(monkeypatch, router_json, synth_text="Réponse. 352 XAF/kg"):
+    import dataclasses
+    from src import ai_agent
+
+    calls = []
+
+    class Resp:
+        def __init__(self, content): self._c = content
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": self._c}}]}
+
+    def fake_post(url, **kw):
+        is_router = kw["json"].get("response_format") is not None
+        calls.append("router" if is_router else "synth")
+        return Resp(router_json if is_router else synth_text)
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+    return calls
+
+
+def test_llm_router_overrides_a_wrong_keyword_route(agent, monkeypatch):
+    # Règles : "alertes" (mot-clé "hausse") ; le LLM comprend une demande de prix/timing.
+    calls = _fake_llm(monkeypatch, '{"intent": "forecast", "province": null, "commodity": "Millet"}')
+    res = agent.answer_with_metadata("la hausse du mil, je vends quand ?", tier="premium")
+    assert calls[0] == "router"
+    assert res["intent"] == "forecast"
+
+
+def test_llm_router_output_is_whitelisted(agent, monkeypatch):
+    calls = _fake_llm(monkeypatch, '{"intent": "drop_tables", "province": "Atlantide", "commodity": "Or"}')
+    res = agent.answer_with_metadata("prix du mil au Salamat", tier="premium")
+    assert res["intent"] == "forecast"  # intention inconnue ignorée -> règles
+    assert res["entities"]["province"] == "Salamat"
+
+
+def test_llm_router_clarify_asks_instead_of_guessing(agent, monkeypatch):
+    _fake_llm(monkeypatch, '{"intent": "clarify", "province": null, "commodity": null}')
+    res = agent.answer_with_metadata("le prix du truc là-bas", tier="premium")
+    assert res["intent"] == "clarification"
+
+
+def test_llm_router_failure_falls_back_to_rules(agent, monkeypatch):
+    from src import ai_agent
+    import dataclasses
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    res = agent.answer_with_metadata("prix du mil au Salamat", tier="premium")
+    assert res["intent"] == "forecast" and "XAF" in res["reply"]
+
+
+def test_router_not_used_for_free_tier_or_business_routes(agent, monkeypatch):
+    calls = _fake_llm(monkeypatch, '{"intent": "alerts", "province": null, "commodity": null}')
+    agent.answer_with_metadata("prix du mil au Salamat")  # free
+    assert calls == []
+    agent.answer_with_metadata("Je veux acheter du mil à Abéché et le revendre à N'Djamena, rentable ?", tier="premium")
+    assert "router" not in calls

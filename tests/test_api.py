@@ -179,6 +179,7 @@ class TestChatRateLimit:
                 ai_agent.settings,
                 llm_api_key="gsk_should_not_be_called_by_default",
                 embed_api_key="",
+                llm_routing=False,  # ce test compte les appels de synthèse ; le routage a ses propres tests
             ),
         )
 
