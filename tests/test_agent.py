@@ -85,7 +85,7 @@ def test_greeting_short_query_fast_path(agent, monkeypatch, greeting):
     res = agent.answer_with_metadata(greeting)
     assert res["intent"] == "greeting"
     assert res["sources"] == []
-    assert "FreeData.AI" in res["reply"]
+    assert res["reply"].strip()
     assert "Produit non précisé" not in res["reply"]
 
 
@@ -907,8 +907,8 @@ def test_agent_free_mode_skips_llm_and_renders_rag_sources_section(agent, monkey
 @pytest.mark.parametrize(
     "query, expected_fragment",
     [
-        ("comment vas tu", "Je vais très bien"),
-        ("Ça va ?", "Je vais très bien"),
+        ("comment vas tu", "tout va bien"),
+        ("Ça va ?", "tout va bien"),
         ("qui es-tu ?", "assistant économique et agricole"),
         ("tu peux m'aider", "assistant économique et agricole"),
         ("merci beaucoup !", "Avec plaisir"),
@@ -931,7 +931,7 @@ def test_conversational_smalltalk_fast_path(agent, monkeypatch, query, expected_
     res = agent.answer(query, history=history, tier="premium")
     assert res["intent"] == "greeting"
     assert res["sources"] == []
-    assert "FreeData.AI" in res["reply"]
+    assert res["reply"].strip()
     assert expected_fragment in res["reply"]
 
 
@@ -1271,3 +1271,26 @@ def test_off_topic_question_gets_llm_reply_not_canned_clarification(agent, monke
     monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: Resp())
     res = agent.answer_with_metadata("tu aimes le foot ?", tier="premium")
     assert res["reply"].startswith("Plutôt la musique")
+
+
+def test_welcome_message_is_professional_and_time_aware(agent):
+    from datetime import datetime
+
+    morning = agent.tool_get_greeting(now=datetime(2026, 11, 14, 9, 0))
+    evening = agent.tool_get_greeting(now=datetime(2026, 11, 14, 20, 0))
+    assert morning.startswith("**Bonjour et bienvenue sur FreeData.AI.**")
+    assert evening.startswith("**Bonsoir et bienvenue sur FreeData.AI.**")
+    for txt in (morning, evening):
+        assert "séries de prix" in txt and "provinces" in txt and "dernier relevé" in txt
+        assert "Credit Passport" in txt and txt.rstrip().endswith("?")
+        assert "!" not in txt  # ton posé
+
+
+def test_pure_greeting_never_calls_llm_even_in_premium(agent, monkeypatch):
+    import dataclasses
+    from src import ai_agent
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pas de LLM pour une salutation")))
+    res = agent.answer_with_metadata("Salut", tier="premium")
+    assert res["intent"] == "greeting" and "bienvenue sur FreeData.AI" in res["reply"]

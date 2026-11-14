@@ -4,6 +4,7 @@ import math
 import re
 import time
 import unicodedata
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 import pandas as pd
@@ -1778,24 +1779,54 @@ class FreeDataAIAgent:
             "intent": intent,
         }
 
-    def tool_get_greeting(self) -> str:
+    @staticmethod
+    def _fr_month_label(ym: Optional[str]) -> Optional[str]:
+        months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+                  "août", "septembre", "octobre", "novembre", "décembre"]
+        try:
+            year, month = str(ym).split("-")[:2]
+            return f"{months[int(month) - 1]} {year}"
+        except (ValueError, IndexError, AttributeError):
+            return None
+
+    def tool_get_greeting(self, now: Optional[datetime] = None) -> str:
+        """Message d'accueil professionnel : salutation selon l'heure (Tchad, UTC+1), périmètre réel des données, pistes."""
         ov = self.provider.get_overview()
+        local = now or datetime.now(timezone(timedelta(hours=1)))
+        hello = "Bonjour" if local.hour < 18 else "Bonsoir"
+        intro = f"**{hello} et bienvenue sur FreeData.AI.**\n\n"
+        if ov.get("status") != "ok":
+            scope = "Je vous accompagne dans l'analyse des marchés agricoles du Tchad."
+        else:
+            sources = " et ".join(ov["sources"]) if ov.get("sources") else "sources publiques"
+            fresh = self._fr_month_label(ov.get("period_end"))
+            fresh_txt = f", dernier relevé : {fresh}" if fresh else ""
+            scope = (
+                f"Je suis votre assistant d'analyse des marchés agricoles du Tchad. "
+                f"Je m'appuie sur **{ov['series_count']} séries de prix** ({sources}) couvrant "
+                f"**{len(ov['provinces'])} provinces**{fresh_txt}."
+            )
         return (
-            f"Bonjour ! Je suis **FreeData.AI**, votre assistant d'analyse des marchés agricoles au Tchad.\n\n"
-            f"Je surveille actuellement **{ov['series_count']} séries de prix** réparties sur **{len(ov['provinces'])} provinces**.\n\n"
-            f"Voici comment je peux vous aider :\n"
-            f"- **Prévisions de prix** : *« Quelle est la prévision du mil à N'Djamena ? »*\n"
-            f"- **Alertes de tension** : *« Quelles sont les alertes de hausse actuelles ? »*\n"
-            f"- **Évaluation Credit Passport** : *« Évalue le risque de financer 3 millions de FCFA de mil au Salamat. »*"
+            f"{intro}{scope}\n\n"
+            f"**Ce que je peux faire pour vous**\n"
+            f"- **Anticiper** l'évolution du prix d'un produit (mil, sorgho, maïs, riz…)\n"
+            f"- **Détecter** les hausses de prix inhabituelles\n"
+            f"- **Évaluer** le risque d'un financement agricole (Credit Passport)\n"
+            f"- **Estimer** la marge d'une opération d'achat-revente entre deux provinces\n\n"
+            f"**Pour commencer, vous pouvez demander :**\n"
+            f"- *« Quelle est la prévision du prix du mil à N'Djamena ? »*\n"
+            f"- *« Quelles sont les alertes de hausse actuelles ? »*\n"
+            f"- *« Quel est le risque de financer 3 millions de FCFA de mil au Salamat ? »*\n\n"
+            f"Quel sujet souhaitez-vous aborder ?"
         )
 
     def tool_handle_smalltalk(self, query: str) -> str:
         q_norm = _normalize_text(query)
         if _SMALLTALK_HOW_RE.search(q_norm):
             return (
-                "Je vais très bien, merci de demander ! Je suis **FreeData.AI**, prêt à vous accompagner sur "
-                "l'analyse des marchés agricoles, les marges commerciales ou l'évaluation Credit Passport au Tchad.\n\n"
-                "Sur quelle ville, province ou denrée souhaitez-vous que je vous aide aujourd'hui ?"
+                "Je vous remercie, tout va bien. Je suis prêt à vous accompagner sur l'analyse des marchés agricoles, "
+                "les marges commerciales ou l'évaluation de financement au Tchad.\n\n"
+                "Sur quelle ville, province ou produit souhaitez-vous que je vous aide ?"
             )
         if _SMALLTALK_IDENTITY_RE.search(q_norm):
             ov = self.provider.get_overview()
@@ -1809,8 +1840,8 @@ class FreeDataAIAgent:
             )
         if _SMALLTALK_THANKS_RE.search(q_norm) and not re.search(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|aide|help)\b", q_norm):
             return (
-                "Avec plaisir ! Je suis **FreeData.AI**, toujours disponible si vous souhaitez comparer d'autres marchés, "
-                "estimer une marge sur un volume ou analyser un dossier de financement."
+                "Avec plaisir. Je reste à votre disposition pour comparer d'autres marchés, estimer une marge "
+                "sur un volume ou analyser un dossier de financement. Souhaitez-vous poursuivre ?"
             )
         return self.tool_get_greeting()
 
@@ -2466,9 +2497,10 @@ class FreeDataAIAgent:
         system = (
             "Tu es FreeData.AI, un assistant conversationnel chaleureux, spécialisé dans les marchés agricoles du Tchad "
             "(prix des céréales, alertes de hausse, risque de financement agricole, marges de commerce entre provinces).\n"
-            "Parle comme un humain bienveillant, à la manière de ChatGPT ou Gemini : réponds naturellement à la question posée "
-            "(salutations, politesse, humeur, curiosité, remarques, questions générales simples), dans la langue de l'utilisateur "
-            "(français par défaut), en 1 à 4 phrases, sans liste ni titre.\n"
+            "Ton : professionnel, courtois et chaleureux, comme un conseiller expérimenté. Vouvoie l'utilisateur (sauf s'il te tutoie "
+            "clairement), pas d'émojis, pas de familiarités, pas de point d'exclamation en excès. Réponds naturellement à la question posée "
+            "(politesse, humeur, présentation, remarques, questions générales simples), dans la langue de l'utilisateur "
+            "(français par défaut), en 1 à 4 phrases, sans liste ni titre, et termine par une question utile quand c'est pertinent.\n"
             "Règles : (1) tu n'as AUCUNE donnée de marché dans cette conversation : ne cite jamais de prix, prévision, score, "
             "pourcentage ou statistique ; si l'utilisateur en veut, propose de lancer l'analyse et demande le produit et la province. "
             "(2) Si la demande est vague, pose UNE question courte pour la préciser. (3) Si elle sort de ton domaine, réponds brièvement "
@@ -2932,7 +2964,14 @@ class FreeDataAIAgent:
         )
         chat_mode = tier == "premium" and bool(settings.llm_api_key)
         if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request:
-            llm_reply = self._converse_with_llm(q, history, "petite conversation (salutation, politesse, présentation)") if chat_mode else None
+            pure_greeting = not (
+                _SMALLTALK_HOW_RE.search(q_norm) or _SMALLTALK_IDENTITY_RE.search(q_norm) or _SMALLTALK_THANKS_RE.search(q_norm)
+            )
+            llm_reply = (
+                self._converse_with_llm(q, history, "échange de politesse (humeur, présentation, remerciements)")
+                if (chat_mode and not pure_greeting)
+                else None
+            )
             return {
                 "reply": llm_reply or self.tool_handle_smalltalk(q),
                 "intent": "greeting",
