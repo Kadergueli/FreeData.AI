@@ -423,7 +423,7 @@ class FreeDataAIAgent:
                     "- **Repérer** des opportunités de commerce entre provinces\n\n"
                     f"Essayez par exemple :\n{self._suggestions()}")
         if kind == "ack":
-            return "D'accord ! Dites-moi quel produit ou quelle province vous intéresse, et je regarde ça avec vous."
+            return "D'accord ! Dites-moi quel produit ou quelle province vous intéresse, et je regarde ça avec vous. Que voulez-vous explorer ?"
         # greeting
         n_prov = (
             int(self.forecast_df["province"].nunique())
