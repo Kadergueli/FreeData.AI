@@ -1214,3 +1214,60 @@ def test_router_only_offers_tracked_commodities(agent, monkeypatch):
     agent._route_with_llm("prix du mil", {}, None)
     tracked = set(agent.forecast_df["commodity_std"])
     assert "Millet" in seen["system"] and "Fish (dry)" not in seen["system"] or "Fish (dry)" in tracked
+
+
+def test_comment_vas_tu_with_hyphen_is_small_talk_without_llm(agent):
+    res = agent.answer_with_metadata("comment vas-tu?")
+    assert res["intent"] == "greeting"
+    assert "XAF" not in res["reply"] and "Je veux être sûr" not in res["reply"]
+
+
+def test_premium_small_talk_is_answered_freely_by_llm(agent, monkeypatch):
+    import dataclasses
+    from src import ai_agent
+
+    seen = {}
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": "Ça va très bien, merci ! Et toi ? Tu veux regarder un prix ?"}}]}
+
+    def fake_post(url, **kw):
+        seen["body"] = kw["json"]
+        return Resp()
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", fake_post)
+    res = agent.answer_with_metadata("comment vas-tu?", tier="premium")
+    assert res["reply"].startswith("Ça va très bien")
+    assert "AUCUNE donnée de marché" in seen["body"]["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("llm_text", ["Le mil coûte 352 XAF/kg à N'Djamena.", ""])
+def test_free_conversation_rejects_invented_figures_or_empty(agent, monkeypatch, llm_text):
+    import dataclasses
+    from src import ai_agent
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": llm_text}}]}
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: Resp())
+    res = agent.answer_with_metadata("tu aimes le foot ?", tier="premium")
+    assert "352" not in res["reply"]  # repli déterministe
+    assert res["intent"] == "clarification"
+
+
+def test_off_topic_question_gets_llm_reply_not_canned_clarification(agent, monkeypatch):
+    import dataclasses
+    from src import ai_agent
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": "Plutôt la musique, je dois avouer ! Et toi, tu suis quels marchés ?"}}]}
+
+    monkeypatch.setattr(ai_agent, "settings", dataclasses.replace(ai_agent.settings, llm_api_key="k", embed_api_key=""))
+    monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: Resp())
+    res = agent.answer_with_metadata("tu aimes le foot ?", tier="premium")
+    assert res["reply"].startswith("Plutôt la musique")
