@@ -83,9 +83,9 @@ def test_greeting_short_query_fast_path(agent, monkeypatch, greeting):
     # Le chemin rapide de salutation ne doit déclencher aucun appel réseau LLM/RAG.
     monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("HTTP interdit")))
     res = agent.answer_with_metadata(greeting)
-    assert res["intent"] == "greeting"
+    assert res["intent"] in ("greeting", "smalltalk_help", "smalltalk_thanks")
     assert res["sources"] == []
-    assert "FreeData.AI" in res["reply"]
+    assert "XAF" not in res["reply"]
     assert "Produit non précisé" not in res["reply"]
 
 
@@ -547,7 +547,7 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
 
     # Une salutation isolée en suivi ne doit pas réhériter du trajet précédent
     thx = route_agent.answer_with_metadata("Merci !", history=history)
-    assert thx["intent"] == "greeting"
+    assert thx["intent"] == "smalltalk_thanks"
 
 
 def test_city_to_province_and_commodity_fr_mappings(agent):
@@ -709,3 +709,48 @@ def test_arithmetic_conversions_grounding_and_forecast_enrichment(agent):
 
 
 
+
+
+@pytest.mark.parametrize(
+    "msg,intent",
+    [
+        ("salut", "greeting"),
+        ("salam aleykoum", "greeting"),
+        ("Bonjour, comment allez-vous aujourd'hui ?", "smalltalk_howareyou"),
+        ("ça va ?", "smalltalk_howareyou"),
+        ("qui es-tu ?", "smalltalk_identity"),
+        ("merci beaucoup pour votre aide", "smalltalk_thanks"),
+        ("au revoir", "smalltalk_bye"),
+        ("tu peux m'aider ?", "smalltalk_help"),
+        ("ok d'accord", "smalltalk_ack"),
+    ],
+)
+def test_smalltalk_is_conversational_without_figures(agent, monkeypatch, msg, intent):
+    from src import ai_agent
+
+    monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("HTTP interdit")))
+    res = agent.answer_with_metadata(msg)
+    assert res["intent"] == intent
+    assert "XAF" not in res["reply"] and "`" not in res["reply"]
+    if intent != "smalltalk_bye":
+        assert "?" in res["reply"]  # l'IA relance la conversation
+
+
+def test_vague_message_asks_clarification_instead_of_national_numbers(agent):
+    res = agent.answer_with_metadata("blablabla")
+    assert res["intent"] == "clarification"
+    assert "XAF" not in res["reply"]
+    assert "?" in res["reply"]
+
+
+def test_data_answer_is_framed_with_intro_and_followup(agent):
+    res = agent.answer_with_metadata("Bonjour, quel est le prix du mil à N'Djamena ?")
+    assert res["intent"] == "forecast"
+    assert res["reply"].startswith("Bonjour !")
+    assert "XAF" in res["reply"]  # les chiffres du modèle sont conservés
+    assert res["reply"].rstrip().endswith("?")
+
+
+def test_greeting_does_not_hide_a_real_request(agent):
+    res = agent.answer_with_metadata("salut, des alertes de hausse ?")
+    assert res["intent"] == "alerts"

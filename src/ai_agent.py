@@ -97,6 +97,24 @@ def _normalize_text(text: str) -> str:
 
 # Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
 _GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|merci|aide|help)\b")
+# --- Conversation (petites phrases, remerciements, identité...) ---------------
+# Détectées sur le texte normalisé (sans accents), quelle que soit la longueur,
+# mais seulement si le message ne contient aucune demande métier.
+_SMALLTALK_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("thanks", re.compile(r"\b(merci|thanks?|thank you|choukran|shukran|barakallah)\b")),
+    ("bye", re.compile(r"\b(au revoir|a bientot|a plus|bye|bonne journee|bonne soiree|bonne nuit|salam alaykum wa rahma)\b")),
+    ("identity", re.compile(r"\b(qui es[- ]tu|qui etes[- ]vous|tu es qui|c'?est quoi freedata|presente[- ]toi|tu t'?appelles|ton nom|quel est ton nom)\b")),
+    ("howareyou", re.compile(r"\b(ca va|comment vas[- ]tu|comment allez[- ]vous|comment tu vas|la forme|tu vas bien|labas|ça va)\b")),
+    ("help", re.compile(r"\b(aide|aider|help|que sais[- ]tu faire|que peux[- ]tu faire|tu peux faire quoi|que fais[- ]tu|a quoi tu sers|comment ca marche|comment utiliser|options?)\b")),
+    ("greeting", re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|hi|coucou|salam|salam aleykoum|assalam|marhaba|sabah el khir|allo|yo)\b")),
+    ("ack", re.compile(r"^(\s*(ok|okay|d'?accord|dacc|oui|non|super|parfait|top|cool|genial|bien|compris|entendu|d'?acc)\W*)+$")),
+]
+_FORECAST_HINT_RE = re.compile(
+    r"\b(prix|prevision|previsions|prevoir|predire|prediction|evolution|evoluer|tendance|"
+    r"cout|couter|coute|kg|tonne|tonnes|sac|sacs|monter|baisser|baisse|augmentation|augmenter|"
+    r"vendre|acheter|marche|cereale|cereales|recolte|saison)\b"
+)
+
 _OVERVIEW_RE = re.compile(
     r"\b(dataset|donnees|combien|marches|provinces|produits|sources|couverture)\b"
 )
@@ -361,6 +379,95 @@ class FreeDataAIAgent:
             f"- **Alertes de tension** : *« Quelles sont les alertes de hausse actuelles ? »*\n"
             f"- **Évaluation Credit Passport** : *« Évalue le risque de financer 3 millions de FCFA de mil au Salamat. »*"
         )
+
+    # ------------------------------------------------------------------
+    # Couche conversationnelle : réponses sans chiffres pour les échanges
+    # sociaux, et questions de clarification pour les demandes floues.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _detect_smalltalk(q_norm: str) -> Optional[str]:
+        for kind, rx in _SMALLTALK_PATTERNS:
+            if rx.search(q_norm):
+                return kind
+        return None
+
+    def _suggestions(self) -> str:
+        return (
+            "- *« Quelle est la prévision du prix du mil à N'Djamena ? »*\n"
+            "- *« Quelles sont les alertes de hausse en ce moment ? »*\n"
+            "- *« Puis-je financer 3 millions de FCFA de mil au Salamat ? »*"
+        )
+
+    def tool_smalltalk_reply(self, kind: str, with_greeting_intro: bool = True) -> str:
+        if kind == "thanks":
+            return ("Avec plaisir ! 😊 N'hésitez pas si vous voulez comparer une autre province, "
+                    "un autre produit ou évaluer un financement. Que souhaitez-vous regarder ensuite ?")
+        if kind == "bye":
+            return ("Merci de votre visite et à bientôt ! Revenez quand vous voulez : "
+                    "je suivrai les prix du marché pour vous. 🌾")
+        if kind == "howareyou":
+            return ("Je vais très bien, merci de demander ! 😊 Je suis prêt à travailler sur les prix "
+                    "des céréales au Tchad.\n\nSur quoi puis-je vous aider aujourd'hui ?\n\n"
+                    f"{self._suggestions()}")
+        if kind == "identity":
+            return ("Je suis **FreeData.AI**, un assistant qui aide à suivre et anticiper les prix des "
+                    "céréales sur les marchés du Tchad (mil, sorgho, maïs, riz, arachide, sésame…). "
+                    "Mes prévisions viennent d'un modèle entraîné sur les données WFP et FEWS NET.\n\n"
+                    "Je peux vous parler de prévisions, d'alertes, ou de risque de financement agricole. "
+                    "Par quoi voulez-vous commencer ?")
+        if kind == "help":
+            return ("Bien sûr, je suis là pour ça ! Voici ce que je sais faire :\n"
+                    "- **Prévoir** le prix d'un produit dans une province\n"
+                    "- **Signaler** les hausses de prix inhabituelles\n"
+                    "- **Évaluer** le risque d'un financement (Credit Passport)\n"
+                    "- **Repérer** des opportunités de commerce entre provinces\n\n"
+                    f"Essayez par exemple :\n{self._suggestions()}")
+        if kind == "ack":
+            return "D'accord ! Dites-moi quel produit ou quelle province vous intéresse, et je regarde ça avec vous."
+        # greeting
+        n_prov = (
+            int(self.forecast_df["province"].nunique())
+            if (self.forecast_df is not None and not self.forecast_df.empty)
+            else 0
+        )
+        cover = f" sur {n_prov} provinces du Tchad" if n_prov else " au Tchad"
+        return (
+            "Bonjour ! 👋 Je suis **FreeData.AI**. Je vous aide à suivre les prix des céréales"
+            f"{cover}, à repérer les tensions et à évaluer des financements agricoles.\n\n"
+            f"Qu'est-ce qui vous intéresse aujourd'hui ?\n\n{self._suggestions()}"
+        )
+
+    def tool_clarify(self) -> str:
+        return (
+            "Je veux être sûr de bien vous répondre. Pouvez-vous préciser ce que vous cherchez ? "
+            "Par exemple, un **produit** (mil, sorgho, maïs, riz…) et/ou une **province** "
+            "(N'Djamena, Salamat, Lac…), ou le type d'analyse :\n\n"
+            f"{self._suggestions()}"
+        )
+
+    @staticmethod
+    def _humanize_facts(facts: str, intent: str, greeting_prefix: str = "") -> str:
+        """Habille des faits chiffrés (issus du modèle) d'une phrase d'intro et d'une
+        question de relance. Aucun chiffre n'est ajouté ni modifié."""
+        intros = {
+            "forecast": "Voici ce que disent les prévisions du modèle :",
+            "alerts": "J'ai regardé les signaux de tension sur les prix, voici ce qui ressort :",
+            "credit_passport": "J'ai évalué le risque pour vous, voici l'analyse :",
+            "opportunity": "Voici les pistes que je vois dans les données :",
+            "route_revenue": "Voici le calcul pour votre cas :",
+            "dataset_overview": "Voici ce que couvrent mes données :",
+        }
+        outros = {
+            "forecast": "Souhaitez-vous comparer avec une autre province ou un autre produit ?",
+            "alerts": "Voulez-vous que je détaille une province ou un produit en particulier ?",
+            "credit_passport": "Voulez-vous essayer un autre montant, un autre produit ou une autre province ?",
+            "opportunity": "Voulez-vous que je creuse l'une de ces pistes ?",
+            "route_revenue": "Voulez-vous tester une autre quantité ou un autre trajet ?",
+            "dataset_overview": "Sur quel produit ou quelle province voulez-vous que je me concentre ?",
+        }
+        intro = intros.get(intent, "Voici ce que j'ai trouvé :")
+        outro = outros.get(intent, "Puis-je vous aider sur autre chose ?")
+        return f"{greeting_prefix}{intro}\n\n{facts}\n\n{outro}"
 
     def tool_get_overview(self) -> str:
         if self.forecast_df is None or self.forecast_df.empty:
@@ -1003,10 +1110,12 @@ class FreeDataAIAgent:
             or _OPPORTUNITY_RE.search(q_norm)
             or _OVERVIEW_RE.search(q_norm)
         )
-        if _GREETING_RE.search(q_norm) and len(q.split()) <= 6 and not has_domain_request:
+        has_forecast_hint = bool(_FORECAST_HINT_RE.search(q_norm))
+        smalltalk = None if (has_domain_request or has_forecast_hint) else self._detect_smalltalk(q_norm)
+        if smalltalk:
             return {
-                "reply": self.tool_get_greeting(),
-                "intent": "greeting",
+                "reply": self.tool_smalltalk_reply(smalltalk),
+                "intent": "greeting" if smalltalk == "greeting" else f"smalltalk_{smalltalk}",
                 "entities": entities,
                 "sources": [],
             }
@@ -1014,10 +1123,32 @@ class FreeDataAIAgent:
         if history:
             entities = self._extract_entities(q, history=history)
 
+        # Demande trop floue : on pose une question plutôt que d'asséner des chiffres nationaux.
+        has_context = bool(
+            entities.get("province") or entities.get("commodity")
+            or entities.get("intent") not in (None, "forecast")
+        )
+        if not (has_domain_request or has_forecast_hint or has_context):
+            return {
+                "reply": self.tool_clarify(),
+                "intent": "clarification",
+                "entities": entities,
+                "sources": [],
+            }
+
+        greeting_prefix = ""
+        if _SMALLTALK_PATTERNS[-2][1].search(q_norm):  # salutation + vraie question
+            greeting_prefix = "Bonjour ! "
+
         structured_facts, intent, meta = self._run_deterministic_tools(q, entities=entities)
         entities = meta["entities"]
         chunks = self._retrieve_rag_chunks(q)
         final_reply = self._synthesize_with_llm(q, structured_facts, chunks, history=history)
+
+        # Sans LLM (ou LLM rejeté), la réponse est la sortie brute des outils :
+        # on l'habille d'une intro et d'une relance, sans toucher aux chiffres.
+        if final_reply.strip() == structured_facts.strip():
+            final_reply = self._humanize_facts(structured_facts, intent, greeting_prefix)
 
         if intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in final_reply:
             final_reply = f"{final_reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
