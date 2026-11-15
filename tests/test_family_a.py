@@ -228,3 +228,12 @@ def test_study_cycles_recompute_with_cost_and_no_future_leak():
     costly = with_storage_cost(st, 5.0)["storage_strategy"]
     assert costly["net_median_return_pct"] < gross and costly["net_hit_rate_pct"] <= st["storage_strategy"]["hit_rate_pct"]
     assert "Non calculée" not in study_markdown(st)
+
+
+def test_check_family_a_run_writes_reports_without_network(tmp_path):
+    from scripts.check_family_a import run
+    out = run(seasonal_panel(n_months=84), tmp_path, n_origins=4)
+    assert (tmp_path / "backtest_family_a.md").read_text(encoding="utf-8").startswith("# Backtest")
+    import json
+    rows = json.loads((tmp_path / "seasonality_studies.json").read_text(encoding="utf-8"))
+    assert out["n_studies"] == len(rows) >= 1 and rows[0]["payload"]["status"] == "ok"

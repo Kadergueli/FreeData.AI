@@ -9,3 +9,4 @@ __pycache__/
 frontend_flutter/build/
 frontend_flutter/.dart_tool/
 .pytest_cache/
+reports/

@@ -74,4 +74,5 @@ firebase deploy --only hosting
 - `PREMIUM_API_KEYS` (virgules, 16 caractères min.) : une fois défini, le tier `premium` du chat (LLM) exige aussi la clé.
 - Production : `sql/05_gold_seasonality_studies.sql` puis `python -m scripts.update_seasonality --apply` (mensuel).
   Sans `--apply`, le script écrit un JSON local et n'envoie rien.
-- Évaluer le modèle de prévision : `python -m scripts.run_backtest --csv données.csv`.
+- **Tout contrôler en une commande (lecture seule) :** `python -m scripts.check_family_a` (ou `--csv ton_fichier.csv`) → dossier `reports/`.
+- Évaluer seulement le modèle : `python -m scripts.run_backtest --csv données.csv`.
