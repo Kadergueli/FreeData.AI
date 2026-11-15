@@ -12,7 +12,8 @@ import requests
 
 from src.config import settings
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
-from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR, seasonal_calendar
+from src.season_study import StudyBook
+from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR
 
 logger = logging.getLogger("freedata.agent")
 
@@ -503,10 +504,12 @@ class MarketDataProvider:
         forecast_df: pd.DataFrame,
         passport_df: pd.DataFrame,
         hist_df: Optional[pd.DataFrame] = None,
+        studies: Optional[StudyBook] = None,
     ):
         self.forecast_df = forecast_df if forecast_df is not None else pd.DataFrame()
         self.passport_df = passport_df if passport_df is not None else pd.DataFrame()
         self.hist_df = hist_df if hist_df is not None else pd.DataFrame()
+        self._studies = studies
 
         if not self.forecast_df.empty and "province" in self.forecast_df.columns:
             self.provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique())
@@ -1116,20 +1119,24 @@ class MarketDataProvider:
         return corridors[:limit]
 
     def get_seasonal_calendar(self, province: Optional[str], commodity: str) -> dict:
-        """Calendrier saisonnier calculé sur l'historique ; retombe sur le niveau national si la province manque de données."""
-        hist = self.hist_df
-        needed = {"commodity_std", "province", "market_name", "source", "year_month", "value"}
-        if hist is None or hist.empty or not needed.issubset(hist.columns):
+        """Calendrier saisonnier : étude précalculée (production) ou calculée depuis l'historique (mode complet).
+
+        Retombe sur le niveau national si la province manque de données ; 'insufficient_data' sinon.
+        """
+        book = self._studies
+        if book is None:
+            needed = {"commodity_std", "province", "market_name", "source", "year_month", "value"}
+            if not self.hist_df.empty and needed.issubset(self.hist_df.columns):
+                book = StudyBook(kg_df=self.hist_df)
+                self._studies = book
+        study = book.get(commodity, province, light=True) if book is not None else None
+        if study is None:
             return {"status": "insufficient_data", "commodity": commodity, "province": province}
-        cal = seasonal_calendar(hist, commodity, province) if province else None
-        scope = province
-        if cal is None or cal.get("status") != "ok":
-            cal = seasonal_calendar(hist, commodity, None)
-            scope = None
-        cal = {k: v for k, v in cal.items() if k != "profile"}
-        cal["scope_province"] = scope
-        cal["requested_province"] = province
-        cal["commodity_fr"] = self.fr_commodity(commodity)
+        cal = dict(study["calendar"])
+        cal.update({
+            "status": "ok", "commodity": commodity, "scope_province": study.get("scope_province"),
+            "requested_province": province, "commodity_fr": self.fr_commodity(commodity),
+        })
         return cal
 
     def get_business_opportunities(
@@ -1692,11 +1699,12 @@ class FreeDataAIAgent:
     - Mode `premium` : point d'extension LLM optionnel alimenté exclusivement par les données de `MarketDataProvider`.
     """
 
-    def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame):
+    def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame,
+                 studies: Optional[StudyBook] = None):
         self.hist_df = hist_df
         self.forecast_df = forecast_df
         self.passport_df = passport_df
-        self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df)
+        self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df, studies=studies)
         self.provinces = self.provider.provinces
         self.prov_lookup = self.provider.prov_lookup
 

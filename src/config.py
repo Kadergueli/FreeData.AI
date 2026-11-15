@@ -28,6 +28,9 @@ class Settings:
     embed_model: str = os.getenv("EMBED_MODEL", "jina-embeddings-v3").strip()
     # Jeton exigé (en-tête X-Admin-Token) par POST /api/v1/refresh. Vide = endpoint désactivé.
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
+    # Clés des clients premium (séparées par des virgules), envoyées dans l'en-tête X-Premium-Key.
+    # Vide = offre premium non authentifiée (chat : comportement historique ; études avancées : désactivées).
+    premium_api_keys: str = os.getenv("PREMIUM_API_KEYS", "").strip()
     # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
     # récent n'est plus servie par l'API (0 = pas de filtre).
     # Écarte les relevés marqués OUTLIER (is_flagged_outlier) AVANT le modèle : un prix aberrant
@@ -36,6 +39,10 @@ class Settings:
     # Le LLM (tier premium) choisit l'analyse à lancer parmi une liste fermée ; 0 = règles seules.
     llm_routing: bool = os.getenv("LLM_ROUTING", "1").strip().lower() not in ("0", "false", "no")
     max_staleness_months: int = int(os.getenv("MAX_STALENESS_MONTHS", "3"))
+
+    @property
+    def premium_keys(self) -> tuple:
+        return tuple(k.strip() for k in self.premium_api_keys.split(",") if len(k.strip()) >= 16)
 
     @property
     def read_key(self) -> str:

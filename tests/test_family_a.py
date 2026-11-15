@@ -138,3 +138,93 @@ def test_prices_questions_not_hijacked_by_timing():
     a = _agent_with_season()
     assert a.answer("Quel est le prix du mil à Lac ?")["intent"] == "forecast"
     assert a.answer("Où acheter du mil moins cher ?")["intent"] == "opportunity"
+
+
+# ---------------------------------------------------------------- API premium : études avancées + contrôle d'accès
+import dataclasses
+
+from api import server
+from fastapi.testclient import TestClient
+from src.season_study import build_all_studies, build_seasonal_study, with_storage_cost, study_markdown
+
+KEY = "premium-key-0123456789"
+
+
+@pytest.fixture()
+def premium_client(gold_tables, monkeypatch):
+    fc_gold, cp_gold = gold_tables
+    rows = [{"commodity_std": s["commodity"], "province": s.get("scope_province") or "", "payload": s}
+            for s in build_all_studies(seasonal_panel(n_months=84))]
+    assert rows, "l'étude nationale du Millet doit exister"
+    server.STATE.clear(); server._RATE_LIMIT_BUCKET.clear()
+    server.STATE.update(server.build_state_from_gold(fc_gold, cp_gold, rows))
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys=KEY))
+    yield TestClient(server.app)
+    server.STATE.clear(); server._RATE_LIMIT_BUCKET.clear()
+
+
+def test_study_requires_valid_premium_key(premium_client):
+    url = "/api/v1/studies/seasonality"
+    assert premium_client.get(url, params={"commodity": "Millet"}).status_code == 403
+    assert premium_client.get(url, params={"commodity": "Millet"}, headers={"X-Premium-Key": "wrong"}).status_code == 403
+
+
+def test_study_disabled_without_configured_keys(gold_tables, monkeypatch):
+    fc_gold, cp_gold = gold_tables
+    server.STATE.clear(); server._RATE_LIMIT_BUCKET.clear()
+    server.STATE.update(server.build_state_from_gold(fc_gold, cp_gold))
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys=""))
+    c = TestClient(server.app)
+    assert c.get("/api/v1/studies/seasonality", params={"commodity": "Millet"}, headers={"X-Premium-Key": KEY}).status_code == 503
+    server.STATE.clear()
+
+
+def test_study_returns_calendar_strategy_and_net_return(premium_client):
+    r = premium_client.get("/api/v1/studies/seasonality", params={"commodity": "millet", "storage_cost_pct_month": 1.0},
+                           headers={"X-Premium-Key": KEY})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok" and body["calendar"]["reliable"]
+    assert body["storage_strategy"]["net_hit_rate_pct"] <= body["storage_strategy"]["hit_rate_pct"]
+    assert len(body["profile"]) == 12
+
+
+def test_study_markdown_and_validation(premium_client):
+    h = {"X-Premium-Key": KEY}
+    md = premium_client.get("/api/v1/studies/seasonality", params={"commodity": "Millet", "format": "markdown"}, headers=h)
+    assert md.status_code == 200 and "Étude saisonnière" in md.text
+    assert premium_client.get("/api/v1/studies/seasonality", params={"commodity": "Inconnu"}, headers=h).status_code == 404
+    assert premium_client.get("/api/v1/studies/seasonality", params={"commodity": "Millet", "province": "Mars"}, headers=h).status_code == 404
+    assert premium_client.get("/api/v1/studies/seasonality", params={"commodity": "Millet", "storage_cost_pct_month": 99}, headers=h).status_code == 422
+    # un produit connu mais sans étude → réponse honnête, pas d'erreur
+    ok = premium_client.get("/api/v1/studies/seasonality", params={"commodity": "Maize (white)"}, headers=h)
+    assert ok.status_code == 200 and ok.json()["status"] == "insufficient_data"
+
+
+def test_chat_premium_tier_needs_key_once_keys_are_configured(premium_client, monkeypatch):
+    seen = []
+    agent = server.STATE["agent"]
+    orig = agent.answer
+    monkeypatch.setattr(agent, "answer", lambda q, history=None, tier="free": (seen.append(tier), orig(q, history=history, tier=tier))[1])
+    premium_client.post("/api/v1/chat", json={"message": "prix du mil", "tier": "premium"})
+    premium_client.post("/api/v1/chat", json={"message": "prix du mil", "tier": "premium"}, headers={"X-Premium-Key": KEY})
+    assert seen == ["free", "premium"]
+
+
+def test_chat_timing_uses_stored_studies_in_production_mode(premium_client):
+    r = premium_client.post("/api/v1/chat", json={"message": "Quand acheter du mil ?"}).json()
+    assert r["intent"] == "timing" and "janvier" in r["reply"]
+
+
+def test_malformed_study_rows_are_ignored():
+    rows = [{"payload": "pas du json"}, {"payload": {"status": "ok"}}, {"payload": 12}, "x", {"payload": None}]
+    assert server._study_payloads(rows) == []
+
+
+def test_study_cycles_recompute_with_cost_and_no_future_leak():
+    df = seasonal_panel(n_months=84)
+    st = build_seasonal_study(df, "Millet")
+    gross = st["storage_strategy"]["median_return_pct"]
+    costly = with_storage_cost(st, 5.0)["storage_strategy"]
+    assert costly["net_median_return_pct"] < gross and costly["net_hit_rate_pct"] <= st["storage_strategy"]["hit_rate_pct"]
+    assert "Non calculée" not in study_markdown(st)

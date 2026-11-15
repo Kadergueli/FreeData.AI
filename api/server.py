@@ -1,4 +1,5 @@
 import hmac
+import json
 import logging
 import os
 import sys
@@ -22,6 +23,7 @@ from src.credit_passport import compute_credit_passport
 from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import filter_fresh
+from src.season_study import StudyBook, study_markdown, with_storage_cost
 
 logger = logging.getLogger("freedata.api")
 
@@ -95,7 +97,8 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str) -> dict:
+def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str,
+                    studies: StudyBook | None = None) -> dict:
     """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
     hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
     forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
@@ -103,14 +106,30 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
         "hist_df": hist_df,
         "forecast_df": forecast_df,
         "passport_df": passport_df,
-        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df),
+        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df, studies=studies),
+        "studies": studies,
         "mode": mode,
         "alerts_source": alerts_source,
         "stale_excluded": stale_excluded,
     }
 
 
-def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame) -> dict:
+def _study_payloads(rows: list | None) -> list[dict]:
+    """Extrait les études (JSON) des lignes de table_ml_seasonality_studies ; ignore toute ligne mal formée."""
+    out = []
+    for r in rows or []:
+        payload = r.get("payload") if isinstance(r, dict) else None
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except ValueError:
+                continue
+        if isinstance(payload, dict) and payload.get("status") == "ok" and isinstance(payload.get("commodity"), str):
+            out.append(payload)
+    return out
+
+
+def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame, study_rows: list | None = None) -> dict:
     """Construit l'état à partir des tables Gold (mode production léger)."""
     fc = fc_gold.rename(columns={"last_observed_price": "value"}).copy()
     for col in ("predicted_price", "deviation_pct"):
@@ -134,7 +153,8 @@ def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame) -> dict:
         ).round(2)
         alerts_source = "approximated"
 
-    return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source)
+    studies = StudyBook(studies=_study_payloads(study_rows)) if study_rows else None
+    return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source, studies=studies)
 
 
 def build_state_full() -> dict:
@@ -142,7 +162,8 @@ def build_state_full() -> dict:
     kg_df = load_clean_markets()
     hist_df, forecast_df = run_forecasting_pipeline(kg_df)
     passport_df = compute_credit_passport(kg_df)
-    return _finalize_state(hist_df, forecast_df, passport_df, "full_compute", "model_residual")
+    return _finalize_state(hist_df, forecast_df, passport_df, "full_compute", "model_residual",
+                           studies=StudyBook(kg_df=kg_df))
 
 
 def build_state() -> dict:
@@ -154,7 +175,12 @@ def build_state() -> dict:
             raise RuntimeError(
                 "Tables Gold vides : exécuter scripts/update_predictions.py avant de démarrer l'API."
             )
-        return build_state_from_gold(fc_gold, cp_gold)
+        try:
+            study_rows = _fetch_gold_table("table_ml_seasonality_studies").to_dict(orient="records")
+        except Exception as exc:  # table absente (sql/05 non appliqué) : le reste de l'API fonctionne
+            logger.warning("Études saisonnières indisponibles (table_ml_seasonality_studies) : %s", exc)
+            study_rows = []
+        return build_state_from_gold(fc_gold, cp_gold, study_rows)
     return build_state_full()
 
 
@@ -203,6 +229,16 @@ def get_state() -> dict:
     if "agent" not in snapshot:
         raise HTTPException(status_code=503, detail="Données non chargées. Réessayez dans quelques instants.")
     return snapshot
+
+
+def _premium_key_ok(key: Optional[str]) -> bool:
+    """Comparaison en temps constant avec chacune des clés premium configurées."""
+    if not key:
+        return False
+    ok = False
+    for valid in settings.premium_keys:
+        ok |= hmac.compare_digest(key.encode(), valid.encode())
+    return ok
 
 
 class ChatRequest(BaseModel):
@@ -315,9 +351,17 @@ def get_metadata(state: dict = Depends(get_state)):
     response_model=ChatResponse,
     dependencies=[Depends(_chat_rate_limit_dependency)],
 )
-def chat_endpoint(payload: ChatRequest, state: dict = Depends(get_state)):
+def chat_endpoint(
+    payload: ChatRequest,
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+):
     agent: FreeDataAIAgent = state["agent"]
-    result = agent.answer(payload.message, history=payload.history[-8:], tier=payload.tier)
+    tier = payload.tier
+    # Dès que des clés premium sont configurées, le tier « premium » (LLM payant) n'est plus une simple déclaration.
+    if tier == "premium" and settings.premium_keys and not _premium_key_ok(x_premium_key):
+        tier = "free"
+    result = agent.answer(payload.message, history=payload.history[-8:], tier=tier)
     return ChatResponse(**result)
 
 
@@ -386,3 +430,43 @@ def get_credit_passport(
         "disclaimer": CREDIT_PASSPORT_DISCLAIMER,
         "items": df.to_dict(orient="records"),
     }
+
+
+@app.get(
+    "/api/v1/studies/seasonality",
+    dependencies=[Depends(_chat_rate_limit_dependency)],
+)
+def seasonality_study(
+    commodity: str = Query(..., min_length=2, max_length=60),
+    province: Optional[str] = Query(None, max_length=60),
+    storage_cost_pct_month: Optional[float] = Query(None, ge=0.0, le=20.0),
+    output: Literal["json", "markdown"] = Query("json", alias="format"),
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+):
+    """Étude saisonnière avancée (offre premium) : calendrier, comparaison de provinces, stratégie de stockage rejouée."""
+    if not settings.premium_keys:
+        raise HTTPException(status_code=503, detail="Études avancées désactivées : PREMIUM_API_KEYS non configuré.")
+    if not _premium_key_ok(x_premium_key):
+        raise HTTPException(status_code=403, detail="Clé premium invalide.")
+    book: StudyBook | None = state.get("studies")
+    fc = state["forecast_df"]
+    by_lower = {str(c).lower(): str(c) for c in fc["commodity_std"].dropna().unique()}
+    comm = by_lower.get(commodity.strip().lower())
+    if comm is None:
+        raise HTTPException(status_code=404, detail="Produit inconnu.")
+    prov = None
+    if province:
+        provs = {str(p).lower(): str(p) for p in fc["province"].dropna().unique()}
+        prov = provs.get(province.strip().lower())
+        if prov is None:
+            raise HTTPException(status_code=404, detail="Province inconnue.")
+    study = book.get(comm, prov) if book is not None else None
+    if study is None:
+        study = {"status": "insufficient_data", "commodity": comm, "province": prov}
+    else:
+        study = with_storage_cost(study, storage_cost_pct_month)
+    if output == "markdown":
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(study_markdown(study), media_type="text/markdown; charset=utf-8")
+    return study

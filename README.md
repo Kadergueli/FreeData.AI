@@ -65,3 +65,13 @@ firebase deploy --only hosting
 - Le score **Credit Passport** est un indicateur de volatilité des prix : ses poids et seuils ne sont pas calibrés sur des défauts de paiement. Il ne constitue pas une décision de crédit.
 - Les observations marquées `is_flagged_outlier` ne sont pas exclues de l'entraînement ni du score.
 - `hist_mae` et les intervalles à 80 % sont calculés sur les données d'entraînement (pas de validation hors échantillon).
+
+## Études saisonnières avancées (offre premium)
+
+- `GET /api/v1/studies/seasonality?commodity=Millet&province=Lac&storage_cost_pct_month=1.5&format=markdown`
+  (en-tête `X-Premium-Key`) : calendrier achat/vente, indice mensuel, comparaison de provinces et stratégie
+  « acheter au creux, vendre au pic » rejouée sur le passé (mois choisis sans regarder l'année évaluée).
+- `PREMIUM_API_KEYS` (virgules, 16 caractères min.) : une fois défini, le tier `premium` du chat (LLM) exige aussi la clé.
+- Production : `sql/05_gold_seasonality_studies.sql` puis `python -m scripts.update_seasonality --apply` (mensuel).
+  Sans `--apply`, le script écrit un JSON local et n'envoie rien.
+- Évaluer le modèle de prévision : `python -m scripts.run_backtest --csv données.csv`.
