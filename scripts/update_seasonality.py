@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -22,15 +23,17 @@ TABLE = "table_ml_seasonality_studies"
 
 
 def to_rows(studies: list[dict], track_records: list[dict] | None = None) -> list[dict]:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")  # généré à chaque lancement (l'upsert ne touche pas au défaut SQL)
     rows = []
     for t in track_records or []:
-        rows.append({"kind": "track_record", "commodity_std": t["commodity"], "province": "", "payload": t})
+        rows.append({"kind": "track_record", "commodity_std": t["commodity"], "province": "", "payload": t, "generated_at": now})
     for s in studies:
         rows.append({
             "kind": "seasonality",
             "commodity_std": s["commodity"],
             "province": s.get("scope_province") or "",
             "payload": s,
+            "generated_at": now,
         })
     return rows
 
