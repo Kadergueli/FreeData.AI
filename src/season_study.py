@@ -207,7 +207,7 @@ def study_markdown(study: dict) -> str:
         out.append("Non calculée pour cette étude.")
     elif st["status"] != "ok":
         ny = st.get("n_years")
-        out.append(f"Pas assez d'historique pour annoncer un taux de réussite ({st['n_cycles']} cycles"
+        out.append(f"Pas assez d'historique pour annoncer un taux de réussite ({st['n_cycles']} cycle(s)"
                    f"{f' sur {ny} année(s)' if ny is not None else ''} ; il faut au moins {MIN_YEARS} années).")
     else:
         out += [f"- {st['n_cycles']} cycles sur {st['n_years']} années : gain positif dans **{st['hit_rate_pct']:.0f} %** des cas",
