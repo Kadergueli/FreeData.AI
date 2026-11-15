@@ -74,6 +74,28 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
 
     pred_next_mr = latest["value"].values * np.exp(np.clip(X_next @ weights, -0.5, 0.5))
     latest["forecast_t1"] = np.round(0.65 * latest["f_roll_mean_3"].values + 0.35 * pred_next_mr, 2)
+    latest["forecast_quality"] = "standard"
+
+    # Séries dont le relevé le plus récent suit un trou (pas de mois précédent) : le modèle ci-dessus ne peut pas
+    # l'utiliser. On les prévoit quand même, sans le terme de régression (il exige le mois d'avant) :
+    # 65 % moyenne des 3 derniers relevés observés + 35 % dernier relevé. Qualité « reduced », intervalle élargi.
+    keys = ["source", "province", "market_name", "commodity_std"]
+    observed = panel[panel["value"].notna()]
+    n_obs = observed.groupby(keys)["value"].transform("size")
+    last_obs = observed[n_obs >= 3].groupby(keys).tail(1)  # moins de 3 relevés : pas de prévision
+    newest = latest[keys + ["year_month"]].rename(columns={"year_month": "_std_ym"})
+    orphans = last_obs.merge(newest, on=keys, how="left")
+    orphans = orphans[orphans["_std_ym"].isna() | (orphans["year_month"] > orphans["_std_ym"])].drop(columns="_std_ym").copy()
+    if not orphans.empty:
+        mean3 = observed.groupby(keys)["value"].apply(lambda v: v.tail(3).mean()).rename("f_roll_mean_3").reset_index()
+        orphans = orphans.drop(columns=["f_roll_mean_3"], errors="ignore").merge(mean3, on=keys, how="left")
+        orphans["forecast_t1"] = np.round(0.65 * orphans["f_roll_mean_3"] + 0.35 * orphans["value"], 2)
+        orphans["forecast_quality"] = "reduced"
+        replaced = orphans[keys]
+        latest = latest.merge(replaced.assign(_drop=1), on=keys, how="left")
+        latest = latest[latest["_drop"].isna()].drop(columns="_drop")
+        latest = pd.concat([latest, orphans[[c for c in latest.columns if c in orphans.columns]]], ignore_index=True)
+
     latest["last_observed_month"] = latest["year_month"].astype(str)
     latest["forecast_month"] = (latest["year_month"] + 1).astype(str)
 
@@ -81,7 +103,9 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
     err_stats.rename(columns={"residual_xaf": "hist_mae"}, inplace=True)
     latest = pd.merge(latest, err_stats, on=["province", "commodity_std"], how="left")
     latest["hist_mae"] = np.round(latest["hist_mae"].fillna(25.0), 2)
-    latest["ci_low_80"] = np.round(np.clip(latest["forecast_t1"] - 1.28 * latest["hist_mae"], 10.0, None), 2)
-    latest["ci_high_80"] = np.round(latest["forecast_t1"] + 1.28 * latest["hist_mae"], 2)
+    # Intervalle plus large (x1.5) quand la prévision n'a pas pu utiliser le mois précédent.
+    width = 1.28 * latest["hist_mae"] * np.where(latest["forecast_quality"] == "reduced", 1.5, 1.0)
+    latest["ci_low_80"] = np.round(np.clip(latest["forecast_t1"] - width, 10.0, None), 2)
+    latest["ci_high_80"] = np.round(latest["forecast_t1"] + width, 2)
 
     return train_full, latest
