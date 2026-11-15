@@ -380,8 +380,10 @@ def get_forecasts(
     cols = [
         "source", "province", "market_name", "commodity_std",
         "last_observed_month", "value", "forecast_month",
-        "forecast_t1", "ci_low_80", "ci_high_80", "hist_mae",
+        "forecast_t1", "ci_low_80", "ci_high_80", "hist_mae", "forecast_quality",
     ]
+    if "forecast_quality" not in df.columns:  # Gold ancien (sql/06 pas encore appliqué)
+        df["forecast_quality"] = "standard"
     out = df[cols].rename(columns={"value": "last_observed_price"}).head(limit)
     return {"count": len(out), "items": out.to_dict(orient="records")}
 

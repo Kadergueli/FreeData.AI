@@ -90,3 +90,22 @@ def test_no_gap_data_gives_identical_output():
     a = old.sort_values(["province", "commodity_std"]).reset_index(drop=True)
     b = new.sort_values(["province", "commodity_std"]).reset_index(drop=True)
     assert np.allclose(a["forecast_t1"], b["forecast_t1"]) and np.allclose(a["ci_high_80"], b["ci_high_80"])
+
+
+def test_agent_warns_on_reduced_quality_forecast():
+    from src.ai_agent import FreeDataAIAgent
+    from src.credit_passport import compute_credit_passport
+    df = panel_with_gap()
+    hist, fc = run_forecasting_pipeline(df)
+    a = FreeDataAIAgent(hist, fc, compute_credit_passport(df))
+    assert "confiance réduite" in a.answer("prix du mil à Logone")["reply"]
+    assert "confiance réduite" not in a.answer("prix du mil à Salamat")["reply"]
+
+
+def test_export_includes_quality_column():
+    from scripts.update_predictions import build_exports
+    from src.credit_passport import compute_credit_passport
+    df = panel_with_gap()
+    _, fc = run_forecasting_pipeline(df)
+    out, _ = build_exports(fc, compute_credit_passport(df))
+    assert set(out["forecast_quality"]) == {"standard", "reduced"}

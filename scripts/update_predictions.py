@@ -25,6 +25,8 @@ FORECAST_SRC_COLS = [
     "forecast_t1", "ci_low_80", "ci_high_80", "hist_mae",
     # Sorties déjà calculées par le modèle pour le dernier mois observé (alertes de tension).
     "predicted_price", "deviation_pct",
+    # 'standard' ou 'reduced' (dernier relevé après un trou) : sql/06 doit être appliqué avant ce script.
+    "forecast_quality",
 ]
 
 PASSPORT_COLS = [
