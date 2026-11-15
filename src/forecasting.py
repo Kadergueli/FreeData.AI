@@ -91,6 +91,12 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
         orphans = orphans.drop(columns=["f_roll_mean_3"], errors="ignore").merge(mean3, on=keys, how="left")
         orphans["forecast_t1"] = np.round(0.65 * orphans["f_roll_mean_3"] + 0.35 * orphans["value"], 2)
         orphans["forecast_quality"] = "reduced"
+        # Alertes : prix attendu = moyenne des (jusqu'à) 3 relevés PRÉCÉDENTS ; écart du dernier relevé par rapport à cette attente.
+        prior = observed.groupby(keys)["value"].apply(lambda v: v.iloc[:-1].tail(3).mean()).rename("predicted_price").reset_index()
+        orphans = orphans.drop(columns=["predicted_price"], errors="ignore").merge(prior, on=keys, how="left")
+        orphans["predicted_price"] = orphans["predicted_price"].round(2)
+        orphans["residual_xaf"] = np.round(orphans["value"] - orphans["predicted_price"], 2)
+        orphans["deviation_pct"] = np.round(orphans["residual_xaf"] / orphans["predicted_price"] * 100.0, 2)
         replaced = orphans[keys]
         latest = latest.merge(replaced.assign(_drop=1), on=keys, how="left")
         latest = latest[latest["_drop"].isna()].drop(columns="_drop")

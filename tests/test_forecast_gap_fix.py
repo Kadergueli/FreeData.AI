@@ -109,3 +109,24 @@ def test_export_includes_quality_column():
     _, fc = run_forecasting_pipeline(df)
     out, _ = build_exports(fc, compute_credit_passport(df))
     assert set(out["forecast_quality"]) == {"standard", "reduced"}
+
+
+def test_reduced_series_get_alert_columns_from_previous_observations():
+    df = panel_with_gap()
+    hist, new = run_forecasting_pipeline(df)
+    row = new[(new.province == "Logone") & (new.commodity_std == "Millet")].iloc[0]
+    assert row["forecast_quality"] == "reduced"
+    prev = df[(df.province == "Logone") & (df.commodity_std == "Millet") & (df.year_month < pd.Period("2025-12"))].sort_values("year_month")
+    expected = prev["value"].tail(3).mean()
+    assert row["predicted_price"] == pytest.approx(expected, abs=0.01)
+    assert row["deviation_pct"] == pytest.approx((row["value"] - expected) / expected * 100.0, abs=0.01)
+
+
+def test_alert_columns_of_standard_series_unchanged():
+    df = panel_with_gap()
+    _, old = _original_module().run_forecasting_pipeline(df)
+    _, new = run_forecasting_pipeline(df)
+    k = ["province", "commodity_std"]
+    m = new[new.forecast_quality == "standard"][k + ["predicted_price", "deviation_pct"]].merge(
+        old[k + ["predicted_price", "deviation_pct"]], on=k, suffixes=("_n", "_o"))
+    assert np.allclose(m["predicted_price_n"], m["predicted_price_o"]) and np.allclose(m["deviation_pct_n"], m["deviation_pct_o"])
