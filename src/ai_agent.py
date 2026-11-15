@@ -826,6 +826,7 @@ class MarketDataProvider:
                     "ci_low_80": _clean_float(r.get("ci_low_80")),
                     "ci_high_80": _clean_float(r.get("ci_high_80")),
                     "hist_mae": _clean_float(r.get("hist_mae")),
+                    "reduced_quality": str(r.get("forecast_quality", "standard")) == "reduced",
                     "cv_pct": cv_map.get((prov_val, comm_val)),
                 }
             )
@@ -2084,6 +2085,11 @@ class FreeDataAIAgent:
             sources_list = sorted({r["source"] for r in records if r.get("source")})
             sources_str = ", ".join(sources_list) if sources_list else "Source suivie"
             stats_parts = []
+            if focus.get("reduced_quality"):
+                stats_parts.append(
+                    "- ⚠️ Prévision à **confiance réduite** : il manque le relevé du mois précédant le dernier relevé, "
+                    "l'estimation est donc plus simple et plus incertaine."
+                )
             if focus.get("ci_low_80") is not None and focus.get("ci_high_80") is not None:
                 stats_parts.append(
                     f"- Fourchette probable à 80 % ({focus['market_name']}) : "
