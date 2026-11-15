@@ -2258,8 +2258,12 @@ class FreeDataAIAgent:
         ]
         if data.get("reliable"):
             lines.append("- Ce schéma se répète d'une année à l'autre : il est jugé **fiable**.")
+        elif data.get("min_years_observed", 3) < 3:
+            lines.append("- ⚠️ Historique trop court pour **confirmer** ce schéma : c'est une indication, pas une règle.")
         else:
             lines.append("- ⚠️ Ce schéma est **peu régulier** d'une année à l'autre : prenez-le comme une indication, pas comme une règle.")
+        if data.get("min_years_observed", 3) < 3:
+            lines.append(f"- Historique court : chaque mois n'a été observé que sur {data['min_years_observed']} année(s) seulement.")
         lines.append("Ce calendrier décrit des tendances passées moyennes ; il ne garantit pas le prix d'une année donnée. "
                      "Il ne tient pas compte de vos coûts de stockage et de pertes.")
         return "\n".join(lines)

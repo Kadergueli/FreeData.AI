@@ -237,3 +237,21 @@ def test_check_family_a_run_writes_reports_without_network(tmp_path):
     import json
     rows = json.loads((tmp_path / "seasonality_studies.json").read_text(encoding="utf-8"))
     assert out["n_studies"] == len(rows) >= 1 and rows[0]["payload"]["status"] == "ok"
+
+
+def test_short_history_is_never_reliable_and_says_so():
+    short = seasonal_panel(n_months=34, amp=0.25, noise=0.01, provinces=tuple(f"P{i}" for i in range(12)))
+    cal = seasonal_calendar(short, "Millet")
+    assert cal["status"] != "ok" or (not cal["reliable"] and cal["min_years_observed"] < 3)
+    if cal["status"] == "ok":
+        st = build_seasonal_study(short, "Millet")
+        assert any("Historique court" in c for c in st["caveats"])
+
+
+def test_deviation_table_matches_profile_and_is_reusable():
+    from src.seasonality import deviation_table
+    df = seasonal_panel(n_months=72)
+    dev = deviation_table(df)
+    a = seasonal_profile(df, "Millet")
+    b = seasonal_profile(None, "Millet", dev=dev)
+    assert np.allclose(a["index"], b["index"])
