@@ -63,3 +63,14 @@ def test_flagged_outliers_are_dropped_before_the_model(monkeypatch):
     assert len(data_loader.load_clean_markets()) == 2
     monkeypatch.setattr(data_loader, "settings", dataclasses.replace(data_loader.settings, exclude_flagged_outliers=False))
     assert len(data_loader.load_clean_markets()) == 3
+
+
+def test_explicit_csv_path_is_used_even_when_supabase_is_configured(monkeypatch, tmp_path):
+    import dataclasses
+    from src import data_loader
+    monkeypatch.setattr(data_loader, "settings", dataclasses.replace(
+        data_loader.settings, supabase_url="https://x.supabase.co", supabase_key="k" * 30))
+    monkeypatch.setattr(data_loader, "_fetch_supabase_rest_view", lambda: (_ for _ in ()).throw(AssertionError("Supabase appelé")))
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        data_loader._load_clean_markets_raw(str(tmp_path / "absent.csv"))

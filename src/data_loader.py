@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Optional
 import requests
 import pandas as pd
@@ -60,10 +61,11 @@ def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
     Charge et standardise les séries de marchés (unité homogène xaf/kg).
     Priorité : 1) API HTTPS Supabase, 2) PostgreSQL direct, 3) CSV local.
     """
-    if settings.data_backend == "supabase_rest":
+    # Un chemin de CSV passé explicitement est toujours respecté (sinon `--csv` serait ignoré dès que Supabase est configuré).
+    if csv_path is None and settings.data_backend == "supabase_rest":
         return _fetch_supabase_rest_view()
 
-    if settings.data_backend == "supabase":
+    if csv_path is None and settings.data_backend == "supabase":
         from sqlalchemy import create_engine
         engine = create_engine(settings.supabase_db_url)
         query = """
@@ -77,6 +79,8 @@ def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
         return df_clean
 
     target_csv = csv_path or settings.csv_path
+    if not Path(target_csv).is_file():
+        raise FileNotFoundError(f"Fichier CSV introuvable : {target_csv} (dossier courant : {Path.cwd()})")
     df = pd.read_csv(target_csv)
     markets = df[df["source"].isin(["WFP", "FEWS NET"])].copy()
     markets["reference_date"] = pd.to_datetime(markets["reference_date"])
