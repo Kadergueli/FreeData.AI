@@ -208,7 +208,10 @@ _CITY_CANONICAL_HINTS = {
 
 
 # Mots ENTIERS uniquement (évite "cher" dans "recherche", "lac" dans "placer"...).
-_GREETING_RE = re.compile(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|salam|merci|aide|help)\b")
+_GREETING_RE = re.compile(
+    r"\b(salut|slt|bonjour|bjr|bonsoir|bsr|hello|hey|hi|coucou|cc|salam|salamou|assalam|ahlan|marhaba|"
+    r"good\s+(?:morning|afternoon|evening)|bonne\s+(?:journee|soiree)|merci|aide|help)\b"
+)
 _SMALLTALK_HOW_RE = re.compile(
     r"\b(?:comment\s+(?:vas?[\s-]*tu|tu\s+vas|allez[\s-]*vous|vous\s+allez)|"
     r"ca\s+va|tu\s+vas\s+bien|vous\s+allez\s+bien|quoi\s+de\s+neuf)\b"
@@ -248,6 +251,7 @@ _OPPORTUNITY_RE = re.compile(
     r"meilleur marche|meilleurs marches|approprie|lancer|conseil|conseils)\b"
 )
 # "Entre vendre à A et à B, où aurais-je le plus de revenus ?" : comparer deux lieux de VENTE (pas un trajet A -> B).
+_FOLLOW_UP_RE = re.compile(r"^\s*(?:et|et\s+si|pour|aussi|meme\s+chose|idem|pareil|et\s+pour|ca\s+marche\s+pour)\b")
 _SELL_COMPARE_RE = re.compile(
     r"\b(?:vendre|vente|vendu|revenus?|gagner|rapporte|rapporter|plus\s+(?:cher|rentable|avantageux))\b"
 )
@@ -257,7 +261,8 @@ _MARKET_CHOICE_OPPORTUNITY_RE = re.compile(
     r"\b(?:quel(?:s)?\s+marche(?:s)?|meilleur(?:s)?\s+marche(?:s)?|approprie|opportunite(?:s)?\s+(?:commerciales?|d[\s']?arbitrage)?)\b"
 )
 _BEGINNER_BUSINESS_RE = re.compile(
-    r"\b(?:debuter|debutant|debutante|se\s+lancer|pour\s+commencer|comment\s+commencer|guide\s+debutant)\b"
+    r"\b(?:debuter|debutant|debutante|se\s+lancer|pour\s+commencer|comment\s+commencer|guide\s+debutant|"
+    r"par\s+ou\s+(?:commencer|demarrer)|demarrer|demarrage|commencer\s+(?:un|une|dans|le|mon|ma|mes)\b)"
 )
 _PROFIT_SIM_RE = re.compile(
     r"\b(?:profit|profits|benefice|benefices|marge\s+nette|marges\s+nettes|"
@@ -340,6 +345,10 @@ def _numbers_in(text: str) -> set[str]:
         for n in _DIGITS_RE.findall(normalized)
         if len(n) >= 2 and n not in _IGNORED_CONVERSATION_NUMBERS
     }
+
+
+# Garde-fou : une réponse LLM démesurée (dérive, boucle) n'est jamais renvoyée au client.
+_MAX_LLM_REPLY_CHARS = 6000
 
 
 def _ungrounded_numbers(candidate: str, *sources: str) -> set[str]:
@@ -1779,7 +1788,21 @@ class FreeDataAIAgent:
             )
         )
 
-        if _CREDIT_RE.search(q_norm):
+        # Message réduit à un montant ("avec 2 millions") juste après une question de financement :
+        # c'est le montant à financer, pas un capital de démarrage.
+        credit_follow_up = bool(
+            history
+            and is_explicit_biz_param
+            and not (_BEGINNER_BUSINESS_RE.search(q_norm) or _PROFIT_SIM_RE.search(q_norm) or _BIZ_TRIGGER_RE.search(q_norm))
+            and any(
+                _CREDIT_RE.search(_normalize_text(str(m.get("content", ""))))
+                for m in [h for h in history if isinstance(h, dict) and h.get("role", "user") == "user"][-2:]
+            )
+        )
+        if credit_follow_up and not loan_amount_given and biz_meta["capital_xaf"]:
+            loan_amount, loan_amount_given = int(biz_meta["capital_xaf"]), True
+
+        if _CREDIT_RE.search(q_norm) or credit_follow_up:
             intent = "credit_passport"
         elif _CHEAPEST_RE.search(q_norm) and not (origin_prov and dest_prov and origin_prov != dest_prov):
             intent = "opportunity"
@@ -1802,6 +1825,23 @@ class FreeDataAIAgent:
             intent = "dataset_overview"
         else:
             intent = "forecast"
+
+        # Suivi court ("et pour le sorgho ?", "et à Salamat ?") : on garde l'analyse de la question précédente
+        # (crédit, alertes, opportunités) au lieu de retomber sur une simple prévision.
+        if history and intent == "forecast" and _FOLLOW_UP_RE.match(q_norm) and len(q_norm.split()) <= 8:
+            prev_users = [
+                str(m.get("content", "")) for m in history
+                if isinstance(m, dict) and m.get("role", "user") == "user" and m.get("content")
+            ]
+            for prev_text in reversed(prev_users[-3:]):
+                prev = self._extract_entities(prev_text)  # sans historique : pas de récursion
+                if prev["intent"] in ("credit_passport", "alerts", "opportunity"):
+                    intent = prev["intent"]
+                    if intent == "credit_passport" and prev.get("loan_amount_given") and not loan_amount_given:
+                        loan_amount, loan_amount_given = prev["loan_amount"], True
+                    break
+                if prev["intent"] == "forecast":
+                    break
 
         return {
             "province": matched_prov,
@@ -2630,7 +2670,7 @@ class FreeDataAIAgent:
         except Exception as exc:
             logger.warning("Conversation LLM indisponible, réponse déterministe : %s", exc)
             return None
-        if not text or _ungrounded_numbers(text, "\n".join(allowed_numbers)):
+        if not text or len(text) > 1500 or _ungrounded_numbers(text, "\n".join(allowed_numbers)):
             return None
         return text
 
@@ -2664,7 +2704,7 @@ class FreeDataAIAgent:
                 "**Avec plaisir, construisons votre projet pas à pas.**\n\n"
                 "Pour vous proposer des pistes réalistes à partir des prix réels du marché, j'ai besoin de "
                 "connaître votre point de départ :\n"
-                "1. **Votre capital de départ** (par exemple 300 000, 500 000 ou 1 000 000 FCFA)\n"
+                "1. **Votre capital de départ** : le montant que vous souhaitez investir, à votre convenance\n"
                 "2. **Votre zone** : ville ou province (facultatif)\n"
                 "3. **Un produit qui vous attire** : mil, riz, oignons… (facultatif)\n\n"
                 "Dès que vous m'indiquez votre capital, je vous présente les filières les plus accessibles, "
@@ -2899,7 +2939,7 @@ class FreeDataAIAgent:
             if resp.status_code == 200:
                 candidate = (resp.json().get("response") or "").strip()
                 allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{user_query}"
-                if candidate and self._numbers_are_grounded(candidate, allowed_context):
+                if candidate and len(candidate) <= _MAX_LLM_REPLY_CHARS and self._numbers_are_grounded(candidate, allowed_context):
                     return candidate
                 ungrounded = sorted(_ungrounded_numbers(candidate, allowed_context))
                 logger.warning("LLM fallback triggered (Ollama): ungrounded numbers %s", ungrounded)
@@ -3034,6 +3074,8 @@ class FreeDataAIAgent:
             allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}"
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
+            elif len(candidate) > _MAX_LLM_REPLY_CHARS:
+                logger.warning("LLM fallback triggered: completion too long (%d chars).", len(candidate))
             elif self._numbers_are_grounded(candidate, allowed_context):
                 return candidate
             else:

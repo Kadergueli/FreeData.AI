@@ -227,3 +227,65 @@ class TestChatRateLimit:
         assert "chart" in resp.json()
 
 
+
+
+class TestChatPayloadRobustness:
+    """Aucune entrée client, même absurde, ne doit produire une erreur 500."""
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"message": "salut"},
+            {"message": "salut", "history": []},
+            {"message": "salut", "tier": "premium"},
+            {"message": "x" * 1000},
+            {"message": "  "},
+            {"message": "😀🌾"},
+            {"message": "السلام عليكم"},
+            {"message": "prix du mil", "history": [{"role": "user", "content": "x" * 50000}]},
+            {"message": "prix du mil", "history": [{"role": "bot", "content": "?"}, {"nimporte": "quoi"}, {}]},
+            {"message": "prix du mil", "history": [{"role": "user", "content": "prix du mil à Lac"}] * 40},
+            {"message": "salut", "inconnu": "champ en trop"},
+        ],
+    )
+    def test_accepted_payloads_return_a_reply(self, client, payload):
+        resp = client.post("/api/v1/chat", json=payload)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["reply"].strip() and "Traceback" not in body["reply"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"message": ""},
+            {"message": "x" * 1001},
+            {"message": 123},
+            {"message": None},
+            {"message": "salut", "tier": "gold"},
+            {"message": "salut", "history": "pas une liste"},
+            {"message": "salut", "history": [{"role": "user", "content": "a"}] * 41},
+            [],
+            "texte brut",
+        ],
+    )
+    def test_invalid_payloads_are_rejected_with_422_not_500(self, client, payload):
+        assert client.post("/api/v1/chat", json=payload).status_code == 422
+
+    def test_malformed_json_body_is_rejected_cleanly(self, client):
+        resp = client.post("/api/v1/chat", content="{pas du json", headers={"Content-Type": "application/json"})
+        assert resp.status_code in (400, 422)
+
+    def test_wrong_content_type_is_rejected_cleanly(self, client):
+        resp = client.post("/api/v1/chat", content="message=salut", headers={"Content-Type": "text/plain"})
+        assert resp.status_code in (415, 422)
+
+    def test_chat_does_not_expose_secrets_or_internal_paths_on_error(self, client, monkeypatch):
+        from src import ai_agent
+
+        def boom(*a, **k):
+            raise RuntimeError("clé gsk_SECRET at /home/app/src/ai_agent.py")
+
+        monkeypatch.setattr(ai_agent.FreeDataAIAgent, "answer_with_metadata", boom)
+        resp = client.post("/api/v1/chat", json={"message": "prix du mil"})
+        assert "gsk_SECRET" not in resp.text and "/home/app" not in resp.text
