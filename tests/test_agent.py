@@ -1294,3 +1294,46 @@ def test_pure_greeting_never_calls_llm_even_in_premium(agent, monkeypatch):
     monkeypatch.setattr(ai_agent.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pas de LLM pour une salutation")))
     res = agent.answer_with_metadata("Salut", tier="premium")
     assert res["intent"] == "greeting" and "bienvenue sur FreeData.AI" in res["reply"]
+
+
+def test_compare_two_selling_locations_not_a_route(agent):
+    res = agent.answer_with_metadata("entre vendre du mil à Lac et à Salamat, où aurais-je le plus de revenus ?")
+    assert res["intent"] == "compare_sell"
+    assert "Meilleure option" in res["reply"] and "→" not in res["reply"].split("\n")[2]
+
+
+def test_compare_selling_without_product_asks_for_it(agent):
+    res = agent.answer_with_metadata("entre vendre à Lac et à Salamat, où gagner plus ?")
+    assert res["intent"] == "compare_sell"
+    assert "quel **produit**" in res["reply"] and "Voici la comparaison" not in res["reply"]
+
+
+def test_compare_missing_series_explains_and_proposes_alternatives(agent):
+    res = agent.answer_with_metadata("entre vendre des oignons à Lac et à Salamat, où plus de revenus ?")
+    assert "Aucune série de prix n'est suivie" in res["reply"]
+
+
+def test_buy_resell_still_routes_to_route_revenue(agent):
+    assert agent.answer_with_metadata("Vendre du mil de Lac vers Salamat")["intent"] == "route_revenue"
+
+
+@pytest.mark.parametrize(
+    "msg,start",
+    [
+        ("prix du mil à Lac", "Voici l'analyse des prix"),
+        ("Évalue le risque de financer du mil au Salamat", "Voici l'évaluation du risque de financement"),
+        ("Quelles sont les alertes de hausse ?", "Voici les signaux de tension"),
+    ],
+)
+def test_data_answers_start_with_an_introduction(agent, msg, start):
+    assert agent.answer_with_metadata(msg)["reply"].startswith(start)
+
+
+def test_credit_amount_is_never_assumed_and_is_asked(agent):
+    res = agent.answer_with_metadata("Évalue le risque de financer du mil au Salamat")
+    assert "indiquez-le-moi" in res["reply"] and "Quel montant souhaitez-vous financer" in res["reply"]
+
+
+def test_investment_capital_is_asked_not_assumed(agent):
+    res = agent.answer_with_metadata("Je veux lancer un business au Tchad et je sais pas par où commencer ?")
+    assert res["intent"] == "needs_capital" and "500 000" not in res["reply"].split("1.")[0]

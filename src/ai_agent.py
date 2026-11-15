@@ -247,6 +247,12 @@ _OPPORTUNITY_RE = re.compile(
     r"approvisionner|approvisionnement|revendre|revente|"
     r"meilleur marche|meilleurs marches|approprie|lancer|conseil|conseils)\b"
 )
+# "Entre vendre à A et à B, où aurais-je le plus de revenus ?" : comparer deux lieux de VENTE (pas un trajet A -> B).
+_SELL_COMPARE_RE = re.compile(
+    r"\b(?:vendre|vente|vendu|revenus?|gagner|rapporte|rapporter|plus\s+(?:cher|rentable|avantageux))\b"
+)
+_BUY_RESELL_RE = re.compile(r"\b(?:acheter|achat|achete|revendre|revente|depuis|vers|transporter|ramener|importer)\b")
+_EITHER_RE = re.compile(r"\b(?:entre|ou|soit)\b")
 _MARKET_CHOICE_OPPORTUNITY_RE = re.compile(
     r"\b(?:quel(?:s)?\s+marche(?:s)?|meilleur(?:s)?\s+marche(?:s)?|approprie|opportunite(?:s)?\s+(?:commerciales?|d[\s']?arbitrage)?)\b"
 )
@@ -1241,6 +1247,34 @@ class MarketDataProvider:
                 series = series.fillna(col_vals)
         return series
 
+    def compare_sell_locations(self, commodity: Optional[str], provinces: list[str]) -> dict:
+        """Compare le prix de vente prévu d'un même produit dans plusieurs provinces."""
+        if not commodity:
+            return {"status": "needs_commodity", "provinces": provinces, "rows": [], "missing": [], "available": []}
+        rows, missing = [], []
+        for prov in provinces:
+            price = self._median_province_commodity_price(prov, commodity)
+            if price is None:
+                missing.append(prov)
+            else:
+                rows.append({"province": prov, "price_xaf": price})
+        rows.sort(key=lambda r: r["price_xaf"], reverse=True)
+        available = []
+        if missing:
+            for prov in sorted(self.forecast_df["province"].dropna().astype(str).unique()):
+                price = self._median_province_commodity_price(prov, commodity)
+                if price is not None and prov not in provinces:
+                    available.append({"province": prov, "price_xaf": price})
+            available.sort(key=lambda r: r["price_xaf"], reverse=True)
+        return {
+            "status": "ok" if len(rows) >= 2 else ("partial" if rows else "missing"),
+            "commodity": commodity,
+            "provinces": provinces,
+            "rows": rows,
+            "missing": missing,
+            "available": available[:4],
+        }
+
     def _median_province_commodity_price(self, province: str, commodity: str) -> Optional[float]:
         """Calcule la médiane des prix (`predicted_price` ou `last_price` à défaut) pour `(province, commodity)`."""
         if self.forecast_df.empty or not province or not commodity:
@@ -1710,7 +1744,8 @@ class FreeDataAIAgent:
         else:
             m_unit = _LOAN_UNIT_RE.search(q_norm)
             candidate = int(re.sub(r"[ .]", "", m_unit.group(1))) if m_unit else None
-        if candidate is not None and candidate >= _MIN_LOAN_XAF:
+        loan_amount_given = candidate is not None and candidate >= _MIN_LOAN_XAF
+        if loan_amount_given:
             loan_amount = candidate
 
         volume_kg, volume_label = self._extract_volume(q_norm)
@@ -1750,6 +1785,13 @@ class FreeDataAIAgent:
             intent = "opportunity"
         elif _ALERT_RE.search(q_norm):
             intent = "alerts"
+        elif (
+            len(provinces_found) >= 2
+            and _SELL_COMPARE_RE.search(q_norm)
+            and _EITHER_RE.search(q_norm)
+            and not _BUY_RESELL_RE.search(q_norm)
+        ):
+            intent = "compare_sell"
         elif has_business_sim_signal:
             intent = "business_simulator"
         elif origin_prov and dest_prov and origin_prov != dest_prov:
@@ -1770,6 +1812,7 @@ class FreeDataAIAgent:
             "commodity": matched_comm,
             "commodities": requested_comms,
             "loan_amount": loan_amount,
+            "loan_amount_given": bool(loan_amount_given),
             "volume_kg": volume_kg,
             "volume_label": volume_label,
             "capital_xaf": biz_meta["capital_xaf"],
@@ -2028,7 +2071,7 @@ class FreeDataAIAgent:
 
     @staticmethod
     def _format_credit_passport(
-        data: dict, province: Optional[str], commodity: Optional[str], loan_amount: int
+        data: dict, province: Optional[str], commodity: Optional[str], loan_amount: int, loan_given: bool = True
     ) -> str:
         comm_fr = data.get("commodity_fr") or MarketDataProvider.fr_commodity(commodity or "Millet")
         if data.get("status") != "ok":
@@ -2038,18 +2081,30 @@ class FreeDataAIAgent:
 
         if province:
             r = data["records"][0]
+            if loan_given:
+                amount_rows = (
+                    f"| Montant demandé | **{_fmt_int(loan_amount)} XAF** |\n"
+                    f"| Plafond recommandé (LTV {r['ltv_pct']}%) | **{_fmt_int(r['recommended_max_loan_xaf'])} XAF** |\n"
+                )
+                closing = ""
+            else:
+                amount_rows = f"| Financement maximal conseillé (LTV) | **{r['ltv_pct']}%** de la valeur du stock |\n"
+                closing = (
+                    "\n\n**Quel montant souhaitez-vous financer ?** Indiquez-le et je vérifierai s'il respecte "
+                    "le plafond recommandé pour cette filière."
+                )
             return (
                 f"### Agricultural Credit Passport — {comm_fr} ({province})\n\n"
                 f"**Décision prudentielle :** {r['policy_recommendation']}\n\n"
                 f"| Indicateur clé | Résultat |\n"
                 f"| :--- | ---: |\n"
                 f"| Score global | **{r['credit_score']:.1f}/100** ({r['grade']}) |\n"
-                f"| Montant demandé | **{_fmt_int(loan_amount)} XAF** |\n"
-                f"| Plafond recommandé (LTV {r['ltv_pct']}%) | **{_fmt_int(r['recommended_max_loan_xaf'])} XAF** |\n"
+                f"{amount_rows}"
                 f"| Prix médian de référence | {_fmt_int(r['median_price'])} XAF/kg |\n"
                 f"| Volatilité (CV) | {r['cv_pct']:.1f}% |\n"
                 f"| Chute max post-récolte | -{r['max_drawdown_pct']:.1f}% |\n"
                 f"| Historique observé | {r['obs_months']} mois |"
+                f"{closing}"
             )
 
         lines = [
@@ -2208,6 +2263,55 @@ class FreeDataAIAgent:
                     f"LTV {r['ltv_pct']}%{cv_str} |"
                 )
 
+        return "\n".join(lines)
+
+    def _format_compare_sell(self, data: dict) -> str:
+        if data.get("status") == "needs_commodity":
+            names = " et ".join(data.get("provinces") or [])
+            return (
+                f"Pour comparer vos revenus entre {names}, quel **produit** souhaitez-vous vendre "
+                f"(mil, sorgho, maïs, riz, oignons…) ?"
+            )
+        comm = self._fr_commodity(data["commodity"])
+        rows, missing = data.get("rows") or [], data.get("missing") or []
+        lines = [f"### Comparaison de vente — {comm} : {' vs '.join(data['provinces'])}", ""]
+        if len(rows) >= 2:
+            best, other = rows[0], rows[1]
+            gap = best["price_xaf"] - other["price_xaf"]
+            pct = gap / other["price_xaf"] * 100.0 if other["price_xaf"] else 0.0
+            lines += [
+                "| Province | Prix de vente prévu | Revenu brut pour 100 kg |",
+                "| :--- | ---: | ---: |",
+            ]
+            for r in rows:
+                lines.append(f"| **{r['province']}** | {_fmt_int(r['price_xaf'])} XAF/kg | {_fmt_int(r['price_xaf'] * 100)} XAF |")
+            lines += [
+                "",
+                f"**Meilleure option : {best['province']}**, soit {_fmt_int(gap)} XAF/kg de plus ({_fmt_pct(pct)}) "
+                f"que {other['province']}, c'est-à-dire environ {_fmt_int(gap * 100)} XAF de revenu brut en plus par sac de 100 kg.",
+                "",
+                "*Revenu brut = prix de vente prévu, avant coût d'achat, transport et manutention.*",
+            ]
+        elif rows:
+            r = rows[0]
+            lines.append(
+                f"Je ne suis ce produit ({comm}) qu'à **{r['province']}** : prix de vente prévu **{_fmt_int(r['price_xaf'])} XAF/kg** "
+                f"(≈ {_fmt_int(r['price_xaf'] * 100)} XAF pour 100 kg)."
+            )
+        if missing:
+            if rows:
+                lines.append("")
+            lines.append(
+                f"Aucune série de prix n'est suivie pour **{comm}** à **{', '.join(missing)}** : "
+                f"je ne peux donc pas comparer ces lieux de vente."
+            )
+            if data.get("available"):
+                alt = ", ".join(f"{a['province']} ({_fmt_int(a['price_xaf'])} XAF/kg)" for a in data["available"])
+                lines.append("")
+                lines.append(f"Provinces où je suis ce produit, par prix de vente prévu décroissant : {alt}. Voulez-vous comparer l'une d'elles ?")
+            else:
+                lines.append("")
+                lines.append("Je ne suis ce produit dans aucune autre province pour le moment. Souhaitez-vous essayer un autre produit ?")
         return "\n".join(lines)
 
     def tool_calculate_route_revenue(
@@ -2530,7 +2634,49 @@ class FreeDataAIAgent:
             return None
         return text
 
-    _ROUTER_INTENTS = ("forecast", "alerts", "opportunity", "credit_passport", "dataset_overview", "clarify")
+    def _availability_hint(self, commodities: Optional[list], provinces: list) -> str:
+        """Quand une comparaison est impossible, propose des alternatives réellement disponibles."""
+        fc = self.provider.forecast_df
+        if fc is None or fc.empty:
+            return ""
+        provinces = [p for p in provinces if p]
+        parts = []
+        if commodities:
+            comm = commodities[0]
+            where = sorted(fc.loc[fc["commodity_std"] == comm, "province"].dropna().astype(str).unique())
+            if where:
+                parts.append(f"**{self._fr_commodity(comm)}** est suivi dans : {', '.join(where)}.")
+        common = None
+        for prov in provinces:
+            found = set(fc.loc[fc["province"] == prov, "commodity_std"].dropna().astype(str))
+            common = found if common is None else common & found
+        if common:
+            names = ", ".join(sorted({self._fr_commodity(c) for c in common}))
+            parts.append(f"Entre {' et '.join(provinces)}, je peux comparer : {names}.")
+        if not parts:
+            return ""
+        return "\n\n" + " ".join(parts) + "\n\nSouhaitez-vous essayer l'une de ces options ?"
+
+    @staticmethod
+    def _ask_capital_response(entities: dict) -> dict:
+        return {
+            "reply": (
+                "**Avec plaisir, construisons votre projet pas à pas.**\n\n"
+                "Pour vous proposer des pistes réalistes à partir des prix réels du marché, j'ai besoin de "
+                "connaître votre point de départ :\n"
+                "1. **Votre capital de départ** (par exemple 300 000, 500 000 ou 1 000 000 FCFA)\n"
+                "2. **Votre zone** : ville ou province (facultatif)\n"
+                "3. **Un produit qui vous attire** : mil, riz, oignons… (facultatif)\n\n"
+                "Dès que vous m'indiquez votre capital, je vous présente les filières les plus accessibles, "
+                "leur stabilité de prix et ce que votre budget permet d'acheter."
+            ),
+            "intent": "needs_capital",
+            "entities": entities,
+            "sources": [],
+            "chart": None,
+        }
+
+    _ROUTER_INTENTS = ("forecast", "alerts", "opportunity", "compare_sell", "credit_passport", "dataset_overview", "clarify")
 
     @staticmethod
     def _clarification_response(entities: dict, llm_reply: Optional[str] = None) -> dict:
@@ -2571,7 +2717,8 @@ class FreeDataAIAgent:
             '{"intent": ..., "province": ..., "commodity": ...}.\n'
             "intent ∈ {forecast: prix actuel/futur/évolution/quand acheter-vendre-stocker d'un produit ; "
             "alerts: hausses anormales de prix ; "
-            "opportunity: où acheter pas cher / où vendre / écarts de prix entre provinces ; "
+            "opportunity: où acheter pas cher / écarts de prix entre provinces ; "
+            "compare_sell: comparer deux provinces pour VENDRE un produit (où gagner le plus) ; "
             "credit_passport: risque de FINANCER ou prêter (banque, microfinance) ; "
             "dataset_overview: questions sur la couverture des données ; "
             "clarify: demande trop vague, hors sujet, ou information essentielle manquante}.\n"
@@ -2621,7 +2768,10 @@ class FreeDataAIAgent:
 
         if intent == "credit_passport":
             raw_data = self.provider.get_credit_passport(prov, comm or "Millet", entities["loan_amount"])
-            facts = self._format_credit_passport(raw_data, prov, comm or "Millet", entities["loan_amount"])
+            facts = self._format_credit_passport(
+                raw_data, prov, comm or "Millet", entities["loan_amount"],
+                loan_given=bool(entities.get("loan_amount_given", True)),
+            )
         elif intent == "alerts":
             raw_data = self.provider.get_alerts(prov, comm)
             facts = self._format_alerts(raw_data)
@@ -2677,6 +2827,9 @@ class FreeDataAIAgent:
                     is_default_capital=is_default_cap,
                     quantity_label=qty_label,
                 )
+        elif intent == "compare_sell":
+            raw_data = self.provider.compare_sell_locations(comm, entities.get("provinces") or [])
+            facts = self._format_compare_sell(raw_data)
         elif intent == "route_revenue":
             raw_data = self.provider.calculate_route_revenue(
                 entities["origin_province"],
@@ -2686,6 +2839,8 @@ class FreeDataAIAgent:
                 volume_label=entities.get("volume_label"),
             )
             facts = self._format_route_revenue(raw_data)
+            if not raw_data.get("routes"):
+                facts = f"{facts}{self._availability_hint(entities.get('commodities'), [entities['origin_province'], entities['destination_province']])}"
         elif intent == "opportunity":
             raw_data = self.provider.get_business_opportunities(prov, comm)
             facts = self._format_opportunities(raw_data)
@@ -2802,7 +2957,10 @@ class FreeDataAIAgent:
             "en utilisant les noms de produits en français ('Mil', 'Sorgho', 'Maïs blanc', 'Riz local', 'Riz importé', 'Niébé', 'Arachide', etc.) "
             "et jamais les noms de colonnes techniques.\n\n"
             "STYLE & ORGANISATION DES CHIFFRES :\n"
-            "- Commence par 1 à 2 phrases directes donnant immédiatement la réponse clé à la question posée.\n"
+            "- Commence par une courte introduction (1 phrase) montrant que tu as compris la demande (produit, lieu, objectif), "
+            "puis donne la réponse clé en 1 à 2 phrases avant les chiffres détaillés.\n"
+            "- Le montant d'un investissement, d'un capital ou d'un crédit appartient à l'utilisateur : ne le propose, ne le suppose "
+            "et ne l'invente jamais ; s'il n'est pas dans la question, demande-le.\n"
             "- Organise les chiffres de façon ultra-lisible : privilégie un tableau Markdown compact (3 colonnes maximum, ex. Marché | Actuel → Prévu | Sac 100 kg) "
             "ou des puces courtes clairement hiérarchisées (**En bref**, **Détail par marché**, **À retenir**).\n"
             "- Formate toujours les montants à la française avec un espace pour les milliers (ex. 22 445 XAF) et n'entoure jamais les chiffres de backticks (`).\n"
@@ -2886,8 +3044,40 @@ class FreeDataAIAgent:
 
         return structured_facts
 
-    def _format_free_reply(self, structured_facts: str, intent: str, chunks: list[dict]) -> str:
-        reply = structured_facts
+    def _build_intro(self, intent: str, entities: Optional[dict]) -> str:
+        """Phrase d'introduction (sans chiffre) qui reformule la demande avant les résultats."""
+        e = entities or {}
+        comm = self._fr_commodity(e["commodity"]).lower() if e.get("commodity") else None
+        prov = e.get("province")
+        where = f" à **{prov}**" if prov else ""
+        what = f" du **{comm}**" if comm else ""
+        if intent == "forecast":
+            return f"Voici l'analyse des prix{what}{where} d'après les prévisions de notre modèle."
+        if intent == "alerts":
+            return f"Voici les signaux de tension sur les prix{' pour le ' + comm if comm else ''}{where}, repérés par notre modèle."
+        if intent == "credit_passport":
+            base = f"Voici l'évaluation du risque de financement{what}{where}."
+            if not e.get("loan_amount_given", True):
+                base += " Le montant à financer reste à votre appréciation : indiquez-le-moi pour que je le confronte au plafond recommandé."
+            return base
+        if intent == "opportunity":
+            return f"Voici les écarts de prix entre provinces{what}, utiles pour choisir où acheter ou vendre."
+        if intent == "compare_sell":
+            return "Voici la comparaison de vos deux lieux de vente, à partir des prix prévus par notre modèle."
+        if intent == "route_revenue":
+            o, d = e.get("origin_province"), e.get("destination_province")
+            return f"Voici l'analyse du trajet {o} → {d}{what}." if o and d else "Voici l'analyse de ce trajet commercial."
+        if intent == "business_simulator":
+            return "Voici une simulation construite à partir des paramètres que vous m'avez indiqués."
+        if intent == "dataset_overview":
+            return "Voici ce que couvrent actuellement mes données."
+        return ""
+
+    def _format_free_reply(
+        self, structured_facts: str, intent: str, chunks: list[dict], entities: Optional[dict] = None
+    ) -> str:
+        intro = "" if structured_facts.startswith("Pour comparer vos revenus") else self._build_intro(intent, entities)
+        reply = f"{intro}\n\n{structured_facts}" if intro else structured_facts
         if intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in reply:
             reply = f"{reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
         sources_heading = (
@@ -2993,6 +3183,15 @@ class FreeDataAIAgent:
                 entities, self._converse_with_llm(q, history, "demande vague ou hors sujet") if chat_mode else None
             )
 
+        # Le capital est une donnée de l'utilisateur : on ne le suppose jamais (guide débutant sans budget).
+        if (
+            entities.get("intent") == "business_simulator"
+            and entities.get("is_default_capital", True)
+            and not entities.get("volume_kg")
+            and not (entities.get("origin_province") and entities.get("destination_province"))
+        ):
+            return self._ask_capital_response(entities)
+
         # Tier premium : le LLM choisit l'analyse dans une liste fermée (jamais de calcul libre).
         # Les intentions riches en paramètres (trajet, simulateur) restent celles des règles.
         if (
@@ -3008,6 +3207,8 @@ class FreeDataAIAgent:
                         entities, self._converse_with_llm(q, history, "demande trop vague, ou information manquante pour lancer une analyse")
                     )
                 entities = {**entities, **routed}
+                if entities.get("intent") == "compare_sell" and len(entities.get("provinces") or []) < 2:
+                    entities["intent"] = "opportunity"  # comparer exige deux provinces nommées
 
         structured_facts, intent, meta = self._run_deterministic_tools(q, entities=entities)
         entities = meta["entities"]
@@ -3027,7 +3228,7 @@ class FreeDataAIAgent:
             for c in chunks
         ]
 
-        free_reply = self._format_free_reply(structured_facts, intent, chunks)
+        free_reply = self._format_free_reply(structured_facts, intent, chunks, entities)
 
         if tier == "premium" and settings.llm_api_key:
             final_reply = self._synthesize_with_llm(q, structured_facts, chunks, history=history)
