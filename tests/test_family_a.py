@@ -302,3 +302,11 @@ def test_chat_shows_track_record_line(gold_tables):
     state = server.build_state_from_gold(fc_gold, cp_gold, rows)
     assert "27 % plus justes" in state["agent"].answer("prix du mil à Lac")["reply"]
     assert "Fiabilité" not in server.build_state_from_gold(fc_gold, cp_gold)["agent"].answer("prix du mil à Lac")["reply"]
+
+
+def test_storage_strategy_needs_three_years_of_cycles():
+    from src.season_study import summarize_cycles
+    one_year = [[5.0, 6, 1, 7, 2025]] * 30          # 30 cycles mais une seule année : du hasard, pas une preuve
+    assert summarize_cycles(one_year)["status"] == "insufficient_data"
+    three_years = [[5.0, 6, 1, 7, y] for y in (2023, 2024, 2025) for _ in range(5)]
+    assert summarize_cycles(three_years)["status"] == "ok"

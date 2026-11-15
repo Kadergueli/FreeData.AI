@@ -18,6 +18,7 @@ import pandas as pd
 from src.seasonality import MONTHS_FR, SERIES_KEYS, deviation_table, seasonal_calendar
 
 MIN_CYCLES = 8  # en dessous, aucun taux de réussite n'est annoncé
+MIN_YEARS = 3   # cycles couvrant moins de 3 années : un seul exercice ne prouve rien (hasard de la saison)
 
 
 def _monthly_province_prices(kg: pd.DataFrame, commodity: str, province: Optional[str]) -> pd.DataFrame:
@@ -32,6 +33,8 @@ def summarize_cycles(cycles: list, storage_cost_pct_month: Optional[float] = Non
     if len(cycles) < MIN_CYCLES:
         return {"status": "insufficient_data", "n_cycles": len(cycles), "cycles": cycles}
     df = pd.DataFrame(cycles, columns=["ret", "gap", "buy", "sell", "year"])
+    if df["year"].nunique() < MIN_YEARS:
+        return {"status": "insufficient_data", "n_cycles": len(cycles), "n_years": int(df["year"].nunique()), "cycles": cycles}
     out = {
         "status": "ok",
         "n_cycles": int(len(df)),
@@ -203,7 +206,9 @@ def study_markdown(study: dict) -> str:
     if st["status"] == "not_computed":
         out.append("Non calculée pour cette étude.")
     elif st["status"] != "ok":
-        out.append(f"Pas assez de cycles observés ({st['n_cycles']}) pour annoncer un taux de réussite.")
+        ny = st.get("n_years")
+        out.append(f"Pas assez d'historique pour annoncer un taux de réussite ({st['n_cycles']} cycles"
+                   f"{f' sur {ny} année(s)' if ny is not None else ''} ; il faut au moins {MIN_YEARS} années).")
     else:
         out += [f"- {st['n_cycles']} cycles sur {st['n_years']} années : gain positif dans **{st['hit_rate_pct']:.0f} %** des cas",
                 f"- Rendement brut médian {st['median_return_pct']:+.0f} % (10 % des pires cas : {st['p10_return_pct']:+.0f} %, "
