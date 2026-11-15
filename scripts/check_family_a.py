@@ -13,7 +13,8 @@ import json
 import time
 from pathlib import Path
 
-from src.backtest import report_markdown, run_backtest, summarize
+from src.backtest import report_markdown, run_backtest, summarize, track_record_by_commodity
+from scripts.update_seasonality import to_rows
 from src.data_loader import load_clean_markets
 from src.season_study import build_all_studies
 
@@ -35,12 +36,13 @@ def run(kg, out_dir: Path, n_origins: int = 12, verbose: bool = False) -> dict:
         _say("[2/3] Études saisonnières (tous produits et provinces)...")
     t1 = time.time()
     studies = build_all_studies(kg)
-    rows = [{"commodity_std": s["commodity"], "province": s.get("scope_province") or "", "payload": s} for s in studies]
+    track = track_record_by_commodity(res, n_origins)
+    rows = to_rows(studies, track)
     (out_dir / "seasonality_studies.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
     if verbose:
         _say(f"      terminé en {time.time() - t1:.0f} s -> {out_dir / 'seasonality_studies.json'}")
     reliable = sum(1 for s in studies if s["calendar"]["reliable"])
-    return {"summary": summary, "n_studies": len(studies), "n_reliable": reliable}
+    return {"summary": summary, "n_studies": len(studies), "n_reliable": reliable, "track_record": track}
 
 
 def main(argv=None) -> int:
@@ -58,6 +60,11 @@ def main(argv=None) -> int:
     _say("[3/3] Terminé.")
     print("\n=== VERDICT DU BACKTEST ===")
     print(r["summary"]["verdict"])
+    tr = r["track_record"]
+    print("\n=== FIABILITÉ DU MODÈLE PAR PRODUIT (12 derniers mois, vs « le prix reste celui du mois dernier ») ===")
+    for label, key in (("Mieux que le prix du mois dernier", "better"), ("Équivalent", "equivalent"), ("Moins bien", "worse")):
+        names = ", ".join(f"{t['commodity']} ({t['vs_naive_pct']:+.0f} %)" for t in tr if t["verdict"] == key)
+        print(f"- {label} : {names or '—'}")
     print(f"\n=== ÉTUDES SAISONNIÈRES ===\n{r['n_studies']} études, dont {r['n_reliable']} à saisonnalité fiable.")
     print(f"\nFichiers écrits dans {args.out}/ (rien envoyé à Supabase).")
     return 0

@@ -222,3 +222,30 @@ def report_markdown(summary: dict, n_origins: int, title: str = "Backtest — Fa
             "- Les IC95 du verdict viennent d'un bootstrap par série (les mois d'une même série sont corrélés).",
             "- Limites : horizon t+1 uniquement ; données mensuelles ; peu d'années d'historique par série."]
     return "\n".join(out) + "\n"
+
+
+def track_record_by_commodity(res: pd.DataFrame, n_origins: int, min_n: int = 60, n_boot: int = 500) -> list[dict]:
+    """Bilan de fiabilité du modèle, produit par produit : fait-il mieux que « le prix reste celui du mois dernier » ?
+
+    Verdict « better » / « worse » seulement si l'écart est statistiquement net (IC95 par bootstrap de séries),
+    sinon « equivalent ». Les produits avec moins de `min_n` comparaisons sont omis.
+    """
+    if res.empty:
+        return []
+    ok = res[res["method"].isin(["naive", "model"])].dropna(subset=["forecast"])
+    out = []
+    for comm, g in ok.groupby("commodity_std"):
+        model, naive = g[g["method"] == "model"], g[g["method"] == "naive"]
+        t = _cluster_bootstrap_diff(model, naive, n_boot=n_boot)
+        if t is None or t[3] < min_n:
+            continue
+        mean_d, lo, hi, n = t  # MAE(naïf) - MAE(modèle) : > 0 = le modèle fait mieux
+        m = model.merge(naive, on=SERIES_KEYS + ["origin"], suffixes=("_m", "_n"))
+        naive_mae = float(m["abs_err_n"].mean())
+        verdict = "better" if lo > 0 else ("worse" if hi < 0 else "equivalent")
+        out.append({
+            "status": "track_record", "commodity": str(comm), "verdict": verdict,
+            "vs_naive_pct": round(-mean_d / naive_mae * 100.0, 1) if naive_mae else 0.0,
+            "n": int(n), "months": int(n_origins),
+        })
+    return out

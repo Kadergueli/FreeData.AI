@@ -74,3 +74,26 @@ def test_explicit_csv_path_is_used_even_when_supabase_is_configured(monkeypatch,
     import pytest
     with pytest.raises(FileNotFoundError):
         data_loader._load_clean_markets_raw(str(tmp_path / "absent.csv"))
+
+
+def test_unify_commodity_case_merges_variants_and_dedupes():
+    import pandas as pd
+    from src.data_loader import unify_commodity_case
+    ym = pd.Period("2025-01")
+    df = pd.DataFrame({
+        "source": ["WFP"] * 4, "province": ["Lac"] * 4, "market_name": ["M"] * 4,
+        "commodity_std": ["Wheat flour", "Wheat flour", "Wheat Flour", "Wheat Flour"],
+        "year_month": [ym, ym + 1, ym, ym + 2], "value": [100.0, 110.0, 120.0, 130.0], "is_flagged_outlier": [0, 0, 0, 0],
+    })
+    out = unify_commodity_case(df)
+    assert set(out["commodity_std"]) == {"Wheat flour"}
+    assert len(out) == 3  # le doublon (même marché, même mois) est moyenné
+    assert out.loc[out["year_month"] == ym, "value"].iloc[0] == 110.0
+
+
+def test_unify_commodity_case_leaves_distinct_products_alone():
+    import pandas as pd
+    from src.data_loader import unify_commodity_case
+    df = pd.DataFrame({"source": ["WFP"] * 2, "province": ["Lac"] * 2, "market_name": ["M"] * 2,
+                       "commodity_std": ["Onions", "Onions (red)"], "year_month": [pd.Period("2025-01")] * 2, "value": [1.0, 2.0]})
+    assert set(unify_commodity_case(df)["commodity_std"]) == {"Onions", "Onions (red)"}
