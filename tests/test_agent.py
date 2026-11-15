@@ -1337,3 +1337,25 @@ def test_credit_amount_is_never_assumed_and_is_asked(agent):
 def test_investment_capital_is_asked_not_assumed(agent):
     res = agent.answer_with_metadata("Je veux lancer un business au Tchad et je sais pas par où commencer ?")
     assert res["intent"] == "needs_capital" and "500 000" not in res["reply"].split("1.")[0]
+
+
+@pytest.mark.parametrize("phrase,expected", [
+    ("Quel est le prix du sel à Lac ?", "Salt"), ("prix de l'ail", "Garlic"), ("les dattes à Abéché", "Dates"),
+    ("prix des tomates séchées", "Tomatoes (dried)"), ("le gombo sec", "Okra (dry)"), ("farine de blé à Moundou", "Wheat flour"),
+    ("huile d'arachide à N'Djamena", "Groundnut Oil (Refined)"), ("huile d’arachide", "Groundnut Oil (Refined)"),
+    ("le manioc", "Cassava (cossette)"), ("sucre raffiné", "Refined sugar"), ("sucre", "Sugar"),
+    ("sésame blanc", "Sesame (White)"), ("sésame", "Sesame"), ("riz décortiqué", "Rice (Milled)"),
+    ("le macaroni", "Macaroni"), ("sorgho berbéré", "Sorghum (Berbere)"), ("sorgho", "Sorghum (red)"),
+])
+def test_every_tracked_product_is_recognized(phrase, expected):
+    from src.ai_agent import MarketDataProvider
+    import pandas as pd
+    provider = MarketDataProvider(pd.DataFrame(), pd.DataFrame())
+    assert provider.resolve_commodity(phrase) == expected
+
+
+@pytest.mark.parametrize("phrase", ["selon vous", "travail", "il faut agir", "les maisons"])
+def test_short_aliases_do_not_match_inside_other_words(phrase):
+    from src.ai_agent import MarketDataProvider
+    import pandas as pd
+    assert MarketDataProvider(pd.DataFrame(), pd.DataFrame()).resolve_commodity(phrase) is None

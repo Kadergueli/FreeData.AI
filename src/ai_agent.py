@@ -63,6 +63,48 @@ COMMODITY_ALIASES = {
     "poisson": "Fish (dry)",
     "poisson seche": "Fish (dry)",
     "fish (dry)": "Fish (dry)",
+    # Produits suivis dans les données mais absents jusqu'ici : « prix du sel » renvoyait le mil par défaut.
+    "sel": "Salt",
+    "salt": "Salt",
+    "ail": "Garlic",
+    "garlic": "Garlic",
+    "datte": "Dates",
+    "dattes": "Dates",
+    "dates": "Dates",
+    "tomate": "Tomatoes (dried)",
+    "tomates": "Tomatoes (dried)",
+    "tomate sechee": "Tomatoes (dried)",
+    "tomates sechees": "Tomatoes (dried)",
+    "gombo": "Okra (dry)",
+    "gombos": "Okra (dry)",
+    "gombo sec": "Okra (dry)",
+    "okra": "Okra (dry)",
+    "farine": "Wheat flour",
+    "farine de ble": "Wheat flour",
+    "wheat flour": "Wheat flour",
+    "huile": "Groundnut Oil (Refined)",
+    "huile d'arachide": "Groundnut Oil (Refined)",
+    "huile d\u2019arachide": "Groundnut Oil (Refined)",
+    "huile d arachide": "Groundnut Oil (Refined)",
+    "manioc": "Cassava (cossette)",
+    "cossette": "Cassava (cossette)",
+    "cossettes": "Cassava (cossette)",
+    "cassava": "Cassava (cossette)",
+    "niebe rouge": "Beans (niebe, red)",
+    "haricot rouge": "Beans (niebe, red)",
+    "sesame blanc": "Sesame (White)",
+    "sucre raffine": "Refined sugar",
+    "riz decortique": "Rice (Milled)",
+    "riz usine": "Rice (Milled)",
+    "macaroni": "Macaroni",
+    "spaghetti": "Spaghetti",
+    "spaghettis": "Spaghetti",
+    "sorgho berbere": "Sorghum (Berbere)",
+    "berbere": "Sorghum (Berbere)",
+    "sorgho blanc": "Sorghum (White)",
+    "cowpeas": "Cowpeas (Mixed)",
+    "cowpea": "Cowpeas (Mixed)",
+    "peanut": "Peanut",
 }
 
 COMMODITY_FR = {
@@ -79,6 +121,21 @@ COMMODITY_FR = {
     "Pasta": "Pâtes alimentaires",
     "Sweet potatoes": "Patate douce",
     "Fish (dry)": "Poisson séché",
+    "Salt": "Sel",
+    "Garlic": "Ail",
+    "Dates": "Dattes",
+    "Tomatoes (dried)": "Tomates séchées",
+    "Okra (dry)": "Gombo sec",
+    "Wheat flour": "Farine de blé",
+    "Groundnut Oil (Refined)": "Huile d'arachide raffinée",
+    "Cassava (cossette)": "Manioc (cossettes)",
+    "Beans (niebe, red)": "Niébé rouge",
+    "Sesame (White)": "Sésame blanc",
+    "Refined sugar": "Sucre raffiné",
+    "Rice (Milled)": "Riz décortiqué",
+    "Sorghum (Berbere)": "Sorgho berbéré",
+    "Sorghum (White)": "Sorgho blanc",
+    "Cowpeas (Mixed)": "Niébé (mélange)",
 }
 
 CITY_TO_PROVINCE = {
@@ -2260,7 +2317,7 @@ class FreeDataAIAgent:
                 f"Je n'ai pas assez d'historique pour dégager une saisonnalité fiable du {comm}. "
                 "Je préfère ne pas vous donner de calendrier d'achat qui reposerait sur trop peu de données."
             )
-        names = lambda months: " et ".join(_SEASON_MONTHS_FR[m - 1] for m in months)
+        names = lambda months: " et ".join(_SEASON_MONTHS_FR[m - 1] for m in sorted(months))
         scope = data.get("scope_province")
         req = data.get("requested_province")
         where = f"à {scope}" if scope else "au niveau national (toutes provinces suivies)"
@@ -2275,11 +2332,10 @@ class FreeDataAIAgent:
         if data.get("reliable"):
             lines.append("- Ce schéma se répète d'une année à l'autre : il est jugé **fiable**.")
         elif data.get("min_years_observed", 3) < 3:
-            lines.append("- ⚠️ Historique trop court pour **confirmer** ce schéma : c'est une indication, pas une règle.")
+            lines.append(f"- ⚠️ Historique trop court pour **confirmer** ce schéma (chaque mois n'a été vu que sur "
+                         f"{data.get('min_years_observed', 0)} année(s)) : c'est une indication, pas une règle.")
         else:
             lines.append("- ⚠️ Ce schéma est **peu régulier** d'une année à l'autre : prenez-le comme une indication, pas comme une règle.")
-        if data.get("min_years_observed", 3) < 3:
-            lines.append(f"- Historique court : chaque mois n'a été observé que sur {data['min_years_observed']} année(s) seulement.")
         lines.append("Ce calendrier décrit des tendances passées moyennes ; il ne garantit pas le prix d'une année donnée. "
                      "Il ne tient pas compte de vos coûts de stockage et de pertes.")
         return "\n".join(lines)
