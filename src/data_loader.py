@@ -121,9 +121,37 @@ def drop_flagged_outliers(df: pd.DataFrame) -> pd.DataFrame:
     return df[~flagged].copy()
 
 
+KEY_COLS = ["source", "province", "market_name", "commodity_std", "year_month"]
+
+
+def unify_commodity_case(df: pd.DataFrame) -> pd.DataFrame:
+    """Fusionne les noms de produit qui ne diffèrent que par la casse (« Wheat Flour » / « Wheat flour »).
+
+    Ils désignent le même produit mais coupaient l'historique en deux. Le nom retenu est la graphie la plus fréquente.
+    Si, après fusion, un même (source, marché, mois) apparaît deux fois, les valeurs sont moyennées.
+    """
+    if "commodity_std" not in df.columns or df.empty:
+        return df
+    names = df["commodity_std"].dropna().astype(str)
+    counts = names.value_counts()
+    canon = {}
+    for name in counts.index:  # du plus fréquent au moins fréquent
+        canon.setdefault(name.strip().lower(), name)
+    mapping = {name: canon[name.strip().lower()] for name in counts.index}
+    if all(k == v for k, v in mapping.items()):
+        return df
+    df = df.copy()
+    df["commodity_std"] = df["commodity_std"].map(mapping).fillna(df["commodity_std"])
+    if {"value", *KEY_COLS} <= set(df.columns) and df.duplicated(KEY_COLS).any():
+        other = [c for c in df.columns if c not in KEY_COLS + ["value"]]
+        agg = {"value": "mean", **{c: "max" if c == "is_flagged_outlier" else "first" for c in other}}
+        df = df.groupby(KEY_COLS, as_index=False, dropna=False).agg(agg)
+    return df
+
+
 def load_clean_markets(csv_path: Optional[str] = None) -> pd.DataFrame:
     """Charge les séries XAF/kg puis (par défaut) écarte les relevés aberrants avant le modèle."""
-    df = _load_clean_markets_raw(csv_path)
+    df = unify_commodity_case(_load_clean_markets_raw(csv_path))
     if settings.exclude_flagged_outliers:
         before = len(df)
         df = drop_flagged_outliers(df)

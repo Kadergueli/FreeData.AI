@@ -76,3 +76,7 @@ firebase deploy --only hosting
   Sans `--apply`, le script écrit un JSON local et n'envoie rien.
 - **Tout contrôler en une commande (lecture seule) :** `python -m scripts.check_family_a` (ou `--csv ton_fichier.csv`) → dossier `reports/`.
 - Évaluer seulement le modèle : `python -m scripts.run_backtest --csv données.csv`.
+
+- Le même traitement mensuel publie aussi un **bilan de fiabilité par produit** (`kind='track_record'`) : le chat indique si, sur
+  12 mois, les prévisions du produit ont été plus justes, équivalentes ou moins justes que « le prix reste celui du mois dernier ».
+- Les noms de produit qui ne diffèrent que par la casse (« Wheat Flour » / « Wheat flour ») sont fusionnés au chargement.

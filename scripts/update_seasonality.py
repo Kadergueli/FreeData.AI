@@ -15,15 +15,19 @@ import requests
 
 from src.config import settings
 from src.data_loader import load_clean_markets
+from src.backtest import run_backtest, track_record_by_commodity
 from src.season_study import build_all_studies
 
 TABLE = "table_ml_seasonality_studies"
 
 
-def to_rows(studies: list[dict]) -> list[dict]:
+def to_rows(studies: list[dict], track_records: list[dict] | None = None) -> list[dict]:
     rows = []
+    for t in track_records or []:
+        rows.append({"kind": "track_record", "commodity_std": t["commodity"], "province": "", "payload": t})
     for s in studies:
         rows.append({
+            "kind": "seasonality",
             "commodity_std": s["commodity"],
             "province": s.get("scope_province") or "",
             "payload": s,
@@ -33,7 +37,7 @@ def to_rows(studies: list[dict]) -> list[dict]:
 
 def push(rows: list[dict]) -> None:
     key = settings.write_key
-    endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/{TABLE}?on_conflict=commodity_std,province"
+    endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/{TABLE}?on_conflict=kind,commodity_std,province"
     headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
                "Prefer": "resolution=merge-duplicates"}
     for i in range(0, len(rows), 100):
@@ -50,8 +54,10 @@ def main(argv=None) -> int:
 
     kg = load_clean_markets(args.csv)
     studies = build_all_studies(kg)
-    rows = to_rows(studies)
-    print(f"{len(rows)} études exploitables.")
+    n_origins = 12
+    track = track_record_by_commodity(run_backtest(kg, n_origins=n_origins), n_origins)
+    rows = to_rows(studies, track)
+    print(f"{len(studies)} études saisonnières et {len(track)} bilans de fiabilité par produit.")
     if args.apply:
         if settings.data_backend != "supabase_rest":
             raise SystemExit("--apply exige DATA_BACKEND=supabase_rest.")

@@ -505,11 +505,13 @@ class MarketDataProvider:
         passport_df: pd.DataFrame,
         hist_df: Optional[pd.DataFrame] = None,
         studies: Optional[StudyBook] = None,
+        track_record: Optional[dict] = None,
     ):
         self.forecast_df = forecast_df if forecast_df is not None else pd.DataFrame()
         self.passport_df = passport_df if passport_df is not None else pd.DataFrame()
         self.hist_df = hist_df if hist_df is not None else pd.DataFrame()
         self._studies = studies
+        self._track_record = track_record or {}
 
         if not self.forecast_df.empty and "province" in self.forecast_df.columns:
             self.provinces = sorted(self.forecast_df["province"].dropna().astype(str).unique())
@@ -866,6 +868,7 @@ class MarketDataProvider:
             "records": records,
             "province_summary": province_summary,
             "national_summary": national_summary,
+            "track_record": self._track_record.get(commodity) if commodity else None,
         }
 
     def get_location_commodities_summary(
@@ -1701,11 +1704,12 @@ class FreeDataAIAgent:
     """
 
     def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame,
-                 studies: Optional[StudyBook] = None):
+                 studies: Optional[StudyBook] = None, track_record: Optional[dict] = None):
         self.hist_df = hist_df
         self.forecast_df = forecast_df
         self.passport_df = passport_df
-        self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df, studies=studies)
+        self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df, studies=studies,
+                                         track_record=track_record)
         self.provinces = self.provider.provinces
         self.prov_lookup = self.provider.prov_lookup
 
@@ -2085,6 +2089,18 @@ class FreeDataAIAgent:
             sources_list = sorted({r["source"] for r in records if r.get("source")})
             sources_str = ", ".join(sources_list) if sources_list else "Source suivie"
             stats_parts = []
+            tr = data.get("track_record")
+            if tr:
+                span = f"Sur les {tr['months']} derniers mois, nos prévisions du {comm_fr.lower()}"
+                if tr["verdict"] == "better":
+                    stats_parts.append(f"- Fiabilité : {span} ont été en moyenne **{abs(tr['vs_naive_pct']):.0f} % plus justes** "
+                                       "que « le prix reste celui du mois dernier ».")
+                elif tr["verdict"] == "worse":
+                    stats_parts.append(f"- ⚠️ Fiabilité : {span} ont été **{abs(tr['vs_naive_pct']):.0f} % moins justes** "
+                                       "que « le prix reste celui du mois dernier » : à prendre avec beaucoup de prudence.")
+                else:
+                    stats_parts.append(f"- Fiabilité : {span} ont été **équivalentes** à « le prix reste celui du mois dernier » : "
+                                       "prudence sur le détail.")
             if focus.get("reduced_quality"):
                 stats_parts.append(
                     "- ⚠️ Prévision à **confiance réduite** : il manque le relevé du mois précédant le dernier relevé, "

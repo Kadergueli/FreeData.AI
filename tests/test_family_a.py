@@ -255,3 +255,50 @@ def test_deviation_table_matches_profile_and_is_reusable():
     a = seasonal_profile(df, "Millet")
     b = seasonal_profile(None, "Millet", dev=dev)
     assert np.allclose(a["index"], b["index"])
+
+
+# ---------------------------------------------------------------- bilan de fiabilité par produit
+def test_track_record_verdicts_follow_the_data():
+    from src.backtest import track_record_by_commodity
+    # modèle parfait vs naïf médiocre, et l'inverse
+    rows = []
+    for comm, model_err, naive_err in (("Bon", 1.0, 10.0), ("Mauvais", 10.0, 1.0), ("Egal", 5.0, 5.0)):
+        for prov in [f"P{i}" for i in range(12)]:
+            for o in range(8):
+                base = {"source": "WFP", "province": prov, "market_name": "m", "commodity_std": comm,
+                        "origin": f"2025-{o + 1:02d}", "target": f"2025-{o + 2:02d}", "last": 100.0, "actual": 100.0}
+                rows.append({**base, "method": "model", "forecast": 100 + model_err, "abs_err": model_err})
+                rows.append({**base, "method": "naive", "forecast": 100 + naive_err, "abs_err": naive_err})
+    tr = {t["commodity"]: t for t in track_record_by_commodity(pd.DataFrame(rows), 8)}
+    assert tr["Bon"]["verdict"] == "better" and tr["Bon"]["vs_naive_pct"] == pytest.approx(-90.0)
+    assert tr["Mauvais"]["verdict"] == "worse" and tr["Mauvais"]["vs_naive_pct"] > 0
+    assert tr["Egal"]["verdict"] == "equivalent"
+
+
+def test_track_record_skips_products_with_too_few_points():
+    from src.backtest import track_record_by_commodity
+    assert track_record_by_commodity(pd.DataFrame(), 12) == []
+    df = run_backtest(seasonal_panel(n_months=30), n_origins=3, model_fn=None)
+    assert track_record_by_commodity(df, 3) == []  # pas de ligne « model » : rien à comparer
+
+
+def test_track_records_parsing_rejects_garbage():
+    good = {"kind": "track_record", "payload": {"commodity": "Sugar", "verdict": "better", "vs_naive_pct": -27.0, "months": 12}}
+    rows = [good, {"kind": "track_record", "payload": {"commodity": "X", "verdict": "super", "vs_naive_pct": 1, "months": 12}},
+            {"kind": "track_record", "payload": "pas du json"}, {"kind": "seasonality", "payload": {}}, "x", None,
+            {"kind": "track_record", "payload": {"commodity": "Y", "verdict": "better", "vs_naive_pct": "beaucoup", "months": 12}}]
+    assert list(server._track_records(rows)) == ["Sugar"]
+    assert server._study_payloads([good]) == []  # un bilan n'est pas une étude saisonnière
+
+
+def test_chat_shows_track_record_line(gold_tables):
+    fc_gold, cp_gold = gold_tables
+    rows = [{"kind": "track_record", "commodity_std": "Millet", "province": "",
+             "payload": {"commodity": "Millet", "verdict": "worse", "vs_naive_pct": 9.6, "months": 12, "n": 500}}]
+    state = server.build_state_from_gold(fc_gold, cp_gold, rows)
+    reply = state["agent"].answer("prix du mil à Lac")["reply"]
+    assert "moins justes" in reply and "10 %" in reply
+    rows[0]["payload"].update(verdict="better", vs_naive_pct=-27.0)
+    state = server.build_state_from_gold(fc_gold, cp_gold, rows)
+    assert "27 % plus justes" in state["agent"].answer("prix du mil à Lac")["reply"]
+    assert "Fiabilité" not in server.build_state_from_gold(fc_gold, cp_gold)["agent"].answer("prix du mil à Lac")["reply"]

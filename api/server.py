@@ -98,7 +98,7 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
 
 
 def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str,
-                    studies: StudyBook | None = None) -> dict:
+                    studies: StudyBook | None = None, track_record: dict | None = None) -> dict:
     """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
     hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
     forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
@@ -106,7 +106,7 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
         "hist_df": hist_df,
         "forecast_df": forecast_df,
         "passport_df": passport_df,
-        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df, studies=studies),
+        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df, studies=studies, track_record=track_record),
         "studies": studies,
         "mode": mode,
         "alerts_source": alerts_source,
@@ -118,6 +118,8 @@ def _study_payloads(rows: list | None) -> list[dict]:
     """Extrait les études (JSON) des lignes de table_ml_seasonality_studies ; ignore toute ligne mal formée."""
     out = []
     for r in rows or []:
+        if isinstance(r, dict) and r.get("kind", "seasonality") != "seasonality":
+            continue
         payload = r.get("payload") if isinstance(r, dict) else None
         if isinstance(payload, str):
             try:
@@ -126,6 +128,24 @@ def _study_payloads(rows: list | None) -> list[dict]:
                 continue
         if isinstance(payload, dict) and payload.get("status") == "ok" and isinstance(payload.get("commodity"), str):
             out.append(payload)
+    return out
+
+
+def _track_records(rows: list | None) -> dict:
+    """{produit: bilan de fiabilité} extrait des lignes kind='track_record' ; toute ligne mal formée est ignorée."""
+    out = {}
+    for r in rows or []:
+        if not isinstance(r, dict) or r.get("kind") != "track_record":
+            continue
+        p = r.get("payload")
+        if isinstance(p, str):
+            try:
+                p = json.loads(p)
+            except ValueError:
+                continue
+        if (isinstance(p, dict) and isinstance(p.get("commodity"), str) and p.get("verdict") in ("better", "equivalent", "worse")
+                and isinstance(p.get("vs_naive_pct"), (int, float)) and isinstance(p.get("months"), int)):
+            out[p["commodity"]] = p
     return out
 
 
@@ -154,7 +174,8 @@ def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame, study_ro
         alerts_source = "approximated"
 
     studies = StudyBook(studies=_study_payloads(study_rows)) if study_rows else None
-    return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source, studies=studies)
+    return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source, studies=studies,
+                           track_record=_track_records(study_rows))
 
 
 def build_state_full() -> dict:

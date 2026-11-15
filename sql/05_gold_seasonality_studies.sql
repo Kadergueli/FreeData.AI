@@ -1,7 +1,9 @@
--- Famille A : études saisonnières précalculées (offre premium). Écrites par scripts/update_seasonality.py.
+-- Famille A : études saisonnières (kind='seasonality') et bilans de fiabilité des prévisions par produit
+-- (kind='track_record'), précalculés pour l'offre premium. Écrits par scripts/update_seasonality.py.
 -- À appliquer par le propriétaire du projet : ne touche à aucune table existante.
 CREATE TABLE IF NOT EXISTS public.table_ml_seasonality_studies (
     id            BIGSERIAL PRIMARY KEY,
+    kind          TEXT        NOT NULL DEFAULT 'seasonality',
     commodity_std TEXT        NOT NULL,
     province      TEXT        NOT NULL DEFAULT '',  -- '' = étude nationale du produit
     payload       JSONB       NOT NULL,
@@ -9,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.table_ml_seasonality_studies (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_seasonality_studies_scope
-    ON public.table_ml_seasonality_studies (commodity_std, province);  -- cible de l'upsert (on_conflict)
+    ON public.table_ml_seasonality_studies (kind, commodity_std, province);  -- cible de l'upsert (on_conflict)
 
 ALTER TABLE public.table_ml_seasonality_studies ENABLE ROW LEVEL SECURITY;
 
