@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import math
@@ -71,8 +72,6 @@ COMMODITY_ALIASES = {
     "datte": "Dates",
     "dattes": "Dates",
     "dates": "Dates",
-    "tomate": "Tomatoes (dried)",
-    "tomates": "Tomatoes (dried)",
     "tomate sechee": "Tomatoes (dried)",
     "tomates sechees": "Tomatoes (dried)",
     "gombo": "Okra (dry)",
@@ -377,6 +376,32 @@ _COMMODITY_PATTERNS = [
     (re.compile(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"), comm_std)
     for alias, comm_std in sorted(COMMODITY_ALIASES.items(), key=lambda x: -len(x[0]))
 ]
+
+# Produit nommé par l'utilisateur mais absent de nos données : on le dit, on ne répond pas avec un autre produit.
+_UNKNOWN_CAND = (
+    r"([a-z][a-z']*(?:\s+[a-z']+){0,2}?)"
+    r"(?=\s+(?:a|au|aux|en|dans|pour|sur|entre|et|ou|par|chez|de|du|des|cette|ce|ces|vers|depuis|avec|svp|stp)\b|\s*[?.,;:!]|\s*$)"
+)
+# Les motifs sont en « lookahead » : ils se chevauchent (« évolution du prix du cacao » contient « prix du cacao »).
+_UNKNOWN_PRODUCT_RES = [
+    re.compile(rf"(?=\b(?:prix|cout|couts|tarifs?|cours|evolution|tendance|previsions?)\s+(?:du|de\s+la|de\s+l'|des|d')\s*{_UNKNOWN_CAND})"),
+    re.compile(
+        r"(?=\b(?:acheter|achat|vendre|vente|stocker|stockage|destocker|revendre|investir\s+dans|commercialiser|coute|coutent|vaut|valent)\s+"
+        rf"(?:du|de\s+la|de\s+l'|des|d'|le|la|les|l'|un|une)\s*{_UNKNOWN_CAND})"
+    ),
+    re.compile(rf"(?=^\s*(?:et\s+)?(?:pour|avec|si\s+c'est)\s+(?:le|la|les|l'|du|des|de\s+la)\s*{_UNKNOWN_CAND})"),
+]
+# Mots qui suivent « prix du… » sans être un produit (« prix du marché », « prix du transport »…).
+_NOT_A_PRODUCT = frozenset((
+    "marche marches transport transports kilo kilos kg sac sacs tonne tonnes demain mois semaine semaines annee annees jour jours "
+    "moment periode saison pays tchad produit produits cereale cereales ensemble tout tous toute toutes credit financement risque "
+    "alerte alertes hausse baisse business commerce investissement capital budget region regions province provinces ville villes "
+    "zone zones chose choses plus moins meilleur meilleure meilleurs bon bonne difference ecart ecarts revenu revenus benefice "
+    "benefices profit marge marges base donnees donnee modele prevision previsions prix cout couts maintenant prochain prochaine "
+    "dernier derniere ce cette ces mon ma mes notre nos votre vos ton ta tes son sa ses autre autres meme memes quel quelle quels "
+    "quelles chaque aucun aucune plusieurs beaucoup peu rien quelque quelques depart arrivee trajet route routes camion voyage "
+    "stock stocks recolte recoltes campagne simulation simulateur guide conseil conseils activite activites agriculture agricole"
+).split())
 
 _SECURITY_REFUSAL_REPLY = (
     "Je suis FreeData.AI, dédié exclusivement à l'analyse des marchés agricoles et économiques "
@@ -1187,10 +1212,16 @@ class MarketDataProvider:
         book = self._studies
         if book is None:
             needed = {"commodity_std", "province", "market_name", "source", "year_month", "value"}
-            if not self.hist_df.empty and needed.issubset(self.hist_df.columns):
-                book = StudyBook(kg_df=self.hist_df)
+            h = self.hist_df
+            # En production (tables Gold) l'historique ne garde qu'une ligne par série, avec des mois en texte : inexploitable.
+            if not h.empty and needed.issubset(h.columns) and isinstance(h["year_month"].dtype, pd.PeriodDtype):
+                book = StudyBook(kg_df=h)
                 self._studies = book
-        study = book.get(commodity, province, light=True) if book is not None else None
+        try:
+            study = book.get(commodity, province, light=True) if book is not None else None
+        except Exception:  # un calendrier ne doit jamais faire échouer la réponse du chat
+            logger.exception("Calendrier saisonnier indisponible pour %s", commodity)
+            study = None
         if study is None:
             return {"status": "insufficient_data", "commodity": commodity, "province": province}
         cal = dict(study["calendar"])
@@ -3309,6 +3340,40 @@ class FreeDataAIAgent:
                     chart[str(r["province"])] = round(float(sc), 1)
         return chart if len(chart) >= 2 else None
 
+    def _detect_unknown_product(self, q_norm: str, entities: dict) -> Optional[str]:
+        """Produit explicitement nommé (« prix du pétrole », « acheter du ciment ») qui n'est pas dans nos données."""
+        if entities.get("commodity") or entities.get("intent") in ("dataset_overview", "clarification", "greeting"):
+            return None
+        for rx in _UNKNOWN_PRODUCT_RES:
+            for m in rx.finditer(q_norm):
+                tokens = [t for t in m.group(1).replace("'", " ").split()
+                          if t not in ("le", "la", "les", "l", "un", "une", "du", "de", "des", "d")]
+                if not tokens or any(t in _NOT_A_PRODUCT or len(t) < 3 for t in tokens):
+                    continue
+                cand = " ".join(tokens)
+                if len(cand) > 40 or self.provider.resolve_commodities(cand)[0] or self.provider.resolve_location_details(cand):
+                    continue
+                return cand
+        return None
+
+    def _unknown_product_response(self, cand: str, entities: dict) -> dict:
+        tracked = (
+            self.forecast_df["commodity_std"].dropna().astype(str).value_counts().index.tolist()
+            if not self.forecast_df.empty and "commodity_std" in self.forecast_df.columns else []
+        )
+        names = [self.provider.fr_commodity(c).lower() for c in tracked[:12]]
+        known = {_normalize_text(a): self.provider.fr_commodity(c).lower() for a, c in COMMODITY_ALIASES.items()}
+        close = difflib.get_close_matches(cand, list(known), n=1, cutoff=0.8)
+        if close:
+            reply = (f"Je ne reconnais pas **{cand}** dans mes données. Vouliez-vous dire **{known[close[0]]}** ? "
+                     "Précisez-le-moi et je lance l'analyse.")
+        else:
+            reply = (f"Je n'ai pas de données sur **{cand}** dans ma base, et je préfère ne pas vous répondre avec un autre produit. "
+                     + (f"Les produits que je suis : {', '.join(names)}{' et d’autres' if len(tracked) > 12 else ''}. " if names else "")
+                     + "Dites-moi lequel vous intéresse.")
+        return {"reply": reply, "intent": "clarification", "entities": {**entities, "unknown_product": cand},
+                "sources": [], "chart": None}
+
     def answer(
         self,
         user_query: str,
@@ -3362,6 +3427,11 @@ class FreeDataAIAgent:
                 "sources": [],
                 "chart": None,
             }
+
+        # Avant l'héritage de l'historique : « et pour le café ? » ne doit pas reprendre le produit précédent.
+        unknown = self._detect_unknown_product(q_norm, entities)
+        if unknown:
+            return self._unknown_product_response(unknown, entities)
 
         if history:
             entities = self._extract_entities(q, history=history)

@@ -33,13 +33,13 @@ def test_entity_extraction(agent, question, intent, province, commodity, loan):
 
 
 def test_unknown_product_is_announced(agent):
-    reply = agent.answer_with_metadata("Quel est le prix du ble a N'Djamena ?")["reply"]
-    assert "ℹ️ Produit non précisé" not in reply
-    assert "Produit non précisé ou non reconnu" not in reply
-    assert "Mil" in reply
-    assert "Millet" not in reply
-    assert "référence" in reply
-    assert "Produits suivis" in reply
+    """Un produit absent des données n'est jamais remplacé par un autre : on le dit et on propose les produits suivis."""
+    r = agent.answer_with_metadata("Quel est le prix du ble a N'Djamena ?")
+    reply = r["reply"]
+    assert r["intent"] == "clarification" and r["entities"]["unknown_product"] == "ble"
+    assert "Je n'ai pas de données sur **ble**" in reply
+    assert "autre produit" in reply and "mil" in reply.lower()
+    assert "XAF" not in reply and "%" not in reply  # aucun chiffre d'un autre produit
 
 
 def test_credit_reply_has_disclaimer(agent):
@@ -1359,3 +1359,42 @@ def test_short_aliases_do_not_match_inside_other_words(phrase):
     from src.ai_agent import MarketDataProvider
     import pandas as pd
     assert MarketDataProvider(pd.DataFrame(), pd.DataFrame()).resolve_commodity(phrase) is None
+
+
+@pytest.mark.parametrize("question", [
+    "Quel est le prix du pétrole ?", "prix du ciment à Lac", "Quand acheter du ciment ?", "Je veux vendre des tomates fraîches",
+    "combien coûte l'essence à N'Djamena", "évolution du prix du cacao", "et pour le café ?",
+])
+def test_unknown_products_never_get_another_product_answer(agent, question):
+    history = [{"role": "user", "content": "prix du mil à Lac"}, {"role": "assistant", "content": "…"}]
+    for tier in ("free", "premium"):
+        r = agent.answer(question, history=history if question.startswith("et ") else None, tier=tier)
+        assert r["intent"] == "clarification", (question, r["reply"][:200])
+        assert "XAF" not in r["reply"] and "Prévisions" not in r["reply"]
+
+
+@pytest.mark.parametrize("question", [
+    "prix du marché à Lac", "prix du transport", "prix du kilo de mil", "prix du mil", "acheter du mil à Lac", "prix du sac de sorgho",
+    "quand acheter le riz ?", "prix de la semaine prochaine pour le mil", "évolution du prix du sel",
+])
+def test_known_or_generic_requests_are_not_flagged_unknown(agent, question):
+    assert agent.answer(question)["entities"].get("unknown_product") is None
+
+
+def test_unknown_product_close_to_known_one_suggests_it(agent):
+    r = agent.answer("prix du millett à Lac")
+    assert "Vouliez-vous dire **mil" in r["reply"] or r["intent"] != "clarification"
+
+
+def test_unknown_product_echo_is_safe(agent):
+    r = agent.answer("prix du <script>alert(1)</script>")
+    assert "<" not in r["reply"] and "script" not in r["reply"].lower().replace("scripts", "")
+
+
+def test_timing_without_stored_studies_in_gold_mode_is_honest_not_a_crash(gold_tables):
+    """Production avant publication des études : l'historique Gold (mois en texte) ne doit pas faire planter le chat."""
+    from api import server
+    fc_gold, cp_gold = gold_tables
+    state = server.build_state_from_gold(fc_gold, cp_gold)  # aucune étude
+    r = state["agent"].answer("Quand acheter du mil ?")
+    assert r["intent"] == "timing" and "pas assez d'historique" in r["reply"].lower()
