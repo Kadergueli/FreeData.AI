@@ -69,7 +69,7 @@ S=[
  ("Quel est le prix du sorgho à Moundou ?",None,{"forecast"},r"XAF",r""),
  ("combien coûte le maïs à N'Djamena",None,{"forecast"},r"XAF",r""),
  ("le mil va-t-il augmenter à Salamat ?",None,{"forecast","alerts"},r"XAF",r""),
- ("Quand acheter le riz ?",None,{"forecast"},r"",r""),
+ ("Quand acheter le riz ?",None,{"timing"},r"",r""),
  ("est-ce que je dois stocker mon maïs maintenant ?",None,{"forecast"},r"",r""),
  ("évolution du prix de l'arachide",None,{"forecast"},r"",r""),
  ("prix du sesame a Abeche",None,{"forecast"},r"",r""),

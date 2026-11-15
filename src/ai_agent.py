@@ -12,6 +12,7 @@ import requests
 
 from src.config import settings
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
+from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR, seasonal_calendar
 
 logger = logging.getLogger("freedata.agent")
 
@@ -243,6 +244,13 @@ _ALERT_RE = re.compile(
 _CHEAPEST_RE = re.compile(
     r"\b(?:moins\s+cher(?:e|s|es)?|meilleurs?\s+prix|bon\s+marche|pas\s+cher|"
     r"ou\s+(?:acheter|vendre)|plus\s+avantageu(?:x|se|ses))\b"
+)
+# "Quand acheter / vendre / stocker ?" : question de calendrier saisonnier (pas de prévision chiffrée du mois prochain).
+_TIMING_RE = re.compile(
+    r"\b(?:quand|quel\s+mois|quels\s+mois|quelle\s+periode|quelles\s+periodes|meilleur\s+moment|meilleure\s+periode|"
+    r"bon\s+moment|saison(?:s|nier|niere|nalite)?|soudure|periode\s+de\s+soudure|destock(?:er|age)?|stock(?:er|age)?)\b"
+    r".*\b(?:acheter|achat|vendre|vente|stocker|stockage|destocker|destockage|prix|cher|bas|haut|monte|baisse)\b"
+    r"|\b(?:saisonnalite|saisonnier|saisonniere|calendrier\s+(?:d[\s']?achat|des?\s+prix)|periode\s+de\s+soudure|soudure)\b"
 )
 _OPPORTUNITY_RE = re.compile(
     r"\b(business|investir|investissement|investissements|opportunite|opportunites|"
@@ -1107,6 +1115,23 @@ class MarketDataProvider:
         corridors.sort(key=lambda c: c["spread_xaf"], reverse=True)
         return corridors[:limit]
 
+    def get_seasonal_calendar(self, province: Optional[str], commodity: str) -> dict:
+        """Calendrier saisonnier calculé sur l'historique ; retombe sur le niveau national si la province manque de données."""
+        hist = self.hist_df
+        needed = {"commodity_std", "province", "market_name", "source", "year_month", "value"}
+        if hist is None or hist.empty or not needed.issubset(hist.columns):
+            return {"status": "insufficient_data", "commodity": commodity, "province": province}
+        cal = seasonal_calendar(hist, commodity, province) if province else None
+        scope = province
+        if cal is None or cal.get("status") != "ok":
+            cal = seasonal_calendar(hist, commodity, None)
+            scope = None
+        cal = {k: v for k, v in cal.items() if k != "profile"}
+        cal["scope_province"] = scope
+        cal["requested_province"] = province
+        cal["commodity_fr"] = self.fr_commodity(commodity)
+        return cal
+
     def get_business_opportunities(
         self, province: Optional[str] = None, commodity: Optional[str] = None
     ) -> dict:
@@ -1804,6 +1829,8 @@ class FreeDataAIAgent:
 
         if _CREDIT_RE.search(q_norm) or credit_follow_up:
             intent = "credit_passport"
+        elif _TIMING_RE.search(q_norm) and not (origin_prov and dest_prov and origin_prov != dest_prov):
+            intent = "timing"
         elif _CHEAPEST_RE.search(q_norm) and not (origin_prov and dest_prov and origin_prov != dest_prov):
             intent = "opportunity"
         elif _ALERT_RE.search(q_norm):
@@ -2194,6 +2221,34 @@ class FreeDataAIAgent:
         self, province: Optional[str] = None, commodity: Optional[str] = None
     ) -> str:
         return self._format_opportunities(self.provider.get_business_opportunities(province=province, commodity=commodity))
+
+    @staticmethod
+    def _format_timing(data: dict) -> str:
+        comm = data.get("commodity_fr") or data.get("commodity") or "ce produit"
+        if data.get("status") != "ok":
+            return (
+                f"Je n'ai pas assez d'historique pour dégager une saisonnalité fiable du {comm}. "
+                "Je préfère ne pas vous donner de calendrier d'achat qui reposerait sur trop peu de données."
+            )
+        names = lambda months: " et ".join(_SEASON_MONTHS_FR[m - 1] for m in months)
+        scope = data.get("scope_province")
+        req = data.get("requested_province")
+        where = f"à {scope}" if scope else "au niveau national (toutes provinces suivies)"
+        lines = [f"**Saisonnalité du {comm} {where}** (historique observé, écarts par rapport à la moyenne annuelle) :"]
+        if req and not scope:
+            lines.append(f"- Pas assez de données propres à {req} : j'utilise la tendance nationale.")
+        lines += [
+            f"- Prix les plus bas : **{names(data['buy_months'])}** (environ {data['buy_discount_pct']:+.0f} %) → période favorable à l'achat/stockage.",
+            f"- Prix les plus hauts : **{names(data['sell_months'])}** (environ {data['sell_premium_pct']:+.0f} %) → période favorable à la vente/déstockage.",
+            f"- Écart entre le creux et le pic : environ {data['amplitude_pct']:.0f} %.",
+        ]
+        if data.get("reliable"):
+            lines.append("- Ce schéma se répète d'une année à l'autre : il est jugé **fiable**.")
+        else:
+            lines.append("- ⚠️ Ce schéma est **peu régulier** d'une année à l'autre : prenez-le comme une indication, pas comme une règle.")
+        lines.append("Ce calendrier décrit des tendances passées moyennes ; il ne garantit pas le prix d'une année donnée. "
+                     "Il ne tient pas compte de vos coûts de stockage et de pertes.")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_opportunities(data: dict) -> str:
@@ -2716,7 +2771,7 @@ class FreeDataAIAgent:
             "chart": None,
         }
 
-    _ROUTER_INTENTS = ("forecast", "alerts", "opportunity", "compare_sell", "credit_passport", "dataset_overview", "clarify")
+    _ROUTER_INTENTS = ("forecast", "timing", "alerts", "opportunity", "compare_sell", "credit_passport", "dataset_overview", "clarify")
 
     @staticmethod
     def _clarification_response(entities: dict, llm_reply: Optional[str] = None) -> dict:
@@ -2755,7 +2810,8 @@ class FreeDataAIAgent:
             "Tu es le routeur d'un assistant sur les prix des céréales au Tchad. Tu ne réponds PAS à l'utilisateur : "
             "tu choisis l'analyse à lancer. Réponds uniquement par un objet JSON "
             '{"intent": ..., "province": ..., "commodity": ...}.\n'
-            "intent ∈ {forecast: prix actuel/futur/évolution/quand acheter-vendre-stocker d'un produit ; "
+            "intent ∈ {forecast: prix actuel/futur/évolution d'un produit ; "
+            "timing: QUAND acheter, vendre ou stocker (saison, soudure, meilleur mois) ; "
             "alerts: hausses anormales de prix ; "
             "opportunity: où acheter pas cher / écarts de prix entre provinces ; "
             "compare_sell: comparer deux provinces pour VENDRE un produit (où gagner le plus) ; "
@@ -2881,6 +2937,9 @@ class FreeDataAIAgent:
             facts = self._format_route_revenue(raw_data)
             if not raw_data.get("routes"):
                 facts = f"{facts}{self._availability_hint(entities.get('commodities'), [entities['origin_province'], entities['destination_province']])}"
+        elif intent == "timing":
+            raw_data = self.provider.get_seasonal_calendar(prov, comm or "Millet")
+            facts = self._format_timing(raw_data)
         elif intent == "opportunity":
             raw_data = self.provider.get_business_opportunities(prov, comm)
             facts = self._format_opportunities(raw_data)
@@ -3102,6 +3161,8 @@ class FreeDataAIAgent:
             if not e.get("loan_amount_given", True):
                 base += " Le montant à financer reste à votre appréciation : indiquez-le-moi pour que je le confronte au plafond recommandé."
             return base
+        if intent == "timing":
+            return f"Voici le calendrier saisonnier des prix{what}{where}, utile pour choisir quand acheter, stocker ou vendre."
         if intent == "opportunity":
             return f"Voici les écarts de prix entre provinces{what}, utiles pour choisir où acheter ou vendre."
         if intent == "compare_sell":
