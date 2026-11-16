@@ -280,7 +280,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Credit Passport'), findsNothing);
-    expect(find.text('650 000 XAF'), findsOneWidget);
+    expect(find.text('650 000 XAF'), findsWidgets);
     expect(find.text('Copier CSV'), findsOneWidget);
     expect(find.text('CV : 21.7%'), findsOneWidget);
     expect(find.text('Baisse max : -33.1%'), findsOneWidget);
@@ -1135,7 +1135,8 @@ void main() {
     expect(find.textContaining('piste potentielle d’approvisionnement B2B'), findsOneWidget);
 
     // Filtre Qualité relevés
-    await tester.tap(find.text('Qualité relevés'));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Qualité relevés'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Qualité relevés'));
     await tester.pumpAndSettle();
     expect(find.text('Collecte arrêtée'), findsOneWidget);
     expect(find.text('Écart inter-marchés'), findsNothing);

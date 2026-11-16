@@ -255,6 +255,8 @@ class _PassportScreenState extends State<PassportScreen> {
                   ),
                 )
               else ...[
+                _buildPassportKpis(),
+                const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
@@ -406,6 +408,40 @@ class _PassportScreenState extends State<PassportScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPassportKpis() {
+    final rows = _passports.whereType<Map>().toList();
+    if (rows.isEmpty) return const SizedBox.shrink();
+    double bestScore = 0;
+    double bestLoan = 0;
+    for (final r in rows) {
+      final s = parseNum(r['credit_score'])?.toDouble() ?? 0;
+      final l = parseNum(r['recommended_max_loan_xaf'])?.toDouble() ?? 0;
+      if (s > bestScore) bestScore = s;
+      if (l > bestLoan) bestLoan = l;
+    }
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        FDMetricCard(
+          label: 'Provinces évaluées',
+          value: '${rows.length}',
+          icon: Icons.location_on_outlined,
+        ),
+        FDMetricCard(
+          label: 'Meilleur score',
+          value: '${bestScore.toStringAsFixed(0)}/100',
+          icon: Icons.shield_outlined,
+        ),
+        FDMetricCard(
+          label: 'Plafond LTV max',
+          value: '${formatXaf(bestLoan)} XAF',
+          icon: Icons.payments_outlined,
+        ),
+      ],
     );
   }
 

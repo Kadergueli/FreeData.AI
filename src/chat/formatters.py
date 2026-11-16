@@ -898,4 +898,126 @@ class FormattersMixin:
                 sc = r.get("credit_score")
                 if sc is not None and r.get("province"):
                     chart[str(r["province"])] = round(float(sc), 1)
+        elif intent == "alerts":
+            for r in (provider_data.get("records") or [])[:5]:
+                dev = r.get("deviation_pct")
+                if dev is not None and r.get("market_name"):
+                    chart[str(r["market_name"])] = round(float(dev), 1)
+        elif intent == "opportunity":
+            for r in (provider_data.get("cheapest_zones") or [])[:3] + (provider_data.get("highest_zones") or [])[:2]:
+                fc = r.get("forecast_median_xaf")
+                prov = r.get("province")
+                if fc is not None and prov and str(prov) not in chart:
+                    chart[str(prov)] = float(round(fc))
+        elif intent == "compare_sell":
+            for r in (provider_data.get("rows") or [])[:5]:
+                px = r.get("price_xaf")
+                if px is not None and r.get("province"):
+                    chart[str(r["province"])] = float(round(px))
+        elif intent == "anomalies":
+            for r in (provider_data.get("items") or [])[:5]:
+                chg = r.get("change_pct")
+                mkt = r.get("market_name")
+                if chg is not None and mkt and str(mkt) not in chart:
+                    chart[str(mkt)] = round(float(chg), 1)
+        elif intent == "timing":
+            bd = provider_data.get("buy_discount_pct")
+            sp = provider_data.get("sell_premium_pct")
+            if bd is not None and sp is not None:
+                chart["Creux achat (%)"] = round(float(bd), 1)
+                chart["Pic vente (%)"] = round(float(sp), 1)
         return chart if len(chart) >= 2 else None
+
+    @staticmethod
+    def _extract_summary_data(intent: str, provider_data: dict) -> Optional[dict]:
+        """Extrait un bloc synthèse KPI (`title`, `items`) pour `AnalysisSummary` côté client."""
+        if not isinstance(provider_data, dict) or provider_data.get("status") != "ok":
+            return None
+        items: list[str] = []
+        title = "Synthèse de l’analyse"
+
+        if intent == "forecast":
+            comm_fr = provider_data.get("commodity_fr") or "Produit"
+            prov = provider_data.get("province")
+            records = provider_data.get("records") or []
+            if prov and records:
+                title = f"Repères — {comm_fr} ({prov})"
+                top = records[0]
+                if top.get("forecast_t1") is not None:
+                    items.append(
+                        f"{top.get('market_name', prov)} : {_fmt_int(top['forecast_t1'])} XAF/kg "
+                        f"({_fmt_int(top.get('sac_100kg_xaf'))} XAF / sac 100 kg)"
+                    )
+                ps = provider_data.get("province_summary") or {}
+                if len(records) >= 2 and ps.get("spread_xaf"):
+                    items.append(
+                        f"Écart inter-marchés : {_fmt_int(ps['spread_xaf'])} XAF/kg "
+                        f"({_fmt_int(ps.get('spread_sac_100kg_xaf'))} XAF / sac)"
+                    )
+            else:
+                ns = provider_data.get("national_summary") or {}
+                if ns.get("median_forecast_xaf") is not None:
+                    title = f"Synthèse nationale — {comm_fr}"
+                    items.append(
+                        f"Médiane prévue : {_fmt_int(ns['median_forecast_xaf'])} XAF/kg "
+                        f"({_fmt_int(ns['median_forecast_xaf'] * 100)} XAF / sac 100 kg)"
+                    )
+                    items.append(
+                        f"Couverture : {ns.get('provinces_count', 0)} provinces · {ns.get('series_count', 0)} séries"
+                    )
+        elif intent == "alerts":
+            title = "Alertes de tension détectées"
+            recs = provider_data.get("records") or []
+            items.append(f"{provider_data.get('count', len(recs))} série(s) au-dessus de +{provider_data.get('threshold_pct', 15):.0f} %")
+            if recs:
+                r0 = recs[0]
+                items.append(
+                    f"Tension max : {r0.get('market_name', '')} ({r0.get('commodity_fr', '')}) à {r0.get('deviation_pct', 0):+.1f} %"
+                )
+        elif intent == "anomalies":
+            title = "Radar Anomalies & Qualité"
+            items.append(
+                f"{provider_data.get('n_total', 0)} signal(aux) sur {provider_data.get('months', 3)} mois "
+                f"(dont {provider_data.get('n_strong', 0)} fort(s))"
+            )
+            if provider_data.get("n_quality", 0) > 0:
+                items.append(f"Qualité des relevés : {provider_data['n_quality']} série(s) figée(s) ou arrêtée(s)")
+        elif intent == "timing":
+            comm_fr = provider_data.get("commodity_fr") or "Produit"
+            title = f"Calendrier saisonnier — {comm_fr}"
+            if provider_data.get("buy_discount_pct") is not None and provider_data.get("sell_premium_pct") is not None:
+                items.append(
+                    f"Creux achat : {provider_data['buy_discount_pct']:+.0f} % · Pic revente : {provider_data['sell_premium_pct']:+.0f} %"
+                )
+            if provider_data.get("amplitude_pct") is not None:
+                items.append(f"Amplitude saisonnière : {provider_data['amplitude_pct']:.0f} %")
+        elif intent == "credit_passport":
+            recs = provider_data.get("records") or []
+            if recs:
+                r0 = recs[0]
+                title = f"Credit Passport — {r0.get('commodity_fr', 'Produit')}"
+                items.append(
+                    f"Meilleur profil : {r0.get('province', '')} ({r0.get('credit_score', 0):.0f}/100 · {r0.get('grade', '')})"
+                )
+                items.append(f"Plafond LTV indicatif : {_fmt_int(r0.get('recommended_max_loan_xaf'))} XAF ({r0.get('ltv_pct', 0)} %)")
+        elif intent == "business_simulator" and provider_data.get("net_profit_xaf") is not None:
+            title = f"Compte d’exploitation — {provider_data.get('commodity_fr', '')}"
+            items.append(
+                f"Marge nette estimée : {_fmt_signed_int(provider_data['net_profit_xaf'])} XAF "
+                f"({provider_data.get('net_margin_pct', 0):+.1f} %)"
+            )
+            items.append(
+                f"Seuil de rentabilité : {_fmt_num(provider_data.get('break_even_price_per_kg'))} XAF/kg "
+                f"· Volume : {_fmt_int(provider_data.get('purchasable_kg'))} kg"
+            )
+        elif intent == "opportunity":
+            corridors = provider_data.get("corridors") or []
+            if corridors:
+                c0 = corridors[0]
+                title = "Meilleur corridor d’arbitrage"
+                items.append(
+                    f"{c0.get('commodity_fr', '')} : {c0.get('low_province', '')} → {c0.get('high_province', '')} "
+                    f"(+{_fmt_int(c0.get('spread_xaf'))} XAF/kg)"
+                )
+
+        return {"title": title, "items": items} if items else None

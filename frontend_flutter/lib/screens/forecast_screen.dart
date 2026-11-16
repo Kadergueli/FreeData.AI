@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../core/fd_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
+import '../widgets/chat/data_cards.dart';
 
 class ForecastScreen extends StatefulWidget {
   final ApiService apiService;
@@ -1098,25 +1099,40 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final medianFc = prices.length.isOdd ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2.0;
     final spread = prices.last - prices.first;
 
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    final chartData = <String, num>{};
+    for (final raw in _items.whereType<Map>().take(6)) {
+      final name = raw['market_name']?.toString().trim() ?? '';
+      final fc = parseNum(raw['forecast_t1'])?.toDouble();
+      if (name.isNotEmpty && fc != null) {
+        chartData[name] = fc.round();
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        FDMetricCard(
-          label: 'Médiane prévue',
-          value: '${formatXaf(medianFc)} XAF/kg',
-          icon: Icons.show_chart_rounded,
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FDMetricCard(
+              label: 'Médiane prévue',
+              value: '${formatXaf(medianFc)} XAF/kg',
+              icon: Icons.show_chart_rounded,
+            ),
+            FDMetricCard(
+              label: 'Sac 100 kg (médian)',
+              value: '${formatXaf(medianFc * 100)} XAF',
+              icon: Icons.inventory_2_outlined,
+            ),
+            FDMetricCard(
+              label: 'Écart Min–Max',
+              value: '${formatXaf(spread)} XAF/kg',
+              icon: Icons.swap_vert_rounded,
+            ),
+          ],
         ),
-        FDMetricCard(
-          label: 'Sac 100 kg (médian)',
-          value: '${formatXaf(medianFc * 100)} XAF',
-          icon: Icons.inventory_2_outlined,
-        ),
-        FDMetricCard(
-          label: 'Écart Min–Max',
-          value: '${formatXaf(spread)} XAF/kg',
-          icon: Icons.swap_vert_rounded,
-        ),
+        if (chartData.length >= 2) ChartCard(data: chartData),
       ],
     );
   }
@@ -1178,7 +1194,38 @@ class _ForecastScreenState extends State<ForecastScreen> {
       }
     }).toList();
 
+    final totalAnom = _anomalies.whereType<Map>().length;
+    final strongAnom = _anomalies.whereType<Map>().where((r) => r['severity'] == 'forte').length;
+    final qualityAnom = _anomalies
+        .whereType<Map>()
+        .where((r) => r['kind'] == 'stale' || r['kind'] == 'stopped')
+        .length;
+
     return [
+      if (totalAnom > 0) ...[
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FDMetricCard(
+              label: 'Signaux détectés',
+              value: '$totalAnom',
+              icon: Icons.radar_rounded,
+            ),
+            FDMetricCard(
+              label: 'Sévérité FORTE',
+              value: '$strongAnom',
+              icon: Icons.priority_high_rounded,
+            ),
+            FDMetricCard(
+              label: 'Qualité relevés',
+              value: '$qualityAnom',
+              icon: Icons.fact_check_outlined,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
       Wrap(
         spacing: 8,
         runSpacing: 8,

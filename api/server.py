@@ -321,6 +321,7 @@ class ChatResponse(BaseModel):
     entities: dict = Field(default_factory=dict)
     sources: list[dict] = Field(default_factory=list)
     chart: Optional[dict[str, float]] = None
+    summary: Optional[dict] = None
 
 
 @app.get("/api/v1/health")

@@ -2441,6 +2441,7 @@ class FreeDataAIAgent(FormattersMixin):
             "entities": entities,
             "sources": sources,
             "chart": self._extract_chart_data(intent, meta["provider_data"]),
+            "summary": self._extract_summary_data(intent, meta["provider_data"]),
         }
 
     def answer_with_metadata(
