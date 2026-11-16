@@ -62,63 +62,90 @@ def _row(key, kind, severity, ordinal, value, reference, change_pct, score) -> d
 
 
 # ----------------------------------------------------------------------------
-# 1. Sauts de prix
+# 1 + 2. Sauts de prix et divergences entre marchés (un seul passage de calcul)
 # ----------------------------------------------------------------------------
-def jump_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD, min_move: float = MIN_MOVE) -> list[dict]:
-    out = []
-    for key, g in _clean(kg_df).groupby(SERIES_KEYS):
-        ords, vals = g["ordinal"].to_numpy(), g["value"].to_numpy(float)
-        if len(vals) < MIN_HISTORY + 2:
-            continue
-        consecutive = np.diff(ords) == 1
-        lr = np.log(vals[1:] / vals[:-1])
-        hist: list[float] = []
-        for i in range(len(lr)):
-            if not consecutive[i]:
-                continue
-            if len(hist) >= MIN_HISTORY:
-                z, _ = _robust_z(np.asarray(hist), lr[i])
-                move = float(np.expm1(lr[i]))
-                if abs(z) >= z_threshold and abs(move) >= min_move:
-                    out.append(_row(key, "jump", _severity(z, move), ords[i + 1], vals[i + 1], vals[i], move * 100, z))
-            hist.append(float(lr[i]))
-    return out
+TARGET_RATE = 0.03       # part visée de séries-mois signalés par type de signal (étalonnage par produit)
+MIN_CALIBRATION = 60     # contrôles minimum d'un produit pour étalonner son seuil
+CALIBRATION_CAP = 2.0    # l'étalonnage ne relève jamais le seuil au-delà de 2 × la base (les vraies anomalies faussent le quantile)
+COMMON_SHARE = 0.5       # un saut dont ≥ 50 % est partagé par la médiane des marchés est un mouvement général
 
 
-# ----------------------------------------------------------------------------
-# 2. Divergence entre marchés (mouvement propre à un marché, pas commun à tous)
-# ----------------------------------------------------------------------------
-def divergence_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD,
-                         min_divergence: float = MIN_DIVERGENCE) -> list[dict]:
-    """Variation du mois d'une série moins la variation médiane des autres séries du même produit.
+def _checks(kg_df: pd.DataFrame) -> pd.DataFrame:
+    """Un contrôle par (série, mois) ayant assez d'historique : z du saut, z de la divergence, mouvement des pairs.
 
-    Un choc commun à tous les marchés (saison, carburant) n'est pas une divergence ; un marché qui bouge seul l'est.
+    Chaque z n'utilise que le passé de la série (aucune fuite). Les contrôles ne sont PAS encore filtrés : l'étalonnage
+    des seuils par produit se fait ensuite sur leur distribution réelle.
     """
-    out = []
-    df = _clean(kg_df)
-    for _comm, sub in df.groupby("commodity_std"):
+    rows = []
+    for comm, sub in _clean(kg_df).groupby("commodity_std"):
         piv = sub.pivot_table(index="ordinal", columns=SERIES_KEYS, values="value", aggfunc="last").sort_index()
-        if piv.shape[1] < MIN_PEERS:
-            continue
         full = piv.reindex(range(int(piv.index.min()), int(piv.index.max()) + 1))
-        lr = np.log(full / full.shift(1))          # NaN si le mois précédent manque : mois consécutifs seulement
-        n_ret = lr.notna().sum(axis=1)
-        peer_med = lr.median(axis=1).where(n_ret >= MIN_PEERS)
+        lr = np.log(full / full.shift(1))                  # NaN si le mois précédent manque : mois consécutifs seulement
+        have_peers = lr.notna().sum(axis=1) >= MIN_PEERS
+        peer_med = lr.median(axis=1).where(have_peers)
         rel = lr.sub(peer_med, axis=0)
-        for key in rel.columns:
-            r = rel[key].dropna()
-            if len(r) <= MIN_HISTORY:
-                continue
-            ords, vals = r.index.to_numpy(), r.to_numpy(float)
-            for i in range(MIN_HISTORY, len(vals)):
-                z, center = _robust_z(vals[:i], vals[i])
-                gap = float(np.expm1(vals[i] - center))
-                if abs(z) >= z_threshold and abs(gap) >= min_divergence:
-                    cur = float(full.loc[ords[i], key])
-                    prev = float(full.loc[ords[i] - 1, key])
-                    ref = prev * float(np.exp(peer_med.loc[ords[i]]))  # prix attendu s'il avait suivi les autres marchés
-                    out.append(_row(key, "divergence", _severity(z, gap), ords[i], cur, ref, gap * 100, z))
+        for key in full.columns:
+            own = lr[key].dropna()
+            rel_s = rel[key].dropna()
+            z_j, z_d, gap = {}, {}, {}
+            if len(own) > MIN_HISTORY:
+                o_ord, o_val = own.index.to_numpy(), own.to_numpy(float)
+                for i in range(MIN_HISTORY, len(o_val)):
+                    z_j[int(o_ord[i])] = _robust_z(o_val[:i], o_val[i])[0]
+            if len(rel_s) > MIN_HISTORY:
+                r_ord, r_val = rel_s.index.to_numpy(), rel_s.to_numpy(float)
+                for i in range(MIN_HISTORY, len(r_val)):
+                    z, center = _robust_z(r_val[:i], r_val[i])
+                    z_d[int(r_ord[i])] = z
+                    gap[int(r_ord[i])] = float(np.expm1(r_val[i] - center))
+            for ordinal in set(z_j) | set(z_d):
+                cur = float(full.loc[ordinal, key])
+                prev = float(full.loc[ordinal - 1, key])
+                pm = peer_med.get(ordinal, np.nan)
+                rows.append({
+                    "commodity_std": comm, "key": key, "ordinal": ordinal, "cur": cur, "prev": prev,
+                    "z_jump": z_j.get(ordinal, np.nan), "move": cur / prev - 1.0,
+                    "z_div": z_d.get(ordinal, np.nan), "gap": gap.get(ordinal, np.nan),
+                    "peer_move": float(np.expm1(pm)) if pd.notna(pm) else np.nan,
+                })
+    return pd.DataFrame(rows)
+
+
+def _calibrated(checks: pd.DataFrame, col: str, base: float, target_rate: float) -> pd.Series:
+    """Seuil de |z| par produit : au moins `base`, et au moins le quantile (1 - target_rate) de son bruit réel."""
+    def thr(g):
+        v = g[col].abs().dropna()
+        return min(max(base, float(v.quantile(1.0 - target_rate))), CALIBRATION_CAP * base) if len(v) >= MIN_CALIBRATION else base
+    return checks.groupby("commodity_std").apply(thr, include_groups=False)
+
+
+def _signals(checks: pd.DataFrame, kind: str, z_threshold: float, min_size: float, target_rate: float) -> list[dict]:
+    if checks.empty:
+        return []
+    zcol, sizecol = ("z_jump", "move") if kind == "jump" else ("z_div", "gap")
+    thr = checks["commodity_std"].map(_calibrated(checks, zcol, z_threshold, target_rate))
+    hit = (checks[zcol].abs() >= thr) & (checks[sizecol].abs() >= min_size)
+    if kind == "jump":
+        common = checks["peer_move"].notna() & (np.sign(checks["peer_move"]) == np.sign(checks["move"])) & \
+            (checks["peer_move"].abs() >= COMMON_SHARE * checks["move"].abs())
+        hit &= ~common            # mouvement général (saison, choc commun) : pas une anomalie propre à ce marché
+    out = []
+    for r in checks[hit].itertuples(index=False):
+        size, z = getattr(r, sizecol), getattr(r, zcol)
+        ref = r.prev if kind == "jump" else r.prev * (1.0 + (r.peer_move if pd.notna(r.peer_move) else 0.0))
+        out.append(_row(r.key, kind, _severity(z, size), r.ordinal, r.cur, ref, size * 100, z))
     return out
+
+
+def jump_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD, min_move: float = MIN_MOVE,
+                   target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None) -> list[dict]:
+    return _signals(_checks(kg_df) if checks is None else checks, "jump", z_threshold, min_move, target_rate)
+
+
+def divergence_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD, min_divergence: float = MIN_DIVERGENCE,
+                         target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None) -> list[dict]:
+    """Un choc commun à tous les marchés n'est pas une divergence ; un marché qui bouge seul l'est."""
+    return _signals(_checks(kg_df) if checks is None else checks, "divergence", z_threshold, min_divergence, target_rate)
 
 
 # ----------------------------------------------------------------------------
@@ -149,7 +176,8 @@ def quality_issues(kg_df: pd.DataFrame) -> list[dict]:
 # ----------------------------------------------------------------------------
 def detect_anomalies(kg_df: pd.DataFrame) -> pd.DataFrame:
     """Toutes les anomalies de l'historique, une ligne par (série, mois, type) ; jump+divergence fusionnés."""
-    rows = jump_anomalies(kg_df) + divergence_anomalies(kg_df) + quality_issues(kg_df)
+    checks = _checks(kg_df)
+    rows = jump_anomalies(kg_df, checks=checks) + divergence_anomalies(kg_df, checks=checks) + quality_issues(kg_df)
     if not rows:
         return pd.DataFrame(columns=COLUMNS)
     df = pd.DataFrame(rows)

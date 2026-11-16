@@ -180,3 +180,29 @@ def test_anomalies_endpoint_filters(gold_tables):
     assert c.get("/api/v1/anomalies", params={"kind": "stale"}).json()["count"] == 1
     assert c.get("/api/v1/anomalies", params={"kind": "nimporte"}).status_code == 422
     server.STATE.clear()
+
+
+# --- Mouvements généraux et étalonnage -------------------------------------------------------------
+
+def test_market_wide_move_is_not_a_jump():
+    """Tous les marchés montent de 30 % le même mois (saison, choc commun) : aucune anomalie de saut."""
+    df = panel(n_months=30, n_markets=8, noise=0.015)
+    m = df["year_month"] == pd.Period("2026-04", "M")
+    df.loc[m, "value"] *= 1.30
+    jumps = [a for a in jump_anomalies(df) if a["month"] == "2026-04"]
+    assert jumps == []
+
+
+def test_single_market_jump_is_still_flagged_when_others_are_flat():
+    df = set_value(panel(n_months=30, n_markets=8, noise=0.015), "Marche3", "2026-04", 1.35)
+    found = [a for a in detect_anomalies(df).to_dict("records") if a["month"] == "2026-04"]
+    assert any(a["market_name"] == "Marche3" for a in found)
+
+
+def test_calibration_never_exceeds_cap_so_real_shocks_survive():
+    from src import anomalies as an
+    df = panel(n_months=36, n_markets=12, noise=0.02, seed=5)
+    shocked, truth = inject_shocks(df, 40, 0.40, seed=2)  # >3 % des contrôles : le quantile serait contaminé
+    ck = an._checks(shocked)
+    thr = an._calibrated(ck, "z_jump", an.Z_THRESHOLD, an.TARGET_RATE)
+    assert (thr <= an.CALIBRATION_CAP * an.Z_THRESHOLD + 1e-9).all()
