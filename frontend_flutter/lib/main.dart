@@ -228,7 +228,10 @@ class _MainShellState extends State<MainShell> {
     if (!mounted) return;
     setState(() {
       _conversations = list;
-      if (_activeConversationId == null && list.isNotEmpty) {
+      if (_activeConversationId != null &&
+          !list.any((c) => c.id == _activeConversationId)) {
+        _activeConversationId = list.isNotEmpty ? list.first.id : null;
+      } else if (_activeConversationId == null && list.isNotEmpty) {
         _activeConversationId = list.first.id;
       }
     });

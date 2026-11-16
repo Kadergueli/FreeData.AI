@@ -19,6 +19,8 @@ class ExploreScreen extends StatefulWidget {
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
+  static const int _defaultVisiblePills = 10;
+
   Map<String, dynamic>? _metadata;
   List<dynamic> _forecasts = [];
   bool _loading = true;
@@ -76,35 +78,57 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  void _triggerPrompt(String entity, bool isProduct) {
+  void _sendPromptOrNotice(String prompt, String fallbackLabel) {
     if (widget.onSelectPrompt != null) {
-      final prompt = isProduct
-          ? 'Quelle est la prévision du prix et la tendance pour le produit $entity au Tchad ?'
-          : 'Quelle est la situation des marchés et des prix dans la province de $entity ?';
       widget.onSelectPrompt!(prompt);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sélection : $entity. Ouvrez l’Assistant IA pour analyser.'),
+          content: Text('Sélection : $fallbackLabel. Ouvrez l’Assistant IA pour analyser.'),
           duration: const Duration(seconds: 2),
         ),
       );
     }
   }
 
+  void _triggerPrompt(String entity, bool isProduct) {
+    final prompt = isProduct
+        ? 'Quelle est la prévision du prix et la tendance pour le produit $entity au Tchad ?'
+        : 'Quelle est la situation des marchés et des prix dans la province de $entity ?';
+    _sendPromptOrNotice(prompt, entity);
+  }
+
+  void _triggerMarketPrompt(String market) {
+    _sendPromptOrNotice(
+      'Quelle est la situation des prix et la prévision sur le marché de $market ?',
+      market,
+    );
+  }
+
+  String? _nextYearMonth(String? yearMonth) {
+    if (yearMonth == null) return null;
+    final match = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(yearMonth.trim());
+    if (match == null) return null;
+    final year = int.tryParse(match.group(1)!);
+    final month = int.tryParse(match.group(2)!);
+    if (year == null || month == null || month < 1 || month > 12) return null;
+    final nextMonth = month == 12 ? 1 : month + 1;
+    final nextYear = month == 12 ? year + 1 : year;
+    return '${nextYear.toString().padLeft(4, '0')}-${nextMonth.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 640;
     final metadata = _metadata ?? const <String, dynamic>{};
     final domain = _asMap(metadata['active_domain']);
 
-    // Extraire les listes depuis metadata
     final rawProducts = _asStringList(metadata['products']);
     final rawCereals = _asStringList(metadata['cereals']);
     final rawMarkets = _asStringList(metadata['markets']);
     final rawProvinces = _asStringList(metadata['provinces']);
     final rawSources = _asStringList(metadata['sources']);
 
-    // Enrichir avec les observations réelles des prévisions si disponibles
     final Set<String> productsSet = Set<String>.from(rawProducts);
     final Set<String> marketsSet = Set<String>.from(rawMarkets);
     final Set<String> provincesSet = Set<String>.from(rawProvinces);
@@ -112,7 +136,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     String? minObs;
     String? maxObs;
-    String? forecastMonth;
+    String? fallbackForecastMonth;
 
     for (final raw in _forecasts) {
       if (raw is Map) {
@@ -129,7 +153,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           if (maxObs == null || obs.compareTo(maxObs) > 0) maxObs = obs;
         }
         if (m['forecast_month'] != null) {
-          forecastMonth = m['forecast_month'].toString();
+          fallbackForecastMonth = m['forecast_month'].toString();
         }
       }
     }
@@ -142,12 +166,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     final periods = metadata['periods_covered'] is Map
         ? Map<String, dynamic>.from(metadata['periods_covered'] as Map)
-        : const {};
+        : const <String, dynamic>{};
     final startPeriod = periods['start']?.toString() ?? minObs;
     final endPeriod = periods['end']?.toString() ?? maxObs;
-    final lastUpdated = metadata['last_updated']?.toString() ?? maxObs;
+    final lastUpdated = metadata['last_updated']?.toString() ?? maxObs ?? endPeriod;
+    final forecastMonth = periods['forecast_month']?.toString() ??
+        metadata['forecast_month']?.toString() ??
+        fallbackForecastMonth ??
+        _nextYearMonth(endPeriod);
 
-    // Domaines multidomaines
     final futureDomains = [
       {'slug': 'agriculture', 'label': 'Agriculture', 'desc': 'Surfaces cultivées, rendements et intrants'},
       {'slug': 'economy', 'label': 'Économie', 'desc': 'Indices des prix, inflation et commerce transfrontalier'},
@@ -161,23 +188,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return Material(
       color: Colors.white,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 36),
+        padding: EdgeInsets.fromLTRB(compact ? 14 : 24, compact ? 14 : 20, compact ? 14 : 24, 32),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Explorer les données',
-                  style: TextStyle(fontSize: 27, fontWeight: FontWeight.w800, color: FDTheme.ink),
+                  style: TextStyle(
+                    fontSize: compact ? 23 : 27,
+                    fontWeight: FontWeight.w800,
+                    color: FDTheme.ink,
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 const Text(
                   'Catalogue multidomaine des sources et indicateurs authentiques de FreeData.AI.',
                   style: TextStyle(color: FDTheme.muted, height: 1.45),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
                 if (_loading)
                   const FDLoadingState(message: 'Chargement du catalogue…')
                 else if (_error != null)
@@ -197,7 +228,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             Expanded(
                               child: Text(
                                 domain['label']?.toString() ?? 'Marchés et prix des produits',
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: FDTheme.ink),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 19,
+                                  color: FDTheme.ink,
+                                ),
                               ),
                             ),
                             FDBadge(
@@ -207,13 +242,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Text(
                           domain['description']?.toString() ??
-                              'Premier domaine exploitable de FreeData.AI : marchés, céréales, provinces et sources authentiques (WFP, FEWS NET).',
-                          style: const TextStyle(color: FDTheme.muted, height: 1.5),
+                              'Premier domaine exploitable de FreeData.AI : marchés, produits alimentaires, provinces et sources suivies en temps réel.',
+                          style: const TextStyle(color: FDTheme.muted, height: 1.45),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
                         Wrap(
                           spacing: 12,
                           runSpacing: 12,
@@ -225,39 +260,53 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             FDMetricCard(label: 'Sources', value: '${sources.length}', icon: Icons.source_outlined),
                           ],
                         ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Périmètre : séries actives des 3 derniers mois (prévisions temps réel) · L’onglet Credit Passport couvre l’historique multi-annuel complet.',
+                          style: TextStyle(fontSize: 12, color: FDTheme.subtle, height: 1.4),
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  _MetadataSection(
-                    title: 'Produits',
-                    values: products,
-                    color: FDTheme.blue,
-                    labelBuilder: commodityLabelFr,
-                    onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
-                  ),
-                  const SizedBox(height: 18),
-                  _MetadataSection(
-                    title: 'Céréales',
-                    values: cereals,
-                    color: FDTheme.green,
-                    labelBuilder: commodityLabelFr,
-                    onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
-                  ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                   LayoutBuilder(
                     builder: (context, constraints) {
-                      final itemWidth = constraints.maxWidth < 700 ? constraints.maxWidth : (constraints.maxWidth - 16) / 2;
+                      final twoCols = constraints.maxWidth >= 700;
+                      final itemWidth = twoCols ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
                       return Wrap(
                         spacing: 16,
                         runSpacing: 16,
                         children: [
                           SizedBox(
                             width: itemWidth,
+                            child: _MetadataSection(
+                              title: 'Produits',
+                              values: products,
+                              color: FDTheme.blue,
+                              initialLimit: _defaultVisiblePills,
+                              labelBuilder: commodityLabelFr,
+                              onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _MetadataSection(
+                              title: 'Céréales',
+                              values: cereals,
+                              color: FDTheme.green,
+                              initialLimit: _defaultVisiblePills,
+                              labelBuilder: commodityLabelFr,
+                              onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
                             child: _InfoPanelCard(
                               title: 'Marchés',
                               subtitle: markets.isEmpty ? 'Aucun marché référencé' : '${markets.length} marchés disponibles',
                               values: markets,
+                              initialLimit: _defaultVisiblePills,
+                              onTapItem: _triggerMarketPrompt,
                             ),
                           ),
                           SizedBox(
@@ -266,6 +315,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               title: 'Provinces',
                               subtitle: provinces.isEmpty ? 'Aucune province référencée' : '${provinces.length} provinces couvertes',
                               values: provinces,
+                              initialLimit: _defaultVisiblePills,
                               onTapItem: (item) => _triggerPrompt(item, false),
                             ),
                           ),
@@ -273,8 +323,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             width: itemWidth,
                             child: _InfoPanelCard(
                               title: 'Sources',
-                              subtitle: sources.isEmpty ? 'Aucune source disponible' : '${sources.length} sources de données',
+                              subtitle: sources.isEmpty ? 'Aucune source disponible' : '${sources.length} source(s) active(s)',
                               values: sources,
+                              initialLimit: _defaultVisiblePills,
                             ),
                           ),
                           SizedBox(
@@ -283,85 +334,104 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               title: 'Périodes couvertes',
                               subtitle: startPeriod == null || endPeriod == null
                                   ? 'Aucune période disponible'
-                                  : '$startPeriod → $endPeriod ${forecastMonth != null ? '(Prévision : $forecastMonth)' : ''}',
+                                  : '$startPeriod → $endPeriod${forecastMonth != null ? ' (Prévision : $forecastMonth)' : ''}',
                               values: [
                                 if (startPeriod != null) 'Début : $startPeriod',
                                 if (endPeriod != null) 'Fin : $endPeriod',
                                 if (forecastMonth != null) 'Horizon prévisionnel : $forecastMonth',
                               ],
+                              initialLimit: _defaultVisiblePills,
                             ),
                           ),
                         ],
                       );
                     },
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                   FDCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const Text(
-                          'Dates de mise à jour',
-                          style: TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 18),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          lastUpdated != null
-                              ? 'Dernière mise à jour connue : $lastUpdated'
-                              : 'Aucune date de mise à jour fournie par le backend.',
-                          style: const TextStyle(color: FDTheme.muted, height: 1.5),
+                        const Icon(Icons.update_rounded, color: FDTheme.blue, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Dates de mise à jour',
+                                style: TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 16),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                lastUpdated != null
+                                    ? 'Dernier relevé actif : $lastUpdated${forecastMonth != null ? '  ·  Prochaine échéance : $forecastMonth' : ''}'
+                                    : 'Aucune date de mise à jour fournie par le backend.',
+                                style: const TextStyle(color: FDTheme.muted, fontSize: 13, height: 1.4),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
                   const Text(
                     'Architecture Multidomaine Extensible',
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: FDTheme.ink),
+                    style: TextStyle(fontSize: 18.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
                     'Les domaines ci-dessous constituent la feuille de route d’extension de FreeData.AI. Le raccordement de chaque pipeline est documenté de manière transparente.',
                     style: TextStyle(color: FDTheme.muted, fontSize: 13, height: 1.45),
                   ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: futureDomains.map((entry) {
-                      return SizedBox(
-                        width: 260,
-                        child: _ComingCard(
-                          icon: _domainIcon(entry['slug']!),
-                          title: entry['label']!,
-                          desc: entry['desc']!,
-                          onTap: () {
-                            showDialog(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: Row(
-                                  children: [
-                                    Icon(_domainIcon(entry['slug']!), color: const Color(0xFF64748B)),
-                                    const SizedBox(width: 8),
-                                    Text(entry['label']!),
-                                  ],
-                                ),
-                                content: Text(
-                                  'Le domaine "${entry['label']}" est actuellement en préparation. Les pipelines d’ingestion et de normalisation des données pour le Tchad ne sont pas encore reliés à l’API.',
-                                  style: const TextStyle(height: 1.5),
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Compris'),
+                  const SizedBox(height: 14),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cols = constraints.maxWidth < 560
+                          ? 1
+                          : (constraints.maxWidth < 980 ? 2 : 4);
+                      final cardWidth = (constraints.maxWidth - (cols - 1) * 12) / cols;
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: futureDomains.map((entry) {
+                          return SizedBox(
+                            width: cardWidth,
+                            child: _ComingCard(
+                              icon: _domainIcon(entry['slug']!),
+                              title: entry['label']!,
+                              desc: entry['desc']!,
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Row(
+                                      children: [
+                                        Icon(_domainIcon(entry['slug']!), color: const Color(0xFF64748B)),
+                                        const SizedBox(width: 8),
+                                        Flexible(child: Text(entry['label']!)),
+                                      ],
+                                    ),
+                                    content: Text(
+                                      'Le domaine "${entry['label']}" est actuellement en préparation. Les pipelines d’ingestion et de normalisation des données pour le Tchad ne sont pas encore reliés à l’API.',
+                                      style: const TextStyle(height: 1.5),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('Compris'),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                );
+                              },
+                            ),
+                          );
+                        }).toList(),
                       );
-                    }).toList(),
+                    },
                   ),
                 ],
               ],
@@ -408,10 +478,62 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 }
 
+class _ExpandablePillList extends StatefulWidget {
+  final List<String> values;
+  final Color color;
+  final int initialLimit;
+  final String Function(String)? labelBuilder;
+  final ValueChanged<String>? onTapItem;
+
+  const _ExpandablePillList({
+    required this.values,
+    required this.color,
+    this.initialLimit = 10,
+    this.labelBuilder,
+    this.onTapItem,
+  });
+
+  @override
+  State<_ExpandablePillList> createState() => _ExpandablePillListState();
+}
+
+class _ExpandablePillListState extends State<_ExpandablePillList> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverflow = widget.values.length > widget.initialLimit;
+    final visible = (_expanded || !hasOverflow)
+        ? widget.values
+        : widget.values.take(widget.initialLimit).toList();
+    final remaining = widget.values.length - visible.length;
+
+    return Wrap(
+      spacing: 7,
+      runSpacing: 7,
+      children: [
+        ...visible.map(
+          (value) => _Pill(
+            text: widget.labelBuilder != null ? widget.labelBuilder!(value) : value,
+            color: widget.color,
+            onTap: widget.onTapItem != null ? () => widget.onTapItem!(value) : null,
+          ),
+        ),
+        if (hasOverflow)
+          _TogglePill(
+            label: _expanded ? 'Réduire' : '+$remaining autres · Voir tout',
+            onTap: () => setState(() => _expanded = !_expanded),
+          ),
+      ],
+    );
+  }
+}
+
 class _MetadataSection extends StatelessWidget {
   final String title;
   final List<String> values;
   final Color color;
+  final int initialLimit;
   final String Function(String)? labelBuilder;
   final ValueChanged<String>? onTapItem;
 
@@ -419,6 +541,7 @@ class _MetadataSection extends StatelessWidget {
     required this.title,
     required this.values,
     required this.color,
+    this.initialLimit = 10,
     this.labelBuilder,
     this.onTapItem,
   });
@@ -429,26 +552,29 @@ class _MetadataSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 18),
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 17.5),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '(${values.length})',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: FDTheme.muted),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           if (values.isEmpty)
             const Text('Aucune valeur disponible dans les métadonnées backend.', style: TextStyle(color: FDTheme.muted))
           else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: values
-                  .map(
-                    (value) => _Pill(
-                      text: labelBuilder != null ? labelBuilder!(value) : value,
-                      color: color,
-                      onTap: onTapItem != null ? () => onTapItem!(value) : null,
-                    ),
-                  )
-                  .toList(),
+            _ExpandablePillList(
+              values: values,
+              color: color,
+              initialLimit: initialLimit,
+              labelBuilder: labelBuilder,
+              onTapItem: onTapItem,
             ),
         ],
       ),
@@ -460,12 +586,14 @@ class _InfoPanelCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final List<String> values;
+  final int initialLimit;
   final ValueChanged<String>? onTapItem;
 
   const _InfoPanelCard({
     required this.title,
     required this.subtitle,
     required this.values,
+    this.initialLimit = 10,
     this.onTapItem,
   });
 
@@ -476,25 +604,17 @@ class _InfoPanelCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 17)),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(subtitle, style: const TextStyle(color: FDTheme.muted, fontSize: 12)),
           const SizedBox(height: 12),
           if (values.isEmpty)
             const Text('Aucune donnée liée à ce critère.', style: TextStyle(color: FDTheme.muted, fontSize: 12))
           else
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: values
-                  .take(12)
-                  .map(
-                    (value) => _Pill(
-                      text: value,
-                      color: FDTheme.blue,
-                      onTap: onTapItem != null ? () => onTapItem!(value) : null,
-                    ),
-                  )
-                  .toList(),
+            _ExpandablePillList(
+              values: values,
+              color: FDTheme.blue,
+              initialLimit: initialLimit,
+              onTapItem: onTapItem,
             ),
         ],
       ),
@@ -549,6 +669,43 @@ class _Pill extends StatelessWidget {
   }
 }
 
+class _TogglePill extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _TogglePill({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: FDTheme.canvas,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+          side: const BorderSide(color: FDTheme.line),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(30),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: FDTheme.muted,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ComingCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -565,13 +722,13 @@ class _ComingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: FDTheme.muted),
+              Icon(icon, color: FDTheme.muted, size: 20),
               const Spacer(),
               FDBadge(
                 label: 'En préparation',
@@ -580,9 +737,9 @@ class _ComingCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink)),
-          const SizedBox(height: 5),
+          const SizedBox(height: 4),
           Text(desc, style: const TextStyle(fontSize: 12, color: FDTheme.muted, height: 1.4)),
         ],
       ),

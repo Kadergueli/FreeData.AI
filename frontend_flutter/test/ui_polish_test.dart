@@ -19,6 +19,7 @@ import 'package:freedata_ai/services/api_service.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
 import 'package:freedata_ai/widgets/chat/assistant_message.dart';
 import 'package:freedata_ai/widgets/chat/data_cards.dart';
+import 'package:freedata_ai/widgets/chat/loading_indicator.dart';
 
 class _PolishFakeApiService extends ApiService {
   @override
@@ -607,48 +608,22 @@ void main() {
     expect(service.hasPremiumKey, isFalse);
   });
 
-  test('ApiService.verifyPremiumKey validates via studies or /refresh fallback on 503', () async {
+  test('ApiService.verifyPremiumKey validates via studies/seasonality cleanly', () async {
     const serverKey = 'FD-RENDER-SECRET-2026';
-    const adminFallbackKey = 'RENDER-ADMIN-TOKEN-99';
-    bool simulate503Studies = false;
 
     final mockClient = MockClient((request) async {
-      if (request.url.path == '/api/v1/studies/seasonality') {
-        expect(request.url.queryParameters['commodity'], 'Millet');
-        if (simulate503Studies) {
-          return http.Response(
-            jsonEncode({'detail': 'Études avancées désactivées : PREMIUM_API_KEYS non configuré.'}),
-            503,
-          );
-        }
-        if (request.headers['X-Premium-Key'] == serverKey) {
-          return http.Response(jsonEncode({'status': 'ok'}), 200);
-        }
-        return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
+      expect(request.url.path, '/api/v1/studies/seasonality');
+      expect(request.url.queryParameters['commodity'], 'Millet');
+      if (request.headers['X-Premium-Key'] == serverKey) {
+        return http.Response(jsonEncode({'status': 'ok'}), 200);
       }
-      if (request.url.path == '/api/v1/refresh') {
-        expect(request.method, 'POST');
-        if (request.headers['X-Admin-Token'] == adminFallbackKey) {
-          return http.Response(jsonEncode({'status': 'reloaded'}), 200);
-        }
-        return http.Response(jsonEncode({'detail': 'Jeton administrateur invalide.'}), 403);
-      }
-      return http.Response('{}', 404);
+      return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
     });
 
     final service = ApiService(client: mockClient);
     expect(await service.verifyPremiumKey(''), isFalse);
     expect(await service.verifyPremiumKey('fausse-cle-123'), isFalse);
     expect(await service.verifyPremiumKey(serverKey), isTrue);
-
-    // Repli /api/v1/refresh lorsque /studies/seasonality renvoie 503 :
-    // 200 sur /refresh valide la clé ; un 403 sur /refresh ne renvoie pas un faux rejet mais 503
-    simulate503Studies = true;
-    expect(await service.verifyPremiumKey(adminFallbackKey), isTrue);
-    await expectLater(
-      service.verifyPremiumKey('mauvais-jeton'),
-      throwsA(isA<ApiHttpException>().having((e) => e.statusCode, 'statusCode', 503)),
-    );
   });
 
   testWidgets('MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',
@@ -913,8 +888,204 @@ void main() {
             .having((e) => e.message, 'message', contains('PREMIUM_API_KEYS')),
       ),
     );
-    expect(calls, 2);
+    expect(calls, 1);
   });
+
+  testWidgets('First message keeps LoadingIndicator active while MainShell updates conversationId',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final pending = Completer<Map<String, dynamic>>();
+    final delayedApi = _DelayedChatFakeApi(pending);
+
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: delayedApi)));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Premier message test');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Même après que MainShell ait attribué un ID au nouveau fil, le spinner reste affiché
+    expect(find.byType(LoadingIndicator), findsOneWidget);
+
+    pending.complete({'reply': 'Réponse du serveur', 'intent': 'forecast', 'sources': []});
+    await tester.pumpAndSettle();
+
+    expect(find.byType(LoadingIndicator), findsNothing);
+    expect(find.text('Réponse du serveur'), findsOneWidget);
+  });
+
+  testWidgets('Deleting active conversation from Library resets Assistant IA welcome state',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final conv = ConversationThread(
+      id: 'conv-lib-del',
+      title: 'Fil Library',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 2),
+      messages: [
+        ChatMessage.user('Question unique'),
+        ChatMessage.assistant(text: 'Réponse associée'),
+      ],
+    );
+    await LocalConversationStorage.instance.saveAll([conv]);
+
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpAndSettle();
+    expect(find.text('Question unique'), findsOneWidget);
+
+    // Aller dans Library et supprimer la conversation active
+    await tester.tap(find.text('Library'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Mettre à la corbeille'));
+    await tester.pumpAndSettle();
+
+    // Revenir dans Assistant IA : la conversation supprimée n'est plus affichée
+    await tester.tap(find.text('Assistant IA'));
+    await tester.pumpAndSettle();
+    expect(find.text('Question unique'), findsNothing);
+    expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
+  });
+
+  testWidgets('ExploreScreen translates all Render products, shows forecast horizon, and expands/collapses markets',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final fullMetaApi = _FullCatalogFakeApi();
+    String? capturedPrompt;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ExploreScreen(
+            apiService: fullMetaApi,
+            onSelectPrompt: (p) => capturedPrompt = p,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Produits traduits (les 5 manquants précédemment)
+    expect(find.text('Manioc (cossettes)'), findsOneWidget);
+    expect(find.text('Niébé rouge'), findsOneWidget);
+    expect(find.text('Niébé blanc'), findsOneWidget);
+    expect(find.text('Oignon'), findsOneWidget);
+    expect(find.text('Pâtes alimentaires (mélange)'), findsOneWidget);
+    expect(find.text('Cassava Chips'), findsNothing);
+
+    // Horizon prévisionnel déduit automatiquement de 2026-10 -> 2026-11
+    expect(find.text('Horizon prévisionnel : 2026-11'), findsOneWidget);
+
+    // Par défaut, seuls les 10 premiers marchés sont affichés (pas de mur de pilules)
+    expect(find.text('Abeche'), findsOneWidget);
+    expect(find.text('Sarh'), findsNothing);
+    final expandMarkets = find.text('+14 autres · Voir tout');
+    expect(expandMarkets, findsOneWidget);
+
+    // Déplier les 24 marchés, cliquer sur Sarh, puis replier
+    await tester.ensureVisible(expandMarkets);
+    await tester.tap(expandMarkets);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Moundou'), findsOneWidget);
+    expect(find.text("N'Djamena, Dembe"), findsOneWidget);
+    expect(find.text('Sarh'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Sarh'));
+    await tester.tap(find.text('Sarh'));
+    await tester.pump();
+    expect(
+      capturedPrompt,
+      'Quelle est la situation des prix et la prévision sur le marché de Sarh ?',
+    );
+
+    final collapse = find.text('Réduire');
+    expect(collapse, findsWidgets);
+    await tester.ensureVisible(collapse.last);
+    await tester.tap(collapse.last);
+    await tester.pumpAndSettle();
+    expect(find.text('Sarh'), findsNothing);
+  });
+}
+
+class _FullCatalogFakeApi extends ApiService {
+  @override
+  Future<Map<String, dynamic>> getMetadata() async => {
+        'products': [
+          'Cassava Chips',
+          'Cowpeas (Red)',
+          'Cowpeas (White)',
+          'Groundnut Oil (Refined)',
+          'Groundnuts (shelled)',
+          'Maize (white)',
+          'Millet',
+          'Onions',
+          'Pasta (Mixed)',
+          'Refined sugar',
+          'Rice (Milled)',
+          'Rice (imported)',
+          'Sesame (White)',
+          'Sorghum (red)',
+          'Sweet potatoes',
+          'Wheat flour',
+        ],
+        'cereals': [
+          'Maize (white)',
+          'Millet',
+          'Rice (Milled)',
+          'Rice (imported)',
+          'Sorghum (red)',
+          'Wheat flour',
+        ],
+        'markets': [
+          'Abeche',
+          'Adre',
+          'Amtiman',
+          'Ati',
+          'Bagasola',
+          'Biltine',
+          'Bodo',
+          'Bol',
+          'Bongor',
+          'Bousso',
+          'Faya',
+          'Gozbeida',
+          'Kelo',
+          'Mao',
+          'Massakory',
+          'Mongo',
+          'Moundou',
+          'Moussoro',
+          "N'Djamena, Atrone",
+          "N'Djamena, Dembe",
+          "N'Djamena, Mil",
+          'Pala',
+          'Peni',
+          'Sarh',
+        ],
+        'provinces': ["N'Djamena", 'Salamat'],
+        'sources': ['FEWS NET'],
+        'periods_covered': {'start': '2026-07', 'end': '2026-10'},
+        'last_updated': '2026-10',
+      };
 }
 
 class _ExploreRetryFallbackApi extends ApiService {

@@ -100,16 +100,9 @@ class ApiService {
       return false;
     }
     if (resp.statusCode == 503) {
-      final refreshUri = Uri.parse('$baseUrl/api/v1/refresh');
-      final refreshResp = await _client
-          .post(refreshUri, headers: {'X-Admin-Token': trimmed})
-          .timeout(const Duration(seconds: 30));
-      if (refreshResp.statusCode == 200) {
-        return true;
-      }
       throw const ApiHttpException(
         503,
-        'Le serveur Render n’a pas encore reçu la mise à jour de src/config.py (ou PREMIUM_API_KEYS). Poussez la racine du dépôt sur Git.',
+        'Les études avancées (PREMIUM_API_KEYS) ne sont pas activées sur ce serveur.',
       );
     }
     throw ApiHttpException(

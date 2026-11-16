@@ -113,6 +113,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadConversation(String? id) async {
+    if (id != null && _thread?.id == id && (_thread?.messages.isNotEmpty ?? false)) {
+      return;
+    }
+
     setState(() {
       _loading = false;
     });
