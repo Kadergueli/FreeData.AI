@@ -744,6 +744,66 @@ class MarketDataProvider:
                 lookup[(str(r.get("province", "")), str(r.get("commodity_std", "")))] = cv
         return lookup
 
+    def default_commodity(self, province: Optional[str] = None) -> str:
+        """Produit mis en avant quand l'utilisateur n'en cite aucun : le mieux couvert (dans la province si précisée)."""
+        df = self.forecast_df
+        if df is None or df.empty or "commodity_std" not in df.columns:
+            return "Millet"
+        if province and "province" in df.columns and (df["province"] == province).any():
+            df = df[df["province"] == province]
+        counts = df["commodity_std"].dropna().astype(str).value_counts()
+        return str(counts.index[0]) if not counts.empty else "Millet"
+
+    def tracked_commodities_fr(self, limit: int = 12) -> list[str]:
+        df = self.forecast_df
+        if df is None or df.empty or "commodity_std" not in df.columns:
+            return []
+        return [self.fr_commodity(c).lower() for c in df["commodity_std"].dropna().astype(str).value_counts().index[:limit]]
+
+    def example_questions(self) -> list[str]:
+        """Exemples construits à partir des données réellement suivies (jamais un produit ou une province absents)."""
+        df = self.forecast_df
+        out: list[str] = []
+        if df is not None and not df.empty and {"commodity_std", "province"} <= set(df.columns):
+            top = df.groupby(["commodity_std", "province"]).size().sort_values(ascending=False)
+            if not top.empty:
+                comm, prov = top.index[0]
+                out.append(f"« {self.fr_commodity(comm)} à {prov} : quel prix est prévu ? »")
+        out.append("« Quelles sont les alertes de hausse actuelles ? »")
+        out.append("« Où est-ce moins cher en ce moment ? »")
+        return out
+
+    def get_market_snapshot(self, top: int = 3) -> dict:
+        """Faits marquants : produits/provinces où le prix prévu bouge le plus (médiane par province et produit)."""
+        df = self.forecast_df
+        pc = self._price_col(df) if df is not None and not df.empty else None
+        need = {"province", "commodity_std", "forecast_t1"}
+        if pc is None or not need <= set(df.columns):
+            return {"status": "empty"}
+        d = df.copy()
+        d["last_observed_price"] = pd.to_numeric(d[pc], errors="coerce")
+        d["forecast_t1"] = pd.to_numeric(d["forecast_t1"], errors="coerce")
+        d = d[(d["last_observed_price"] > 0) & d["forecast_t1"].notna()]
+        if d.empty:
+            return {"status": "empty"}
+        g = d.groupby(["province", "commodity_std"]).agg(
+            last=("last_observed_price", "median"), fc=("forecast_t1", "median"), n=("forecast_t1", "size")).reset_index()
+        g["delta_pct"] = (g["fc"] / g["last"] - 1.0) * 100.0
+
+        def rows(sub: pd.DataFrame) -> list[dict]:
+            return [{"province": r.province, "commodity": r.commodity_std, "commodity_fr": self.fr_commodity(r.commodity_std),
+                     "last": float(r.last), "forecast": float(r.fc), "delta_pct": float(r.delta_pct)} for r in sub.itertuples()]
+
+        months = d["last_observed_month"].dropna().astype(str) if "last_observed_month" in d.columns else pd.Series(dtype=str)
+        return {
+            "status": "ok",
+            "rises": rows(g[g["delta_pct"] > 0.5].sort_values("delta_pct", ascending=False).head(top)),
+            "falls": rows(g[g["delta_pct"] < -0.5].sort_values("delta_pct").head(top)),
+            "n_series": int(len(d)), "n_products": int(d["commodity_std"].nunique()), "n_provinces": int(d["province"].nunique()),
+            "period_end": months.max() if not months.empty else None,
+            "forecast_month": str(d["forecast_month"].dropna().astype(str).max()) if "forecast_month" in d.columns and d["forecast_month"].notna().any() else None,
+        }
+
     def get_overview(self) -> dict:
         """Retourne les statistiques de couverture du dataset en dictionnaire pur."""
         if self.forecast_df.empty:
@@ -2025,10 +2085,8 @@ class FreeDataAIAgent:
             f"- **Évaluer** le risque d'un financement agricole (Credit Passport)\n"
             f"- **Estimer** la marge d'une opération d'achat-revente entre deux provinces\n\n"
             f"**Pour commencer, vous pouvez demander :**\n"
-            f"- *« Quelle est la prévision du prix du mil à N'Djamena ? »*\n"
-            f"- *« Quelles sont les alertes de hausse actuelles ? »*\n"
-            f"- *« Quel est le risque de financer 3 millions de FCFA de mil au Salamat ? »*\n\n"
-            f"Quel sujet souhaitez-vous aborder ?"
+            + "".join(f"- *{q}*\n" for q in self.provider.example_questions())
+            + f"\nQuel sujet souhaitez-vous aborder ?"
         )
 
     def tool_handle_smalltalk(self, query: str) -> str:
@@ -2045,9 +2103,8 @@ class FreeDataAIAgent:
                 f"Je suis **FreeData.AI**, votre assistant économique et agricole spécialisé sur le Tchad "
                 f"({ov['series_count']} séries de prix suivies sur {len(ov['provinces'])} provinces).\n\n"
                 f"Vous pouvez discuter avec moi naturellement, par exemple :\n"
-                f"- *« Quel est le prix du mil à Moundou ? »*\n"
-                f"- *« Combien je peux gagner en vendant du riz de Kélo à Abéché ? »*\n"
-                f"- *« Quel est le risque de financer 3 millions de FCFA de mil au Salamat ? »*"
+                + "".join(f"- *{q}*\n" for q in self.provider.example_questions())
+                + "- *« Quel est le risque de financer ce produit dans cette province ? »*"
             )
         if _SMALLTALK_THANKS_RE.search(q_norm) and not re.search(r"\b(salut|bonjour|bonsoir|hello|hey|coucou|aide|help)\b", q_norm):
             return (
@@ -2339,6 +2396,27 @@ class FreeDataAIAgent:
         self, province: Optional[str] = None, commodity: Optional[str] = None
     ) -> str:
         return self._format_opportunities(self.provider.get_business_opportunities(province=province, commodity=commodity))
+
+    def _format_snapshot(self, d: dict) -> str:
+        def table(rows: list[dict]) -> str:
+            lines = ["| Produit (province) | Actuel → Prévu | Variation |", "| :--- | :---: | ---: |"]
+            for r in rows:
+                lines.append(f"| **{r['commodity_fr']}** ({r['province']}) | {r['last']:.0f} → **{r['forecast']:.0f}** XAF/kg | {r['delta_pct']:+.1f} % |")
+            return "\n".join(lines)
+
+        month = self._fr_month_label(d.get("forecast_month"))
+        out = [f"### Faits marquants du marché{f' — prévisions de {month}' if month else ''}", "",
+               f"Sur **{d['n_series']} séries** ({d['n_products']} produits, {d['n_provinces']} provinces), voici où les prix "
+               "devraient le plus bouger :", ""]
+        if d["rises"]:
+            out += ["**Hausses attendues**", "", table(d["rises"]), ""]
+        if d["falls"]:
+            out += ["**Baisses attendues**", "", table(d["falls"]), ""]
+        if not d["rises"] and not d["falls"]:
+            out.append("Aucun mouvement notable n'est attendu : les prix devraient rester proches de leur niveau actuel.\n")
+        ex = self.provider.example_questions()[0]
+        out.append(f"Pour le détail, indiquez-moi un **produit** ou une **province** — par exemple {ex}")
+        return "\n".join(out)
 
     @staticmethod
     def _format_timing(data: dict) -> str:
@@ -2894,15 +2972,20 @@ class FreeDataAIAgent:
 
     _ROUTER_INTENTS = ("forecast", "timing", "alerts", "opportunity", "compare_sell", "credit_passport", "dataset_overview", "clarify")
 
-    @staticmethod
-    def _clarification_response(entities: dict, llm_reply: Optional[str] = None) -> dict:
+    def _clarification_response(self, entities: dict, llm_reply: Optional[str] = None) -> dict:
+        ex = self.provider.example_questions()
+        prods = self.provider.tracked_commodities_fr(6)
+        provs = list(self.provider.provinces)[:4]
+        asks = []
+        if prods:
+            asks.append(f"Quel **produit** ({', '.join(prods)}…)")
+        if provs:
+            asks.append(f"ou quelle **province** ({', '.join(provs)}…) vous intéresse ?")
+        head = "Je veux être sûr de bien vous répondre. " + (" ".join(asks) if asks else "Sur quel produit ou quelle province puis-je vous aider ?")
         return {
             "reply": llm_reply or (
-                "Je veux être sûr de bien vous répondre. Quel **produit** (mil, sorgho, maïs, riz…) "
-                "ou quelle **province** (N'Djamena, Salamat, Lac…) vous intéresse ? "
-                "Vous pouvez aussi me demander des alertes de prix, une évaluation de financement "
-                "ou le calcul d'une marge.\n\n"
-                "Par exemple : *« Quelle est la prévision du prix du mil à N'Djamena ? »*"
+                f"{head} Vous pouvez aussi me demander des alertes de prix, une évaluation de financement "
+                f"ou le calcul d'une marge.\n\nPar exemple : {ex[0]}"
             ),
             "intent": "clarification",
             "entities": entities,
@@ -3068,12 +3151,18 @@ class FreeDataAIAgent:
             raw_data = self.provider.get_overview()
             facts = self._format_overview(raw_data)
         else:
-            raw_data = self.provider.get_forecasts(prov, comm or "Millet", focus_city=focus_city)
+            if comm is None and prov is None and not focus_city:
+                # Ni produit ni province : plutôt qu'un produit imposé, les faits marquants du moment (calculés sur les données).
+                snap = self.provider.get_market_snapshot()
+                if snap.get("status") == "ok":
+                    return self._format_snapshot(snap), intent, {"entities": entities, "provider_data": snap}
+            default_comm = comm or self.provider.default_commodity(prov)
+            raw_data = self.provider.get_forecasts(prov, default_comm, focus_city=focus_city)
             city_comms = (
                 self.provider.get_location_commodities_summary(
                     prov,
                     focus_city=focus_city,
-                    exclude_commodity="Millet",
+                    exclude_commodity=default_comm,
                 )
                 if (prov and comm is None)
                 else None
@@ -3081,18 +3170,20 @@ class FreeDataAIAgent:
             facts = self._format_forecasts(
                 raw_data,
                 prov,
-                comm or "Millet",
+                default_comm,
                 focus_city=focus_city,
                 city_commodities=city_comms,
             )
 
         if comm is None and intent in ("forecast", "credit_passport"):
-            known = ", ".join(sorted({self._fr_commodity(c) for c in COMMODITY_ALIASES.values()}))
+            ref = default_comm if intent == "forecast" else "Millet"
+            known = ", ".join(self.provider.tracked_commodities_fr(12)) or ", ".join(
+                sorted({self._fr_commodity(c) for c in COMMODITY_ALIASES.values()}))
             facts = (
                 f"{facts}\n\n"
                 f"---\n"
-                f"*Analyse de référence appuyée sur le **Mil** (aucun autre produit ciblé dans la question). "
-                f"Produits suivis : {known}.*"
+                f"*Analyse de référence appuyée sur le produit le mieux suivi, **{self._fr_commodity(ref)}** "
+                f"(aucun autre produit ciblé dans la question). Produits suivis : {known}.*"
             )
 
         return facts, intent, {"entities": entities, "provider_data": raw_data}
@@ -3427,6 +3518,19 @@ class FreeDataAIAgent:
                 "sources": [],
                 "chart": None,
             }
+
+        if (entities.get("intent") == "dataset_overview" and not entities.get("commodity") and not entities.get("province")
+                and re.search(r"\bcombien\s+(?:[cç]a|cela)\s+(?:co[uû]te|vaut)\b", user_query.lower())):
+            prods = ", ".join(self.provider.tracked_commodities_fr(8))
+            return {"reply": "Pour vous donner un prix, il me faut le **produit**" + (f" ({prods}…)" if prods else "")
+                             + " et, si possible, la **province**. Que souhaitez-vous savoir ?",
+                    "intent": "clarification", "entities": entities, "sources": [], "chart": None}
+
+        if entities.get("intent") == "timing" and not entities.get("commodity") and not history:
+            prods = ", ".join(self.provider.tracked_commodities_fr(8))
+            return {"reply": "Pour vous indiquer les bons mois d'achat, de stockage ou de vente, il me faut le **produit** concerné"
+                             + (f" ({prods}…)" if prods else "") + ". Lequel vous intéresse, et dans quelle province ?",
+                    "intent": "clarification", "entities": entities, "sources": [], "chart": None}
 
         # Avant l'héritage de l'historique : « et pour le café ? » ne doit pas reprendre le produit précédent.
         unknown = self._detect_unknown_product(q_norm, entities)

@@ -1398,3 +1398,60 @@ def test_timing_without_stored_studies_in_gold_mode_is_honest_not_a_crash(gold_t
     state = server.build_state_from_gold(fc_gold, cp_gold)  # aucune étude
     r = state["agent"].answer("Quand acheter du mil ?")
     assert r["intent"] == "timing" and "pas assez d'historique" in r["reply"].lower()
+
+
+# --- Réponses par défaut dynamiques ------------------------------------------------------------
+
+def test_vague_price_question_gives_market_snapshot(agent):
+    """« prix » sans produit ni province : faits marquants calculés sur les données, pas un produit imposé."""
+    r = agent.answer("prix")
+    snap = agent.provider.get_market_snapshot()
+    assert snap["status"] == "ok" and r["intent"] == "forecast"
+    assert "Faits marquants du marché" in r["reply"]
+    assert "Synthèse Nationale" not in r["reply"]
+    assert f"{snap['n_series']} séries" in r["reply"]
+    for row in snap["rises"] + snap["falls"]:
+        assert row["commodity_fr"] in r["reply"] and row["province"] in r["reply"]
+        assert f"{row['delta_pct']:+.1f}" in r["reply"]
+
+
+def test_snapshot_only_mentions_tracked_products_and_provinces(agent):
+    snap = agent.provider.get_market_snapshot()
+    ov = agent.provider.get_overview()
+    for row in snap["rises"] + snap["falls"]:
+        assert row["commodity"] in ov["commodities"] and row["province"] in ov["provinces"]
+
+
+def test_default_commodity_follows_province_data(agent):
+    df = agent.provider.forecast_df
+    top = df["commodity_std"].value_counts().index[0]
+    assert agent.provider.default_commodity() == top
+    prov = df["province"].iloc[0]
+    expected = df[df["province"] == prov]["commodity_std"].value_counts().index[0]
+    assert agent.provider.default_commodity(prov) == expected
+
+
+def test_province_only_question_footer_is_dynamic(agent):
+    prov = agent.provider.forecast_df["province"].iloc[0]
+    r = agent.answer(f"prix à {prov}")
+    default = agent.provider.default_commodity(prov)
+    assert agent._fr_commodity(default) in r["reply"]
+    assert "produit le mieux suivi" in r["reply"]
+
+
+def test_timing_without_product_asks_for_one(agent):
+    r = agent.answer("quand acheter ?")
+    assert r["intent"] == "clarification" and "produit" in r["reply"]
+    assert "Saisonnalité" not in r["reply"]
+
+
+def test_how_much_does_it_cost_asks_for_product(agent):
+    r = agent.answer("combien ça coûte ?")
+    assert r["intent"] == "clarification" and "produit" in r["reply"]
+
+
+def test_greeting_examples_use_tracked_data(agent):
+    ex = agent.provider.example_questions()
+    assert ex and all(isinstance(e, str) and e for e in ex)
+    reply = agent.answer("bonjour")["reply"]
+    assert ex[0] in reply
