@@ -724,19 +724,58 @@ class FormattersMixin:
 
         # Mode Guide Débutant (`get_beginner_market_guide`)
         cap_val = float(data.get("capital_xaf", 500000.0))
+        focus_plan = data.get("focus_plan")
         tremplins = data.get("tremplin_sectors") or []
         pitfalls = data.get("pitfalls") or []
         checklist = data.get("checklist") or []
 
-        lines = [
-            f"### 1. Diagnostic pour débuter avec {_fmt_int(cap_val)} XAF",
-            "",
-            f"Pour lancer une activité agricole avec un capital de **{_fmt_int(cap_val)} XAF** tout en limitant le risque de perte, "
-            f"privilégiez les denrées accessibles (prix unitaire inférieur ou égal à **450 XAF/kg**) affichant une bonne stabilité "
-            f"historique et un profil Credit Passport solide, tout en conservant **15 %** de trésorerie de sécurité ({_fmt_int(cap_val * 0.15)} XAF).",
-            "",
-            "### 2. Top 3 Filières « Tremplin » recommandées",
-        ]
+        lines: list[str] = []
+        if isinstance(focus_plan, dict) and focus_plan.get("status") == "missing_data":
+            lines.extend([
+                f"### 1. Analyse ciblée — {focus_plan.get('commodity_fr', 'Produit')} ({focus_plan.get('requested_province') or 'Tchad'})",
+                "",
+                f"Aucune série active n'est actuellement disponible pour **{focus_plan.get('commodity_fr')}** "
+                + (f"à **{focus_plan.get('requested_province')}**" if focus_plan.get("requested_province") else "")
+                + " : je préfère ne pas inventer de prix. Voici les alternatives les mieux couvertes avec votre capital de "
+                f"**{_fmt_int(cap_val)} XAF** :",
+                "",
+            ])
+        elif isinstance(focus_plan, dict) and focus_plan.get("unit_price_xaf"):
+            f_comm = focus_plan["commodity_fr"]
+            f_scope = focus_plan["scope"]
+            lines.extend([
+                f"### 1. Plan ciblé — {f_comm} ({f_scope}) avec {_fmt_int(cap_val)} XAF",
+                "",
+                "| Indicateur | Estimation dynamique |",
+                "| :--- | ---: |",
+                f"| Budget stock recommandé (85 %) | **{_fmt_int(focus_plan['stock_budget_xaf'])} XAF** |",
+                f"| Trésorerie de sécurité (15 %) | **{_fmt_int(focus_plan['cash_reserve_xaf'])} XAF** |",
+                f"| Prix médian observé/prévu ({f_scope}) | **{_fmt_num(focus_plan['unit_price_xaf'])} XAF/kg** ({_fmt_int(focus_plan['bag_100kg_price_xaf'])} XAF / sac 100 kg) |",
+                f"| Volume achetable (sur 85 % du budget) | **{_fmt_int(focus_plan['purchasable_kg'])} kg** ({focus_plan['purchasable_bags_100kg']:.1f} sacs de 100 kg) |",
+            ])
+            if focus_plan.get("credit_score") is not None:
+                lines.append(
+                    f"| Solidité Credit Passport | **Score {focus_plan['credit_score']:.1f}/100 ({focus_plan.get('grade', '')})** · volatilité {focus_plan.get('cv_pct', 0):.1f} % |"
+                )
+            lines.append("")
+            if focus_plan.get("best_buy_province") and focus_plan.get("best_sell_province"):
+                lines.append(
+                    f"- **Repère d'arbitrage ({f_comm}) :** zone la plus abordable à **{focus_plan['best_buy_province']}** "
+                    f"({_fmt_num(focus_plan['best_buy_price_xaf'])} XAF/kg) · prix le plus élevé à **{focus_plan['best_sell_province']}** "
+                    f"({_fmt_num(focus_plan['best_sell_price_xaf'])} XAF/kg)."
+                )
+                lines.append("")
+        else:
+            lines.extend([
+                f"### 1. Diagnostic pour débuter avec {_fmt_int(cap_val)} XAF",
+                "",
+                f"Pour lancer une activité agricole avec un capital de **{_fmt_int(cap_val)} XAF** tout en limitant le risque de perte, "
+                f"privilégiez les denrées accessibles (prix unitaire inférieur ou égal à **450 XAF/kg**) affichant une bonne stabilité "
+                f"historique et un profil Credit Passport solide, tout en conservant **15 %** de trésorerie de sécurité ({_fmt_int(cap_val * 0.15)} XAF).",
+                "",
+            ])
+
+        lines.append("### 2. Top 3 Filières « Tremplin » recommandées")
         if tremplins:
             lines.extend(
                 [
@@ -1010,6 +1049,18 @@ class FormattersMixin:
                 f"Seuil de rentabilité : {_fmt_num(provider_data.get('break_even_price_per_kg'))} XAF/kg "
                 f"· Volume : {_fmt_int(provider_data.get('purchasable_kg'))} kg"
             )
+        elif intent == "business_simulator" and isinstance(provider_data.get("focus_plan"), dict):
+            fp = provider_data["focus_plan"]
+            if fp.get("unit_price_xaf"):
+                title = f"Plan d’investissement — {fp.get('commodity_fr', '')} ({fp.get('scope', '')})"
+                items.append(
+                    f"Budget stock (85 %) : {_fmt_int(fp.get('stock_budget_xaf'))} XAF · "
+                    f"Réserve (15 %) : {_fmt_int(fp.get('cash_reserve_xaf'))} XAF"
+                )
+                items.append(
+                    f"Volume achetable : {_fmt_int(fp.get('purchasable_kg'))} kg "
+                    f"({fp.get('purchasable_bags_100kg', 0):.1f} sacs de 100 kg)"
+                )
         elif intent == "opportunity":
             corridors = provider_data.get("corridors") or []
             if corridors:

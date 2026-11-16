@@ -1455,3 +1455,23 @@ def test_greeting_examples_use_tracked_data(agent):
     assert ex and all(isinstance(e, str) and e for e in ex)
     reply = agent.answer("bonjour")["reply"]
     assert ex[0] in reply
+
+
+def test_capital_followup_with_glued_list_and_typo_resolves_dynamically(agent):
+    # Reproduit le cas réel : l'assistant demande capital / zone / produit et l'utilisateur répond
+    # avec des numéros collés et une faute de frappe ("Milet" -> "Millet", "Oigons" -> "Onions (red)").
+    assert agent.provider.resolve_commodity("3.Oigons") == "Onions (red)"
+    ask = agent.answer("Comment débuter dans le commerce agricole ?")
+    assert ask["intent"] == "needs_capital"
+    history = [
+        {"role": "user", "content": "Comment débuter dans le commerce agricole ?"},
+        {"role": "assistant", "content": ask["reply"]},
+    ]
+    res = agent.answer("1.700000,2.Ndjamena,3.Milet", history=history)
+    assert res["intent"] == "business_simulator"
+    assert res["entities"]["capital_xaf"] == 700000.0
+    assert res["entities"]["province"] == "N'Djamena"
+    assert res["entities"]["commodity"] == "Millet"
+    assert "700 000 XAF" in res["reply"]
+    assert "Mil" in res["reply"]
+    assert res["summary"] is not None
