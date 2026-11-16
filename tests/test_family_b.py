@@ -235,3 +235,18 @@ def test_evaluation_compares_operating_points():
     rates = [p["alert_rate_pct"] for p in pts.values()]
     assert rates == sorted(rates)  # plus le plafond baisse, plus on alerte (ou autant)
     assert ev["alert_rate_pct"] == rates[0]
+
+
+def test_return_to_normal_after_a_bad_reading_is_not_flagged():
+    """Un relevé divisé par 2 un mois, puis retour à la normale : on signale le mois fautif, pas le rebond."""
+    df = set_value(panel(n_months=30, n_markets=8, noise=0.012), "Marche2", "2026-05", 0.55)
+    det = detect_anomalies(df, group_regional=False)
+    mine = det[det["market_name"] == "Marche2"]
+    assert "2026-05" in set(mine["month"])          # le relevé fautif est signalé
+    assert "2026-06" not in set(mine["month"])      # le rebond ne l'est pas
+
+
+def test_real_spike_after_flat_period_is_still_flagged():
+    df = set_value(panel(n_months=30, n_markets=8, noise=0.012), "Marche2", "2026-05", 1.8)
+    det = detect_anomalies(df, group_regional=False)
+    assert "2026-05" in set(det[det["market_name"] == "Marche2"]["month"])

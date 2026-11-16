@@ -67,6 +67,7 @@ def _row(key, kind, severity, ordinal, value, reference, change_pct, score) -> d
 TARGET_RATE = 0.03       # part visée de séries-mois signalés par type de signal (étalonnage par produit)
 MIN_CALIBRATION = 60     # contrôles minimum d'un produit pour étalonner son seuil
 CALIBRATION_CAP = 2.0    # l'étalonnage ne relève jamais le seuil au-delà de 2 × la base (les vraies anomalies faussent le quantile)
+REVERSAL_SHARE = 0.4     # un « saut » qui ramène le prix à ±40 % de son niveau d'il y a deux mois est un RETOUR, pas une anomalie
 COMMON_SHARE = 0.5       # un saut dont ≥ 50 % est partagé par la médiane des marchés est un mouvement général
 
 
@@ -101,10 +102,12 @@ def _checks(kg_df: pd.DataFrame) -> pd.DataFrame:
             for ordinal in set(z_j) | set(z_d):
                 cur = float(full.loc[ordinal, key])
                 prev = float(full.loc[ordinal - 1, key])
+                prev2 = full.loc[ordinal - 2, key] if (ordinal - 2) in full.index else np.nan
                 pm = peer_med.get(ordinal, np.nan)
                 rows.append({
                     "commodity_std": comm, "key": key, "ordinal": ordinal, "cur": cur, "prev": prev,
                     "z_jump": z_j.get(ordinal, np.nan), "move": cur / prev - 1.0,
+                    "rev2": (cur / float(prev2) - 1.0) if pd.notna(prev2) else np.nan,
                     "z_div": z_d.get(ordinal, np.nan), "gap": gap.get(ordinal, np.nan),
                     "peer_move": float(np.expm1(pm)) if pd.notna(pm) else np.nan,
                 })
@@ -126,6 +129,10 @@ def _signals(checks: pd.DataFrame, kind: str, z_threshold: float, min_size: floa
     zcol, sizecol = ("z_jump", "move") if kind == "jump" else ("z_div", "gap")
     thr = checks["commodity_std"].map(_calibrated(checks, zcol, z_threshold, target_rate, cap))
     hit = (checks[zcol].abs() >= thr) & (checks[sizecol].abs() >= min_size)
+    # Retour à la normale : le mois d'avant était l'anomalie (ex. un relevé divisé par 2), pas celui-ci.
+    reversal = (checks["move"].abs() >= MIN_MOVE) & checks["rev2"].notna() & \
+        (checks["rev2"].abs() <= REVERSAL_SHARE * checks["move"].abs())
+    hit &= ~reversal
     if kind == "jump":
         common = checks["peer_move"].notna() & (np.sign(checks["peer_move"]) == np.sign(checks["move"])) & \
             (checks["peer_move"].abs() >= COMMON_SHARE * checks["move"].abs())
