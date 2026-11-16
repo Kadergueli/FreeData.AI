@@ -94,13 +94,20 @@ class ApiService {
     if (resp.statusCode == 403 || resp.statusCode == 401) {
       return false;
     }
-    if (resp.statusCode == 503 &&
-        utf8
-            .decode(resp.bodyBytes, allowMalformed: true)
-            .contains('PREMIUM_API_KEYS')) {
+    if (resp.statusCode == 503) {
+      final refreshUri = Uri.parse('$baseUrl/api/v1/refresh');
+      final refreshResp = await _client
+          .post(refreshUri, headers: {'X-Admin-Token': trimmed})
+          .timeout(const Duration(seconds: 30));
+      if (refreshResp.statusCode == 200) {
+        return true;
+      }
+      if (refreshResp.statusCode == 403 || refreshResp.statusCode == 401) {
+        return false;
+      }
       throw const ApiHttpException(
         503,
-        'Sur Render, vérifiez que la variable se nomme PREMIUM_API_KEYS (avec S, min. 16 caractères) puis redémarrez le service Render.',
+        'Variable PREMIUM_API_KEYS (min. 16 caractères) non détectée sur Render. Vérifiez Render > Environment.',
       );
     }
     throw ApiHttpException(

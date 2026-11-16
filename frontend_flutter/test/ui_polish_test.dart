@@ -607,21 +607,44 @@ void main() {
     expect(service.hasPremiumKey, isFalse);
   });
 
-  test('ApiService.verifyPremiumKey validates against Render and rejects forged keys', () async {
+  test('ApiService.verifyPremiumKey validates via studies or /refresh fallback on 503', () async {
     const serverKey = 'FD-RENDER-SECRET-2026';
+    const adminFallbackKey = 'RENDER-ADMIN-TOKEN-99';
+    bool simulate503Studies = false;
+
     final mockClient = MockClient((request) async {
-      expect(request.url.path, '/api/v1/studies/seasonality');
-      expect(request.url.queryParameters['commodity'], 'Millet');
-      if (request.headers['X-Premium-Key'] == serverKey) {
-        return http.Response(jsonEncode({'status': 'ok'}), 200);
+      if (request.url.path == '/api/v1/studies/seasonality') {
+        expect(request.url.queryParameters['commodity'], 'Millet');
+        if (simulate503Studies) {
+          return http.Response(
+            jsonEncode({'detail': 'Études avancées désactivées : PREMIUM_API_KEYS non configuré.'}),
+            503,
+          );
+        }
+        if (request.headers['X-Premium-Key'] == serverKey) {
+          return http.Response(jsonEncode({'status': 'ok'}), 200);
+        }
+        return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
       }
-      return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
+      if (request.url.path == '/api/v1/refresh') {
+        expect(request.method, 'POST');
+        if (request.headers['X-Admin-Token'] == adminFallbackKey) {
+          return http.Response(jsonEncode({'status': 'reloaded'}), 200);
+        }
+        return http.Response(jsonEncode({'detail': 'Jeton administrateur invalide.'}), 403);
+      }
+      return http.Response('{}', 404);
     });
 
     final service = ApiService(client: mockClient);
     expect(await service.verifyPremiumKey(''), isFalse);
     expect(await service.verifyPremiumKey('fausse-cle-123'), isFalse);
     expect(await service.verifyPremiumKey(serverKey), isTrue);
+
+    // Repli /api/v1/refresh lorsque /studies/seasonality renvoie 503
+    simulate503Studies = true;
+    expect(await service.verifyPremiumKey(adminFallbackKey), isTrue);
+    expect(await service.verifyPremiumKey('mauvais-jeton'), isFalse);
   });
 
   testWidgets('MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',
@@ -886,7 +909,7 @@ void main() {
             .having((e) => e.message, 'message', contains('PREMIUM_API_KEYS')),
       ),
     );
-    expect(calls, 1);
+    expect(calls, 2);
   });
 }
 
