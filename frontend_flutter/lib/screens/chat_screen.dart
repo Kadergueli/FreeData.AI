@@ -70,6 +70,19 @@ class _ChatScreenState extends State<ChatScreen> {
     ),
   ];
 
+  static const List<_QuickAction> _proQuickActions = [
+    _QuickAction(
+      icon: Icons.calendar_month_rounded,
+      label: "Saisonnalité & Stockage · Mil",
+      prompt: "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
+    ),
+    _QuickAction(
+      icon: Icons.radar_rounded,
+      label: "Radar Anomalies & Qualité",
+      prompt: "Quelles sont les anomalies de prix ou séries figées récentes sur les marchés ?",
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -377,7 +390,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 alignment: WrapAlignment.center,
                 spacing: 8,
                 runSpacing: 8,
-                children: _quickActions.map(_buildQuickActionButton).toList(),
+                children: [
+                  ..._quickActions.map((a) => _buildQuickActionButton(a)),
+                  if (widget.apiService.hasPremiumKey)
+                    ..._proQuickActions.map((a) => _buildQuickActionButton(a, isPro: true)),
+                ],
               ),
             ],
           ),
@@ -386,12 +403,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildQuickActionButton(_QuickAction action) {
+  Widget _buildQuickActionButton(_QuickAction action, {bool isPro = false}) {
     return Material(
-      color: FDTheme.surface,
+      color: isPro ? FDTheme.greenSoft : FDTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: FDTheme.line, width: 1),
+        side: BorderSide(color: isPro ? FDTheme.greenBorder : FDTheme.line, width: 1),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -401,16 +418,16 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(action.icon, size: 16, color: FDTheme.blue),
+              Icon(action.icon, size: 16, color: isPro ? FDTheme.green : FDTheme.blue),
               const SizedBox(width: 7),
               Flexible(
                 child: Text(
                   action.label,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
-                    color: FDTheme.ink,
+                    color: isPro ? FDTheme.greenDark : FDTheme.ink,
                   ),
                 ),
               ),

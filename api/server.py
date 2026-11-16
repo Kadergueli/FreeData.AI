@@ -116,6 +116,7 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
                                 anomalies=anomalies),
         "anomalies": anomalies if anomalies is not None else pd.DataFrame(),
         "studies": studies,
+        "track_record": track_record or {},
         "mode": mode,
         "alerts_source": alerts_source,
         "stale_excluded": stale_excluded,
@@ -414,6 +415,7 @@ def get_metadata(state: dict = Depends(get_state)):
         },
         "forecast_month": forecast_month,
         "last_updated": end_period,
+        "track_records": state.get("track_record", {}),
         "count": {
             "products": len(products),
             "passport_products": len(passport_products),

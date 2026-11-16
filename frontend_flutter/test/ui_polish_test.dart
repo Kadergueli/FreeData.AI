@@ -1098,6 +1098,46 @@ void main() {
     expect(find.text('Dattes'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Premium B2B features: TrackRecord banner, Anomalies & Qualité tab, and Chat Pro quick actions',
+      (tester) async {
+    final proApi = _ReducedForecastFakeApi();
+
+    // 1. En mode standard, les actions rapides Pro ne sont pas affichées
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
+    await tester.pumpAndSettle();
+    expect(find.text('Saisonnalité & Stockage · Mil'), findsNothing);
+    expect(find.text('Radar Anomalies & Qualité'), findsNothing);
+
+    // 2. En mode Partenaire / Pro, les 2 actions rapides B2B apparaissent
+    proApi.setRuntimePremiumKey(_ReducedForecastFakeApi._expectedRenderKey);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
+    await tester.pumpAndSettle();
+    expect(find.text('Saisonnalité & Stockage · Mil'), findsOneWidget);
+    expect(find.text('Radar Anomalies & Qualité'), findsOneWidget);
+
+    // 3. ForecastScreen en mode Pro : bandeau Track Record + onglet Anomalies & Qualité
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ForecastScreen(apiService: proApi))));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Fiabilité vérifiée (12 mois · Mil (Millet)) : +18 %'), findsOneWidget);
+    expect(find.text('Anomalies & Qualité'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Anomalies & Qualité'));
+    await tester.tap(find.text('Anomalies & Qualité'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Écart inter-marchés'), findsOneWidget);
+    expect(find.text('Collecte arrêtée'), findsOneWidget);
+    expect(find.textContaining('piste potentielle d’approvisionnement B2B'), findsOneWidget);
+
+    // Filtre Qualité relevés
+    await tester.tap(find.text('Qualité relevés'));
+    await tester.pumpAndSettle();
+    expect(find.text('Collecte arrêtée'), findsOneWidget);
+    expect(find.text('Écart inter-marchés'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _FullCatalogFakeApi extends ApiService {
@@ -1215,7 +1255,52 @@ class _ReducedForecastFakeApi extends ApiService {
   Future<Map<String, dynamic>> getMetadata() async => {
         'provinces': ['Salamat'],
         'products': ['Millet', 'Sorghum (red)'],
+        'track_records': {
+          'Millet': {
+            'commodity': 'Millet',
+            'verdict': 'better',
+            'vs_naive_pct': 18.4,
+            'months': 12,
+          },
+        },
       };
+
+  @override
+  Future<List<dynamic>> getAnomalies({
+    String? province,
+    String? commodity,
+    String? kind,
+    String? severity,
+    int limit = 100,
+  }) async =>
+      [
+        {
+          'source': 'WFP',
+          'province': 'Salamat',
+          'market_name': 'Am Timan',
+          'commodity_std': 'Millet',
+          'kind': 'divergence',
+          'severity': 'forte',
+          'month': '2026-10',
+          'value': 210,
+          'reference': 275,
+          'change_pct': -23.6,
+          'score': -4.2,
+        },
+        {
+          'source': 'WFP',
+          'province': 'Salamat',
+          'market_name': 'Haraze',
+          'commodity_std': 'Millet',
+          'kind': 'stopped',
+          'severity': 'modérée',
+          'month': '2026-06',
+          'value': 240,
+          'reference': 240,
+          'change_pct': 0.0,
+          'score': 4.0,
+        },
+      ];
 
   @override
   Future<List<dynamic>> getForecasts({String? province, String? commodity}) async {

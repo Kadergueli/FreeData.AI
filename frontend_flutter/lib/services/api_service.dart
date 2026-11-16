@@ -232,6 +232,29 @@ class ApiService {
     throw ApiHttpException(resp.statusCode, 'Erreur chargement alertes (${resp.statusCode})');
   }
 
+  Future<List<dynamic>> getAnomalies({
+    String? province,
+    String? commodity,
+    String? kind,
+    String? severity,
+    int limit = 100,
+  }) async {
+    final params = <String, String>{
+      'limit': limit.toString(),
+      if (province != null && province.isNotEmpty) 'province': province,
+      if (commodity != null && commodity.isNotEmpty) 'commodity': commodity,
+      if (kind != null && kind.isNotEmpty) 'kind': kind,
+      if (severity != null && severity.isNotEmpty) 'severity': severity,
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/anomalies').replace(queryParameters: params);
+    final resp = await _getWithRetry(uri);
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return data['items'] as List<dynamic>;
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement anomalies (${resp.statusCode})');
+  }
+
   Future<Map<String, dynamic>> getSeasonalityStudy({
     required String commodity,
     String? province,

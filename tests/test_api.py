@@ -39,6 +39,28 @@ def test_metadata_exposes_market_catalog_dimensions(client):
     assert metadata["sources"]
     assert metadata["periods_covered"]["start"]
     assert metadata["periods_covered"]["end"]
+    assert "track_records" in metadata
+
+
+def test_metadata_exposes_track_records_from_study_rows(gold_tables):
+    fc_gold, cp_gold = gold_tables
+    study_rows = [
+        {
+            "kind": "track_record",
+            "commodity_std": "Millet",
+            "province": "",
+            "payload": {"commodity": "Millet", "verdict": "better", "vs_naive_pct": 18.4, "months": 12},
+        }
+    ]
+    server.STATE.clear()
+    server.STATE.update(server.build_state_from_gold(fc_gold, cp_gold, study_rows=study_rows))
+    try:
+        c = TestClient(server.app)
+        meta = c.get("/api/v1/metadata").json()
+        assert meta["track_records"]["Millet"]["verdict"] == "better"
+        assert meta["track_records"]["Millet"]["vs_naive_pct"] == 18.4
+    finally:
+        server.STATE.clear()
 
 
 def test_stale_series_not_served(client):
