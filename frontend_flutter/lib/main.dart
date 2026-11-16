@@ -393,11 +393,17 @@ class _MainShellState extends State<MainShell> {
       else
         const SizedBox.shrink(),
       if (_visitedTabs.contains(3))
-        ForecastScreen(apiService: _apiService)
+        ForecastScreen(
+          apiService: _apiService,
+          onSelectPrompt: _openPromptInChat,
+        )
       else
         const SizedBox.shrink(),
       if (_visitedTabs.contains(4))
-        PassportScreen(apiService: _apiService)
+        PassportScreen(
+          apiService: _apiService,
+          onSelectPrompt: _openPromptInChat,
+        )
       else
         const SizedBox.shrink(),
     ];

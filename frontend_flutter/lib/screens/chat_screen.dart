@@ -137,8 +137,17 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
+    final now = DateTime.now();
     setState(() {
       _loading = false;
+      if (id != null && _thread?.id != id) {
+        _thread = ConversationThread(
+          id: id,
+          title: 'Nouvelle conversation',
+          createdAt: now,
+          updatedAt: now,
+        );
+      }
     });
 
     if (id != null) {
@@ -149,18 +158,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (found != null) {
         setState(() => _thread = found);
         _scrollToBottom();
-        return;
       }
-
-      final now = DateTime.now();
-      setState(() {
-        _thread = ConversationThread(
-          id: id,
-          title: 'Nouvelle conversation',
-          createdAt: now,
-          updatedAt: now,
-        );
-      });
       return;
     }
 

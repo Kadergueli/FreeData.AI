@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/fd_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 
 class PassportScreen extends StatefulWidget {
   final ApiService apiService;
-  const PassportScreen({super.key, required this.apiService});
+  final void Function(String prompt)? onSelectPrompt;
+  const PassportScreen({super.key, required this.apiService, this.onSelectPrompt});
 
   @override
   State<PassportScreen> createState() => _PassportScreenState();
@@ -252,7 +254,49 @@ class _PassportScreenState extends State<PassportScreen> {
                     style: TextStyle(color: FDTheme.muted),
                   ),
                 )
-              else
+              else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_passports.length} province(s) évaluée(s)',
+                        style: const TextStyle(
+                          color: FDTheme.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (widget.onSelectPrompt != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          final comm = commodityLabelFr(_commodity);
+                          widget.onSelectPrompt!(
+                            'Évalue le risque de financer ${formatXaf(_loanAmount)} XAF de $comm au Tchad et compare les meilleures provinces.',
+                          );
+                        },
+                        icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+                        label: const Text('Analyser dossier (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    TextButton.icon(
+                      onPressed: _copyPassportCsv,
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: FDTheme.subtle,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 ..._passports.map((raw) {
                   final r = Map<String, dynamic>.from(raw as Map);
                   final score = parseNum(r['credit_score'])?.toDouble() ?? 0;
@@ -357,11 +401,42 @@ class _PassportScreenState extends State<PassportScreen> {
                     ),
                   );
                 }),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _copyPassportCsv() {
+    final buf = StringBuffer(
+      'province,commodity,credit_score,grade,ltv_ratio,recommended_max_loan_xaf,cv_pct,max_drawdown_pct,obs_months,policy_recommendation\n',
+    );
+    for (final raw in _passports) {
+      if (raw is! Map) continue;
+      buf.writeln([
+        '"${(raw['province'] ?? '').toString().replaceAll('"', '""')}"',
+        '"${commodityLabelFr(raw['commodity_std']?.toString() ?? _commodity)}"',
+        raw['credit_score'] ?? '',
+        '"${(raw['grade'] ?? '').toString().replaceAll('"', '""')}"',
+        raw['ltv_ratio'] ?? '',
+        raw['recommended_max_loan_xaf'] ?? '',
+        raw['cv_pct'] ?? '',
+        raw['max_drawdown_pct'] ?? '',
+        raw['obs_months'] ?? '',
+        '"${(raw['policy_recommendation'] ?? '').toString().replaceAll('"', '""')}"',
+      ].join(','));
+    }
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Tableau Credit Passport CSV copié pour Excel'),
+          duration: Duration(seconds: 2),
+        ),
+      );
   }
 }
 

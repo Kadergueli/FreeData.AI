@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/fd_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 
 class ForecastScreen extends StatefulWidget {
   final ApiService apiService;
-  const ForecastScreen({super.key, required this.apiService});
+  final void Function(String prompt)? onSelectPrompt;
+  const ForecastScreen({super.key, required this.apiService, this.onSelectPrompt});
 
   @override
   State<ForecastScreen> createState() => _ForecastScreenState();
@@ -50,6 +52,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
   String? _selectedCommodity = 'Millet';
   String _activeMode = 'forecasts';
   String _anomalyFilter = 'all';
+  bool _anomaliesAllProvinces = false;
   double? _storageCostPctMonth;
   List<dynamic> _items = [];
   List<dynamic> _alerts = [];
@@ -172,7 +175,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
     });
     try {
       final items = await widget.apiService.getAnomalies(
-        province: _selectedProvince,
+        province: _anomaliesAllProvinces ? null : _selectedProvince,
         commodity: _selectedCommodity,
       );
       if (mounted) setState(() => _anomalies = items);
@@ -272,7 +275,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                 ))
                             .toList(),
                         onChanged: (v) {
-                          setState(() => _selectedProvince = v);
+                          setState(() {
+                            _selectedProvince = v;
+                            _anomaliesAllProvinces = false;
+                          });
                           _loadCurrentMode();
                         },
                       ),
@@ -421,13 +427,49 @@ class _ForecastScreenState extends State<ForecastScreen> {
               else if (_items.isEmpty)
                 const _StateMessage(text: 'Aucune prévision disponible pour ces filtres.')
               else ...[
-                Text(
-                  '${_items.length} résultat(s)',
-                  style: const TextStyle(
-                    color: FDTheme.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+                _buildForecastKpis(),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_items.length} résultat(s)',
+                        style: const TextStyle(
+                          color: FDTheme.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (widget.onSelectPrompt != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
+                          final prov = _selectedProvince ?? 'Moundou';
+                          widget.onSelectPrompt!(
+                            'Simule la rentabilité pour acheter du $comm à $prov et le revendre sur un autre marché au Tchad.',
+                          );
+                        },
+                        icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+                        label: const Text('Simuler marge (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    TextButton.icon(
+                      onPressed: _copyForecastsCsv,
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: FDTheme.subtle,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 ..._items.map((raw) {
@@ -495,6 +537,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               _PriceValue(
                                 label: 'Prévision ${r['forecast_month'] ?? ''}',
                                 value: '${formatXaf(forecast)} XAF/kg',
+                              ),
+                              _PriceValue(
+                                label: 'Sac 100 kg (prévu)',
+                                value: '${formatXaf(forecast * 100)} XAF',
                               ),
                             ],
                           ),
@@ -648,12 +694,33 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final amplitude = parseNum(cal['amplitude_pct'] ?? study['amplitude_pct']);
     final buyDiscount = parseNum(cal['buy_discount_pct']);
     final sellPremium = parseNum(cal['sell_premium_pct']);
+    final bool? isReliable = cal['reliable'] is bool ? cal['reliable'] as bool : null;
+    final minYearsObserved = parseNum(cal['min_years_observed'])?.toInt();
     final strategy = study['storage_strategy'] is Map
         ? Map<String, dynamic>.from(study['storage_strategy'] as Map)
         : const <String, dynamic>{};
+    final profile = study['profile'] is List
+        ? (study['profile'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : const <Map<String, dynamic>>[];
+    final provincesComp = study['provinces'] is List
+        ? (study['provinces'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : const <Map<String, dynamic>>[];
     final caveats = study['caveats'] is List ? study['caveats'] as List : const <dynamic>[];
-    final scope = study['scope_province']?.toString() ?? 'Toutes provinces suivies';
+    final requestedProvince = study['requested_province']?.toString();
+    final scopeProvince = study['scope_province']?.toString();
+    final scope = scopeProvince ?? 'Toutes provinces suivies';
     final commName = commodityLabelFr(study['commodity']?.toString() ?? _selectedCommodity ?? '');
+
+    final typicalGap = parseNum(strategy['typical_gap_months'])?.toInt();
+    final nYears = parseNum(strategy['n_years'])?.toInt();
+    final p10Return = parseNum(strategy['p10_return_pct'])?.toDouble();
+    final p90Return = parseNum(strategy['p90_return_pct'])?.toDouble();
 
     const storageOptions = <({double? value, String label})>[
       (value: null, label: 'Sans frais (0%)'),
@@ -691,8 +758,12 @@ class _ForecastScreenState extends State<ForecastScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.calendar_month_rounded, color: FDTheme.blue, size: 20),
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(Icons.calendar_month_rounded, color: FDTheme.blue, size: 20),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -704,14 +775,46 @@ class _ForecastScreenState extends State<ForecastScreen> {
                     ),
                   ),
                 ),
-                if (amplitude != null)
-                  FDBadge(
-                    label: 'AMPLITUDE ${amplitude.toStringAsFixed(0)} %',
-                    color: FDTheme.blueDark,
-                    backgroundColor: FDTheme.blueSoft,
-                  ),
+                const SizedBox(width: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (isReliable != null)
+                      FDBadge(
+                        label: isReliable ? 'FIABLE' : 'PRUDENCE',
+                        color: isReliable ? FDTheme.greenDark : FDTheme.warningDark,
+                        backgroundColor: isReliable
+                            ? FDTheme.greenSoft
+                            : FDTheme.warning.withValues(alpha: 0.14),
+                      ),
+                    if (amplitude != null)
+                      FDBadge(
+                        label: 'AMPLITUDE ${amplitude.toStringAsFixed(0)} %',
+                        color: FDTheme.blueDark,
+                        backgroundColor: FDTheme.blueSoft,
+                      ),
+                  ],
+                ),
               ],
             ),
+            if (requestedProvince != null &&
+                requestedProvince.isNotEmpty &&
+                scopeProvince == null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: FDTheme.blueSoft,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Historique propre à $requestedProvince insuffisant : étude établie sur la tendance nationale (toutes provinces suivies).',
+                  style: const TextStyle(fontSize: 12, color: FDTheme.blueDark, height: 1.35),
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             Wrap(
               spacing: 24,
@@ -729,8 +832,24 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       : 'Mois hauts de revente',
                   value: _formatMonthList(sellMonths),
                 ),
+                if (typicalGap != null)
+                  _PriceValue(
+                    label: 'Durée de stockage typique',
+                    value: '~$typicalGap mois',
+                  ),
               ],
             ),
+            if (minYearsObserved != null && minYearsObserved < 3) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Historique court : chaque mois n’a été observé que sur $minYearsObserved année(s).',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: FDTheme.warningDark,
+                ),
+              ),
+            ],
             if (strategy['status'] == 'ok') ...[
               const SizedBox(height: 16),
               const Divider(height: 1, color: FDTheme.line),
@@ -739,7 +858,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                 'Stratégie achat au creux / vente au pic : '
                 '${(parseNum(strategy['hit_rate_pct']) ?? 0).toStringAsFixed(0)} % de réussite '
                 '(rendement médian ${(parseNum(strategy['median_return_pct']) ?? 0).toStringAsFixed(1)} % '
-                'sur ${strategy['n_cycles'] ?? '—'} cycles)',
+                'sur ${strategy['n_cycles'] ?? '—'} cycles'
+                '${nYears != null ? ' · $nYears ans' : ''})',
                 style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
@@ -747,6 +867,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
                   height: 1.45,
                 ),
               ),
+              if (p10Return != null && p90Return != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Risque & potentiel historiques : 10 % pires cas (${p10Return >= 0 ? '+' : ''}${p10Return.toStringAsFixed(0)} %) '
+                  '· 10 % meilleurs cas (${p90Return >= 0 ? '+' : ''}${p90Return.toStringAsFixed(0)} %)',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: FDTheme.muted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
               if (strategy['net_hit_rate_pct'] != null &&
                   strategy['net_median_return_pct'] != null) ...[
                 const SizedBox(height: 6),
@@ -762,6 +894,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
                   ),
                 ),
               ],
+            ] else if (strategy.isNotEmpty && strategy['status'] != 'not_computed') ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1, color: FDTheme.line),
+              const SizedBox(height: 12),
+              Text(
+                'Taux de réussite non publié : historique insuffisant '
+                '(${strategy['n_cycles'] ?? 0} cycle(s)${nYears != null ? ' sur $nYears an(s)' : ''}, minimum 3 années requis).',
+                style: const TextStyle(fontSize: 12.5, color: FDTheme.muted, height: 1.4),
+              ),
             ],
             if (caveats.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -778,6 +919,157 @@ class _ForecastScreenState extends State<ForecastScreen> {
           ],
         ),
       ),
+      if (profile.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        FDCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Profil saisonnier sur 12 mois',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Écart mensuel moyen par rapport à la moyenne annuelle et régularité historique.',
+                style: TextStyle(fontSize: 12, color: FDTheme.muted),
+              ),
+              const SizedBox(height: 12),
+              ...profile.map((row) {
+                final label = row['label']?.toString() ?? 'Mois ${row['month'] ?? ''}';
+                final pct = parseNum(row['pct_vs_avg'])?.toDouble() ?? 0.0;
+                final cons = ((parseNum(row['consistency'])?.toDouble() ?? 0.0) * 100).round();
+                final isLow = pct < 0;
+                final barColor = isLow ? FDTheme.green : const Color(0xFFD97706);
+                final barRatio = (pct.abs() / 35.0).clamp(0.06, 1.0);
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 78,
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: FDTheme.inkSoft,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: barRatio,
+                            minHeight: 7,
+                            backgroundColor: FDTheme.canvasSoft,
+                            valueColor: AlwaysStoppedAnimation<Color>(barColor),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 58,
+                        child: Text(
+                          '${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(1)} %',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: isLow ? FDTheme.greenDark : FDTheme.warningDark,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 48,
+                        child: Text(
+                          '$cons %',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ],
+      if (provincesComp.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        FDCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Comparaison des provinces',
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'Provinces classées par fiabilité et amplitude saisonnière (achat bas / vente haute).',
+                style: TextStyle(fontSize: 12, color: FDTheme.muted),
+              ),
+              const SizedBox(height: 12),
+              ...provincesComp.map((p) {
+                final provName = p['province']?.toString() ?? '—';
+                final amp = parseNum(p['amplitude_pct'])?.toDouble() ?? 0.0;
+                final reliable = p['reliable'] == true;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: FDTheme.canvas,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: FDTheme.line),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                provName,
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: FDTheme.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Achat : ${_formatMonthList(p['buy_months'])} · Vente : ${_formatMonthList(p['sell_months'])}',
+                                style: const TextStyle(fontSize: 12, color: FDTheme.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FDBadge(
+                          label: '${amp.toStringAsFixed(0)} % · ${reliable ? 'Fiable' : 'Faible'}',
+                          color: reliable ? FDTheme.greenDark : FDTheme.warningDark,
+                          backgroundColor: reliable
+                              ? FDTheme.greenSoft
+                              : FDTheme.warning.withValues(alpha: 0.14),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ],
     ];
   }
 
@@ -792,6 +1084,75 @@ class _ForecastScreenState extends State<ForecastScreen> {
       }
     }
     return null;
+  }
+
+  Widget _buildForecastKpis() {
+    final prices = _items
+        .whereType<Map>()
+        .map((r) => parseNum(r['forecast_t1'])?.toDouble())
+        .whereType<double>()
+        .toList()
+      ..sort();
+    if (prices.isEmpty) return const SizedBox.shrink();
+    final mid = prices.length ~/ 2;
+    final medianFc = prices.length.isOdd ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2.0;
+    final spread = prices.last - prices.first;
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        FDMetricCard(
+          label: 'Médiane prévue',
+          value: '${formatXaf(medianFc)} XAF/kg',
+          icon: Icons.show_chart_rounded,
+        ),
+        FDMetricCard(
+          label: 'Sac 100 kg (médian)',
+          value: '${formatXaf(medianFc * 100)} XAF',
+          icon: Icons.inventory_2_outlined,
+        ),
+        FDMetricCard(
+          label: 'Écart Min–Max',
+          value: '${formatXaf(spread)} XAF/kg',
+          icon: Icons.swap_vert_rounded,
+        ),
+      ],
+    );
+  }
+
+  void _copyForecastsCsv() {
+    final buf = StringBuffer(
+      'source,province,market_name,commodity,last_observed_month,last_observed_price_xaf_kg,forecast_month,forecast_t1_xaf_kg,sac_100kg_xaf,ci_low_80,ci_high_80,forecast_quality\n',
+    );
+    for (final raw in _items) {
+      if (raw is! Map) continue;
+      final fc = parseNum(raw['forecast_t1'])?.toDouble();
+      final sac = fc != null ? (fc * 100).round().toString() : '';
+      buf.writeln([
+        raw['source'] ?? '',
+        raw['province'] ?? _selectedProvince ?? '',
+        '"${(raw['market_name'] ?? '').toString().replaceAll('"', '""')}"',
+        '"${commodityLabelFr(raw['commodity_std']?.toString() ?? _selectedCommodity ?? '')}"',
+        raw['last_observed_month'] ?? '',
+        raw['last_observed_price'] ?? '',
+        raw['forecast_month'] ?? '',
+        raw['forecast_t1'] ?? '',
+        sac,
+        raw['ci_low_80'] ?? '',
+        raw['ci_high_80'] ?? '',
+        raw['forecast_quality'] ?? 'standard',
+      ].join(','));
+    }
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Tableau CSV des prévisions copié pour Excel'),
+          duration: Duration(seconds: 2),
+        ),
+      );
   }
 
   List<Widget> _buildAnomaliesSection() {
@@ -821,23 +1182,44 @@ class _ForecastScreenState extends State<ForecastScreen> {
       Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: filters.map((f) {
-          final selected = _anomalyFilter == f.id;
-          return ChoiceChip(
-            label: Text(f.label),
-            selected: selected,
-            selectedColor: FDTheme.blueSoft,
+        children: [
+          FilterChip(
+            avatar: Icon(
+              Icons.public_rounded,
+              size: 16,
+              color: _anomaliesAllProvinces ? FDTheme.greenDark : FDTheme.subtle,
+            ),
+            label: const Text('Tout le Tchad'),
+            selected: _anomaliesAllProvinces,
+            selectedColor: FDTheme.greenSoft,
             labelStyle: TextStyle(
               fontSize: 12.5,
-              color: selected ? FDTheme.blue : FDTheme.body,
+              color: _anomaliesAllProvinces ? FDTheme.greenDark : FDTheme.body,
               fontWeight: FontWeight.w600,
             ),
-            onSelected: (_) {
-              if (_anomalyFilter == f.id) return;
-              setState(() => _anomalyFilter = f.id);
+            onSelected: (val) {
+              setState(() => _anomaliesAllProvinces = val);
+              _loadAnomalies();
             },
-          );
-        }).toList(),
+          ),
+          ...filters.map((f) {
+            final selected = _anomalyFilter == f.id;
+            return ChoiceChip(
+              label: Text(f.label),
+              selected: selected,
+              selectedColor: FDTheme.blueSoft,
+              labelStyle: TextStyle(
+                fontSize: 12.5,
+                color: selected ? FDTheme.blue : FDTheme.body,
+                fontWeight: FontWeight.w600,
+              ),
+              onSelected: (_) {
+                if (_anomalyFilter == f.id) return;
+                setState(() => _anomalyFilter = f.id);
+              },
+            );
+          }),
+        ],
       ),
       const SizedBox(height: 12),
       if (filtered.isEmpty)
@@ -858,6 +1240,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
           final r = Map<String, dynamic>.from(raw as Map);
           final kind = r['kind']?.toString() ?? '';
           final severity = r['severity']?.toString() ?? 'modérée';
+          final source = r['source']?.toString().trim() ?? '';
+          final marketName = r['market_name']?.toString().trim() ?? 'Marché';
+          final provinceName = r['province']?.toString().trim() ?? '';
           final isStrong = severity == 'forte';
           final isQuality = kind == 'stale' || kind == 'stopped';
           final value = parseNum(r['value'])?.toDouble() ?? 0.0;
@@ -866,7 +1251,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
           final score = parseNum(r['score'])?.toDouble() ?? 0.0;
           final commLabel = commodityLabelFr(r['commodity_std']?.toString() ?? '');
           final kindLabel = _anomalyKindLabel(kind);
-          final b2bHint = _anomalyB2bInsight(kind, changePct, score, value);
+          final b2bHint = _anomalyB2bInsight(kind, changePct, score, value, source);
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -880,7 +1265,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          '${r['market_name'] ?? 'Marché'} (${r['province'] ?? '—'})',
+                          _formatMarketTitle(marketName, provinceName),
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             color: FDTheme.ink,
@@ -928,6 +1313,22 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           ),
                         ),
                       ),
+                      if (source.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: FDTheme.blueSoft,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Text(
+                            source == 'multi' ? 'Multi-marchés' : source,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: FDTheme.blueDark,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -984,6 +1385,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
     ];
   }
 
+  String _formatMarketTitle(String market, String province) {
+    if (province.isEmpty || market.toLowerCase().contains(province.toLowerCase())) {
+      return market;
+    }
+    return '$market ($province)';
+  }
+
   String _anomalyKindLabel(String kind) {
     switch (kind) {
       case 'divergence':
@@ -1003,12 +1411,19 @@ class _ForecastScreenState extends State<ForecastScreen> {
     }
   }
 
-  String _anomalyB2bInsight(String kind, double changePct, double score, double value) {
+  String _anomalyB2bInsight(
+    String kind,
+    double changePct,
+    double score,
+    double value,
+    String source,
+  ) {
+    final srcPrefix = source.isNotEmpty && source != 'multi' ? 'Source $source' : 'Collecte';
     switch (kind) {
       case 'stopped':
-        return 'Risque décisionnel : aucun relevé depuis ${score.toStringAsFixed(0)} mois. Vérifiez la disponibilité réelle avant financement ou contrat.';
+        return '$srcPrefix interrompue depuis ${score.toStringAsFixed(0)} mois : appuyez-vous sur les prévisions actives (FEWS NET) ou vérifiez le cours sur place avant contrat.';
       case 'stale':
-        return 'Qualité à vérifier : prix identique (${formatXaf(value)} XAF/kg) depuis ${score.toStringAsFixed(0)} mois. Ne pas engager de chiffrage sur cette seule série.';
+        return '$srcPrefix figée à ${formatXaf(value)} XAF/kg depuis ${score.toStringAsFixed(0)} mois : ne pas engager de chiffrage sur cette seule série.';
       case 'regional':
         return 'Choc provincial coordonné : vérifiez l’état des routes, la logistique et l’offre régionale.';
       case 'divergence':

@@ -255,7 +255,9 @@ void main() {
 
     expect(find.text('Prévisions de marché'), findsNothing);
     expect(find.text('1 250 XAF/kg'), findsOneWidget);
-    expect(find.text('1 320 XAF/kg'), findsOneWidget);
+    expect(find.text('1 320 XAF/kg'), findsWidgets);
+    expect(find.text('132 000 XAF'), findsWidgets);
+    expect(find.text('Copier CSV'), findsOneWidget);
     expect(find.text('Intervalle indicatif 80 % : 233 – 311 XAF/kg'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -279,6 +281,7 @@ void main() {
 
     expect(find.text('Credit Passport'), findsNothing);
     expect(find.text('650 000 XAF'), findsOneWidget);
+    expect(find.text('Copier CSV'), findsOneWidget);
     expect(find.text('CV : 21.7%'), findsOneWidget);
     expect(find.text('Baisse max : -33.1%'), findsOneWidget);
     expect(find.text('32 mois'), findsOneWidget);
@@ -1136,6 +1139,88 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Collecte arrêtée'), findsOneWidget);
     expect(find.text('Écart inter-marchés'), findsNothing);
+
+    // Onglet Saisonnalité & Stockage complet (fiabilité, durée typique, p10/p90, profil 12 mois, provinces)
+    await tester.ensureVisible(find.text('Saisonnalité & Stockage'));
+    await tester.tap(find.text('Saisonnalité & Stockage'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('FIABLE'), findsOneWidget);
+    expect(find.text('~9 mois'), findsOneWidget);
+    expect(find.textContaining('10 % pires cas (+2 %)'), findsOneWidget);
+    expect(find.text('Profil saisonnier sur 12 mois'), findsOneWidget);
+    expect(find.text('Comparaison des provinces'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Clicking a product in Explore opens and displays the prompt and reply in a new active chat',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final existing = ConversationThread(
+      id: 'conv-prev',
+      title: 'Ancienne discussion',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 2),
+      messages: [
+        ChatMessage.user('Question précédente'),
+        ChatMessage.assistant(text: 'Réponse précédente'),
+      ],
+    );
+    await LocalConversationStorage.instance.saveAll([existing]);
+
+    final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/v1/metadata') {
+        return http.Response(
+          jsonEncode({
+            'products': ['Millet'],
+            'cereals': ['Millet'],
+            'markets': ['Abeche'],
+            'provinces': ['Salamat'],
+            'sources': ['FEWS NET'],
+            'periods_covered': {'start': '2026-07', 'end': '2026-10'},
+          }),
+          200,
+        );
+      }
+      if (request.url.path == '/api/v1/chat') {
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({
+            'reply': 'Analyse Mil générée depuis Explore.',
+            'intent': 'forecast',
+            'sources': [],
+          })),
+          200,
+        );
+      }
+      return http.Response('{}', 404);
+    });
+
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: ApiService(client: mockClient))));
+    await tester.pumpAndSettle();
+    expect(find.text('Question précédente'), findsOneWidget);
+
+    await tester.tap(find.text('Explore'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Mil (Millet)').first);
+    await tester.tap(find.text('Mil (Millet)').first);
+    await tester.pumpAndSettle();
+
+    // L'utilisateur voit directement la question et la réponse sur l'écran actif (pas un écran vide)
+    expect(find.text('Que souhaitez-vous analyser ?'), findsNothing);
+    expect(
+      find.text('Quelle est la prévision du prix et la tendance pour le produit Mil (Millet) au Tchad ?'),
+      findsOneWidget,
+    );
+    expect(find.text('Analyse Mil générée depuis Explore.'), findsOneWidget);
+    // L'ancienne discussion reste intacte dans l'historique
+    expect(find.text('Ancienne discussion'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
@@ -1354,11 +1439,32 @@ class _ReducedForecastFakeApi extends ApiService {
         'amplitude_pct': 34.0,
         'buy_discount_pct': -14.0,
         'sell_premium_pct': 18.0,
+        'reliable': true,
+        'min_years_observed': 4,
       },
+      'profile': [
+        {'month': 10, 'label': 'Octobre', 'index': 0.86, 'pct_vs_avg': -14.0, 'consistency': 0.85, 'n': 12},
+        {'month': 7, 'label': 'Juillet', 'index': 1.18, 'pct_vs_avg': 18.0, 'consistency': 0.90, 'n': 12},
+      ],
+      'provinces': [
+        {
+          'province': 'Salamat',
+          'buy_months': [10, 11],
+          'sell_months': [7, 8],
+          'buy_discount_pct': -14.0,
+          'sell_premium_pct': 18.0,
+          'amplitude_pct': 34.0,
+          'reliable': true,
+        },
+      ],
       'storage_strategy': {
         'status': 'ok',
         'hit_rate_pct': 83.0,
         'median_return_pct': 26.5,
+        'p10_return_pct': 2.0,
+        'p90_return_pct': 45.0,
+        'typical_gap_months': 9,
+        'n_years': 4,
         'n_cycles': 6,
         if (storageCostPctMonth != null) ...{
           'storage_cost_pct_month': storageCostPctMonth,
