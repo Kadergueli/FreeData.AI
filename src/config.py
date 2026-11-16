@@ -30,7 +30,18 @@ class Settings:
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
     # Clés des clients premium (séparées par des virgules), envoyées dans l'en-tête X-Premium-Key.
     # Vide = offre premium non authentifiée (chat : comportement historique ; études avancées : désactivées).
-    premium_api_keys: str = os.getenv("PREMIUM_API_KEYS", "").strip()
+    premium_api_keys: str = (
+        os.getenv("PREMIUM_API_KEYS")
+        or os.getenv("PREMIUM_API_KEY")
+        or os.getenv("FREEDATA_PREMIUM_KEY")
+        or os.getenv("FREEDATA_PREMIUM_KEYS")
+        or os.getenv("PREMIUM_KEY")
+        or os.getenv("PREMIUM_KEYS")
+        or os.getenv("X_PREMIUM_KEY")
+        or os.getenv("FREEDATA_API_KEY")
+        or os.getenv("ADMIN_TOKEN")
+        or ""
+    ).strip()
     # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
     # récent n'est plus servie par l'API (0 = pas de filtre).
     # Écarte les relevés marqués OUTLIER (is_flagged_outlier) AVANT le modèle : un prix aberrant
@@ -42,7 +53,15 @@ class Settings:
 
     @property
     def premium_keys(self) -> tuple:
-        return tuple(k.strip() for k in self.premium_api_keys.split(",") if len(k.strip()) >= 16)
+        normalized = self.premium_api_keys.replace(";", ",")
+        return tuple(
+            cleaned
+            for cleaned in (
+                part.strip().strip('"').strip("'").strip()
+                for part in normalized.split(",")
+            )
+            if cleaned
+        )
 
     @property
     def read_key(self) -> str:

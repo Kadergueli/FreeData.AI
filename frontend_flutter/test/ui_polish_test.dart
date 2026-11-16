@@ -641,10 +641,14 @@ void main() {
     expect(await service.verifyPremiumKey('fausse-cle-123'), isFalse);
     expect(await service.verifyPremiumKey(serverKey), isTrue);
 
-    // Repli /api/v1/refresh lorsque /studies/seasonality renvoie 503
+    // Repli /api/v1/refresh lorsque /studies/seasonality renvoie 503 :
+    // 200 sur /refresh valide la clé ; un 403 sur /refresh ne renvoie pas un faux rejet mais 503
     simulate503Studies = true;
     expect(await service.verifyPremiumKey(adminFallbackKey), isTrue);
-    expect(await service.verifyPremiumKey('mauvais-jeton'), isFalse);
+    await expectLater(
+      service.verifyPremiumKey('mauvais-jeton'),
+      throwsA(isA<ApiHttpException>().having((e) => e.statusCode, 'statusCode', 503)),
+    );
   });
 
   testWidgets('MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',

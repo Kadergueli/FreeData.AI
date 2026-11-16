@@ -32,8 +32,13 @@ class ApiService {
 
   bool get hasPremiumKey => activePremiumKey.isNotEmpty;
 
+  static String _cleanKey(String? key) {
+    return (key ?? '').trim().replaceAll(RegExp(r'^["\x27]+|["\x27]+$'), '').trim();
+  }
+
   void setRuntimePremiumKey(String? key) {
-    _runtimePremiumKey = key?.trim();
+    final cleaned = _cleanKey(key);
+    _runtimePremiumKey = cleaned.isEmpty ? null : cleaned;
   }
 
   Future<http.Response> _getWithRetry(
@@ -76,7 +81,7 @@ class ApiService {
   }
 
   Future<bool> verifyPremiumKey(String candidateKey) async {
-    final trimmed = candidateKey.trim();
+    final trimmed = _cleanKey(candidateKey);
     if (trimmed.isEmpty) return false;
     final uri = Uri.parse('$baseUrl/api/v1/studies/seasonality').replace(
       queryParameters: const {
@@ -102,12 +107,9 @@ class ApiService {
       if (refreshResp.statusCode == 200) {
         return true;
       }
-      if (refreshResp.statusCode == 403 || refreshResp.statusCode == 401) {
-        return false;
-      }
       throw const ApiHttpException(
         503,
-        'Variable PREMIUM_API_KEYS (min. 16 caractères) non détectée sur Render. Vérifiez Render > Environment.',
+        'Le serveur Render n’a pas encore reçu la mise à jour de src/config.py (ou PREMIUM_API_KEYS). Poussez la racine du dépôt sur Git.',
       );
     }
     throw ApiHttpException(
