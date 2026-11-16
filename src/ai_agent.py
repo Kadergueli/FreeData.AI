@@ -235,6 +235,39 @@ class MarketDataProvider:
     Retourne exclusivement des dictionnaires et listes Python réutilisables, sans dépendance LLM.
     """
 
+    _COMMODITY_GOLD_EQUIVALENTS: dict[str, tuple[str, ...]] = {
+        "Beans (niebe)": ("Cowpeas (White)", "Cowpeas (Mixed)", "Beans (niebe, red)"),
+        "Cowpeas (White)": ("Beans (niebe)", "Cowpeas (Mixed)"),
+        "Cowpeas (Mixed)": ("Cowpeas (White)", "Beans (niebe)"),
+        "Beans (niebe, red)": ("Cowpeas (Red)", "Cowpeas (Mixed)", "Beans (niebe)"),
+        "Cowpeas (Red)": ("Beans (niebe, red)", "Cowpeas (Mixed)"),
+        "Cassava (cossette)": ("Cassava Chips",),
+        "Cassava Chips": ("Cassava (cossette)",),
+        "Onions (red)": ("Onions",),
+        "Onions": ("Onions (red)",),
+        "Pasta": ("Pasta (Mixed)", "Spaghetti", "Macaroni"),
+        "Pasta (Mixed)": ("Pasta",),
+        "Groundnuts (shelled)": ("Peanut",),
+        "Peanut": ("Groundnuts (shelled)",),
+        "Sesame": ("Sesame (White)",),
+        "Sesame (White)": ("Sesame",),
+        "Sugar": ("Refined sugar",),
+        "Refined sugar": ("Sugar",),
+    }
+
+    @classmethod
+    def _resolve_df_commodity(cls, df: pd.DataFrame, commodity: Optional[str]) -> Optional[str]:
+        """Conserve `commodity` s'il existe dans `df`, sinon bascule sur son équivalent Gold."""
+        if not commodity or df is None or df.empty or "commodity_std" not in df.columns:
+            return commodity
+        known = set(df["commodity_std"].dropna().astype(str))
+        if commodity in known:
+            return commodity
+        for alt in cls._COMMODITY_GOLD_EQUIVALENTS.get(commodity, ()):
+            if alt in known:
+                return alt
+        return commodity
+
     def __init__(
         self,
         forecast_df: pd.DataFrame,
@@ -512,6 +545,7 @@ class MarketDataProvider:
         focus_city: Optional[str] = None,
     ) -> dict:
         """Interroge `forecast_df` et retourne un dictionnaire pur avec détails par marché et synthèse nationale."""
+        commodity = self._resolve_df_commodity(self.forecast_df, commodity)
         comm_fr = self.fr_commodity(commodity) if commodity else None
         if self.forecast_df.empty:
             return {
@@ -741,6 +775,8 @@ class MarketDataProvider:
         threshold_pct: float = 15.0,
     ) -> dict:
         """Retourne les séries dépassant `threshold_pct` sous forme de dictionnaire pur."""
+        ref_df = self.hist_df if (not self.hist_df.empty and "deviation_pct" in self.hist_df.columns) else self.forecast_df
+        commodity = self._resolve_df_commodity(ref_df, commodity)
         comm_fr = self.fr_commodity(commodity) if commodity else None
         empty_payload = {
             "status": "empty",
@@ -810,6 +846,7 @@ class MarketDataProvider:
         loan_amount: float = 1_000_000.0,
     ) -> dict:
         """Retourne les scores, grades, CV %, drawdown et plafonds LTV depuis `passport_df`."""
+        commodity = self._resolve_df_commodity(self.passport_df, commodity)
         comm_fr = self.fr_commodity(commodity) if commodity else None
         empty_payload = {
             "status": "empty",
@@ -877,7 +914,8 @@ class MarketDataProvider:
         fc["_obs_price"] = pd.to_numeric(fc[price_col], errors="coerce") if price_col else float("nan")
         fc = fc.dropna(subset=["forecast_t1"])
         if commodity:
-            fc = fc[fc["commodity_std"] == commodity]
+            eff_comm = self._resolve_df_commodity(fc, commodity)
+            fc = fc[fc["commodity_std"] == eff_comm]
         if fc.empty:
             return pd.DataFrame()
         return (
@@ -933,8 +971,15 @@ class MarketDataProvider:
             if not h.empty and needed.issubset(h.columns) and isinstance(h["year_month"].dtype, pd.PeriodDtype):
                 book = StudyBook(kg_df=h)
                 self._studies = book
+        resolved_comm = commodity
         try:
-            study = book.get(commodity, province, light=True) if book is not None else None
+            study = book.get(resolved_comm, province, light=True) if book is not None else None
+            if study is None and book is not None:
+                for alt in self._COMMODITY_GOLD_EQUIVALENTS.get(commodity, ()):
+                    study = book.get(alt, province, light=True)
+                    if study is not None:
+                        resolved_comm = alt
+                        break
         except Exception:  # un calendrier ne doit jamais faire échouer la réponse du chat
             logger.exception("Calendrier saisonnier indisponible pour %s", commodity)
             study = None
@@ -942,8 +987,8 @@ class MarketDataProvider:
             return {"status": "insufficient_data", "commodity": commodity, "province": province}
         cal = dict(study["calendar"])
         cal.update({
-            "status": "ok", "commodity": commodity, "scope_province": study.get("scope_province"),
-            "requested_province": province, "commodity_fr": self.fr_commodity(commodity),
+            "status": "ok", "commodity": resolved_comm, "scope_province": study.get("scope_province"),
+            "requested_province": province, "commodity_fr": self.fr_commodity(resolved_comm),
         })
         return cal
 
@@ -1033,8 +1078,9 @@ class MarketDataProvider:
         routes: list[dict] = []
         missing_notes: list[str] = []
         for comm in target_comms:
-            comm_fr = self.fr_commodity(comm)
-            sub = agg[agg["commodity_std"] == comm]
+            resolved_comm = self._resolve_df_commodity(agg, comm) or comm
+            comm_fr = self.fr_commodity(resolved_comm)
+            sub = agg[agg["commodity_std"] == resolved_comm]
             orig_rows = sub[sub["province"] == orig_prov]
             dest_rows = sub[sub["province"] == dest_prov]
             if orig_rows.empty or dest_rows.empty:
@@ -1131,8 +1177,13 @@ class MarketDataProvider:
         comm_col = "commodity_std" if "commodity_std" in self.forecast_df.columns else "commodity"
         if comm_col not in self.forecast_df.columns or "province" not in self.forecast_df.columns:
             return None
+        target_comm = (
+            self._resolve_df_commodity(self.forecast_df, commodity)
+            if comm_col == "commodity_std"
+            else commodity
+        )
         sub = self.forecast_df[
-            (self.forecast_df["province"] == province) & (self.forecast_df[comm_col] == commodity)
+            (self.forecast_df["province"] == province) & (self.forecast_df[comm_col] == target_comm)
         ]
         if sub.empty:
             return None
@@ -1160,6 +1211,8 @@ class MarketDataProvider:
             known_comms = set(self.forecast_df["commodity_std"].dropna().astype(str))
             if commodity in known_comms:
                 resolved_comm = commodity
+            else:
+                resolved_comm = self._resolve_df_commodity(self.forecast_df, resolved_comm) or resolved_comm
         orig_prov = self.prov_lookup.get(_normalize_text(origin_province), origin_province)
         dest_prov = self.prov_lookup.get(_normalize_text(dest_province), dest_province)
 
@@ -1418,14 +1471,15 @@ class MarketDataProvider:
         tant qu'aucun document n'a été indexé. En cas de doute (erreur réseau), on
         retombe sur l'ancien comportement (True).
         """
+        url = settings.supabase_url.rstrip("/")
         cache = MarketDataProvider._rag_check
         now = time.monotonic()
-        if now - cache["ts"] < self._RAG_CHECK_TTL_SECONDS:
+        if cache.get("url", url) == url and now - cache["ts"] < self._RAG_CHECK_TTL_SECONDS:
             return cache["value"]
         value = True
         try:
             resp = requests.get(
-                f"{settings.supabase_url.rstrip('/')}/rest/v1/rag_chunks",
+                f"{url}/rest/v1/rag_chunks",
                 headers={"apikey": settings.supabase_key, "Authorization": f"Bearer {settings.supabase_key}"},
                 params={"select": "id", "limit": 1},
                 timeout=3,
@@ -1435,9 +1489,11 @@ class MarketDataProvider:
             value = bool(rows) if isinstance(rows, list) else True
         except Exception:
             logger.warning("RAG : vérification de la base documentaire impossible, recherche tentée quand même.")
+            cache["url"] = url
             cache["ts"] = now - self._RAG_CHECK_TTL_SECONDS + 30.0  # nouvel essai dans 30 s
             cache["value"] = True
             return True
+        cache["url"] = url
         cache["ts"] = now
         cache["value"] = value
         return value

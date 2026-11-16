@@ -1078,11 +1078,45 @@ void main() {
     expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('PassportScreen prioritizes passport_products from metadata when provided',
+      (tester) async {
+    final fullPassportApi = _FullCatalogFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PassportScreen(apiService: fullPassportApi),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Ouvre le menu déroulant Produit pour vérifier la présence d'un produit exclusif Credit Passport
+    await tester.tap(find.text('Mil (Millet)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dattes'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _FullCatalogFakeApi extends ApiService {
   @override
+  Future<List<dynamic>> getCreditPassports({
+    String? province,
+    String? commodity,
+    int loanAmount = 1000000,
+  }) async =>
+      const [];
+
+  @override
   Future<Map<String, dynamic>> getMetadata() async => {
+        'passport_products': [
+          'Cassava Chips',
+          'Dates',
+          'Millet',
+          'Rice (local)',
+        ],
         'products': [
           'Cassava Chips',
           'Cowpeas (Red)',

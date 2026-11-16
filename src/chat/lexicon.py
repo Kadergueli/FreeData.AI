@@ -92,6 +92,14 @@ COMMODITY_ALIASES = {
     "cowpeas": "Cowpeas (Mixed)",
     "cowpea": "Cowpeas (Mixed)",
     "peanut": "Peanut",
+    "niebe blanc": "Cowpeas (White)",
+    "cowpeas (white)": "Cowpeas (White)",
+    "cowpeas (red)": "Cowpeas (Red)",
+    "cassava chips": "Cassava Chips",
+    "manioc (cossettes)": "Cassava Chips",
+    "pasta (mixed)": "Pasta (Mixed)",
+    "pates alimentaires (melange)": "Pasta (Mixed)",
+    "onions": "Onions",
 }
 
 COMMODITY_FR = {
@@ -123,6 +131,15 @@ COMMODITY_FR = {
     "Sorghum (Berbere)": "Sorgho berbéré",
     "Sorghum (White)": "Sorgho blanc",
     "Cowpeas (Mixed)": "Niébé (mélange)",
+    "Cassava Chips": "Manioc (cossettes)",
+    "Cowpeas (Red)": "Niébé rouge",
+    "Cowpeas (White)": "Niébé blanc",
+    "Onions": "Oignon",
+    "Pasta (Mixed)": "Pâtes alimentaires (mélange)",
+    "Macaroni": "Macaroni",
+    "Peanut": "Arachide",
+    "Spaghetti": "Spaghetti",
+    "Wheat": "Blé",
 }
 
 CITY_TO_PROVINCE = {

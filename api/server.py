@@ -38,7 +38,11 @@ _RATE_LIMIT_LOCK = threading.Lock()
 
 def check_rate_limit(request: Request, max_per_minute: int = 20):
     """Limite à `max_per_minute` requêtes par minute et par IP sur l'endpoint chat."""
-    client_ip = request.client.host if request.client else "unknown"
+    forwarded = (request.headers.get("x-forwarded-for") or "").strip() if hasattr(request, "headers") else ""
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    else:
+        client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     with _RATE_LIMIT_LOCK:
         window = [ts for ts in _RATE_LIMIT_BUCKET.get(client_ip, ()) if now - ts < 60.0]
@@ -351,7 +355,13 @@ def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
 @app.get("/api/v1/metadata")
 def get_metadata(state: dict = Depends(get_state)):
     fc = state["forecast_df"]
+    cp = state.get("passport_df")
     products = sorted(fc["commodity_std"].dropna().astype(str).unique().tolist())
+    passport_products = (
+        sorted(cp["commodity_std"].dropna().astype(str).unique().tolist())
+        if cp is not None and not cp.empty and "commodity_std" in cp.columns
+        else products
+    )
     cereals = sorted({
         product for product in products
         if any(keyword in product.lower() for keyword in ["millet", "maiz", "sorghum", "rice", "wheat", "cereal", "grain"])
@@ -363,6 +373,12 @@ def get_metadata(state: dict = Depends(get_state)):
     observed_months = pd.Series(fc["last_observed_month"].dropna().astype(str).unique())
     start_period = observed_months.min() if not observed_months.empty else None
     end_period = observed_months.max() if not observed_months.empty else None
+    forecast_months = (
+        pd.Series(fc["forecast_month"].dropna().astype(str).unique())
+        if "forecast_month" in fc.columns
+        else pd.Series(dtype=str)
+    )
+    forecast_month = forecast_months.max() if not forecast_months.empty else None
 
     active_domain = {
         "slug": "markets_and_prices",
@@ -386,6 +402,7 @@ def get_metadata(state: dict = Depends(get_state)):
         "active_domain": active_domain,
         "domains": domains,
         "products": products,
+        "passport_products": passport_products,
         "cereals": cereals,
         "markets": markets,
         "provinces": provinces,
@@ -393,10 +410,13 @@ def get_metadata(state: dict = Depends(get_state)):
         "periods_covered": {
             "start": start_period,
             "end": end_period,
+            "forecast_month": forecast_month,
         },
+        "forecast_month": forecast_month,
         "last_updated": end_period,
         "count": {
             "products": len(products),
+            "passport_products": len(passport_products),
             "cereals": len(cereals),
             "markets": len(markets),
             "provinces": len(provinces),

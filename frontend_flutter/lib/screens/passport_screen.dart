@@ -43,10 +43,13 @@ class _PassportScreenState extends State<PassportScreen> {
     try {
       final meta = await widget.apiService.getMetadata();
       final legacy = meta['legacy_fields'];
-      final rawComms = meta['products'] ??
-          (legacy is Map ? legacy['commodities'] : null) ??
-          meta['commodities'] ??
-          const [];
+      final passportProds = meta['passport_products'];
+      final rawComms = (passportProds is List && passportProds.isNotEmpty)
+          ? passportProds
+          : (meta['products'] ??
+              (legacy is Map ? legacy['commodities'] : null) ??
+              meta['commodities'] ??
+              const []);
       final comms = List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
       if (mounted && comms.isNotEmpty) {
         setState(() {
