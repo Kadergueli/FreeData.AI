@@ -11,7 +11,9 @@ src/
     base.py            contrat FamilySpec
     registry.py        register / by_intent / detect
     seasonality.py     famille A : calendrier saisonnier (chat)
+    anomalies.py       famille B : anomalies de prix (chat)
   seasonality.py, season_study.py, backtest.py   calculs hors ligne de la famille A
+  anomalies.py                                   calcul hors ligne de la famille B (table_ml_anomalies)
 scripts/               jobs hors ligne (update_predictions, update_seasonality, ...)
 sql/                   tables Gold numérotées
 ```

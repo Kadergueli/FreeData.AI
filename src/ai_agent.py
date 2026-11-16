@@ -242,7 +242,9 @@ class MarketDataProvider:
         hist_df: Optional[pd.DataFrame] = None,
         studies: Optional[StudyBook] = None,
         track_record: Optional[dict] = None,
+        anomalies: Optional[pd.DataFrame] = None,
     ):
+        self.anomalies_df = anomalies if anomalies is not None else pd.DataFrame()
         self.forecast_df = forecast_df if forecast_df is not None else pd.DataFrame()
         self.passport_df = passport_df if passport_df is not None else pd.DataFrame()
         self.hist_df = hist_df if hist_df is not None else pd.DataFrame()
@@ -1506,12 +1508,13 @@ class FreeDataAIAgent(FormattersMixin):
     """
 
     def __init__(self, hist_df: pd.DataFrame, forecast_df: pd.DataFrame, passport_df: pd.DataFrame,
-                 studies: Optional[StudyBook] = None, track_record: Optional[dict] = None):
+                 studies: Optional[StudyBook] = None, track_record: Optional[dict] = None,
+                 anomalies: Optional[pd.DataFrame] = None):
         self.hist_df = hist_df
         self.forecast_df = forecast_df
         self.passport_df = passport_df
         self.provider = MarketDataProvider(forecast_df, passport_df, hist_df=hist_df, studies=studies,
-                                         track_record=track_record)
+                                         track_record=track_record, anomalies=anomalies)
         self.provinces = self.provider.provinces
         self.prov_lookup = self.provider.prov_lookup
 

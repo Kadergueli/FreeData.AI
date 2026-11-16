@@ -23,6 +23,7 @@ from src.credit_passport import compute_credit_passport
 from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import filter_fresh
+from src.anomalies import detect_anomalies, recent_anomalies
 from src.season_study import StudyBook, study_markdown, with_storage_cost
 
 logger = logging.getLogger("freedata.api")
@@ -98,7 +99,8 @@ def _fetch_gold_table(table_name: str) -> pd.DataFrame:
 
 
 def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str,
-                    studies: StudyBook | None = None, track_record: dict | None = None) -> dict:
+                    studies: StudyBook | None = None, track_record: dict | None = None,
+                    anomalies: pd.DataFrame | None = None) -> dict:
     """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
     hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
     forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
@@ -106,7 +108,9 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
         "hist_df": hist_df,
         "forecast_df": forecast_df,
         "passport_df": passport_df,
-        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df, studies=studies, track_record=track_record),
+        "agent": FreeDataAIAgent(hist_df, forecast_df, passport_df, studies=studies, track_record=track_record,
+                                anomalies=anomalies),
+        "anomalies": anomalies if anomalies is not None else pd.DataFrame(),
         "studies": studies,
         "mode": mode,
         "alerts_source": alerts_source,
@@ -149,7 +153,26 @@ def _track_records(rows: list | None) -> dict:
     return out
 
 
-def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame, study_rows: list | None = None) -> dict:
+_ANOMALY_COLS = ["source", "province", "market_name", "commodity_std", "kind", "severity", "month",
+                 "value", "reference", "change_pct", "score"]
+
+
+def _anomaly_frame(rows: list | None) -> pd.DataFrame:
+    """Table d'anomalies (lignes Gold) -> DataFrame propre ; vide si absente ou mal formée."""
+    if not rows:
+        return pd.DataFrame(columns=_ANOMALY_COLS)
+    df = pd.DataFrame(rows)
+    if not set(_ANOMALY_COLS) <= set(df.columns):
+        return pd.DataFrame(columns=_ANOMALY_COLS)
+    df = df[_ANOMALY_COLS].copy()
+    df["month"] = df["month"].astype(str)
+    for col in ("value", "reference", "change_pct", "score"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame, study_rows: list | None = None,
+                          anomaly_rows: list | None = None) -> dict:
     """Construit l'état à partir des tables Gold (mode production léger)."""
     fc = fc_gold.rename(columns={"last_observed_price": "value"}).copy()
     for col in ("predicted_price", "deviation_pct"):
@@ -175,7 +198,7 @@ def build_state_from_gold(fc_gold: pd.DataFrame, cp_gold: pd.DataFrame, study_ro
 
     studies = StudyBook(studies=_study_payloads(study_rows)) if study_rows else None
     return _finalize_state(hist, fc, cp_gold, "gold_fast_read", alerts_source, studies=studies,
-                           track_record=_track_records(study_rows))
+                           track_record=_track_records(study_rows), anomalies=_anomaly_frame(anomaly_rows))
 
 
 def build_state_full() -> dict:
@@ -183,8 +206,13 @@ def build_state_full() -> dict:
     kg_df = load_clean_markets()
     hist_df, forecast_df = run_forecasting_pipeline(kg_df)
     passport_df = compute_credit_passport(kg_df)
+    try:
+        anomalies = recent_anomalies(detect_anomalies(kg_df), months=6)
+    except Exception:  # une anomalie ne doit jamais empêcher le démarrage
+        logger.exception("Détection d'anomalies indisponible.")
+        anomalies = None
     return _finalize_state(hist_df, forecast_df, passport_df, "full_compute", "model_residual",
-                           studies=StudyBook(kg_df=kg_df))
+                           studies=StudyBook(kg_df=kg_df), anomalies=anomalies)
 
 
 def build_state() -> dict:
@@ -201,7 +229,12 @@ def build_state() -> dict:
         except Exception as exc:  # table absente (sql/05 non appliqué) : le reste de l'API fonctionne
             logger.warning("Études saisonnières indisponibles (table_ml_seasonality_studies) : %s", exc)
             study_rows = []
-        return build_state_from_gold(fc_gold, cp_gold, study_rows)
+        try:
+            anomaly_rows = _fetch_gold_table("table_ml_anomalies").to_dict(orient="records")
+        except Exception as exc:  # table absente (sql/07 non appliqué)
+            logger.warning("Anomalies indisponibles (table_ml_anomalies) : %s", exc)
+            anomaly_rows = []
+        return build_state_from_gold(fc_gold, cp_gold, study_rows, anomaly_rows)
     return build_state_full()
 
 
@@ -432,6 +465,33 @@ def get_alerts(
         "alerts_source": state.get("alerts_source"),
         "items": alerts[cols].to_dict(orient="records"),
     }
+
+
+@app.get("/api/v1/anomalies")
+def get_anomalies(
+    province: Optional[str] = Query(None),
+    commodity: Optional[str] = Query(None),
+    kind: Optional[str] = Query(None, pattern="^(jump|divergence|jump\\+divergence|stale|stopped)$"),
+    severity: Optional[str] = Query(None, pattern="^(forte|modérée)$"),
+    limit: int = Query(100, ge=1, le=1000),
+    state: dict = Depends(get_state),
+):
+    """Signaux à vérifier (jamais un verdict) : sauts, divergences entre marchés, séries figées ou arrêtées."""
+    df = state.get("anomalies")
+    if df is None or df.empty:
+        return {"count": 0, "items": []}
+    df = df.copy()
+    if province:
+        df = df[df["province"].str.lower() == province.strip().lower()]
+    if commodity:
+        df = df[df["commodity_std"].str.lower() == commodity.strip().lower()]
+    if kind:
+        df = df[df["kind"] == kind]
+    if severity:
+        df = df[df["severity"] == severity]
+    df = df.sort_values(["month", "score"], ascending=[False, False], key=lambda c: c.abs() if c.name == "score" else c)
+    out = df.head(limit).astype(object).where(df.head(limit).notna(), None)
+    return {"count": len(out), "items": out.to_dict(orient="records")}
 
 
 @app.get("/api/v1/credit-passport")
