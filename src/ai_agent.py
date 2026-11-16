@@ -1828,22 +1828,43 @@ class FreeDataAIAgent(FormattersMixin):
         else:
             intent = "forecast"
 
-        # Suivi court ("et pour le sorgho ?", "et à Salamat ?") : on garde l'analyse de la question précédente
-        # (crédit, alertes, opportunités) au lieu de retomber sur une simple prévision.
-        if history and intent == "forecast" and _FOLLOW_UP_RE.match(q_norm) and len(q_norm.split()) <= 8:
+        # Suivi court ("et pour le sorgho ?", "et à Salamat ?") ou demande d'explication ("pourquoi pala l'écart est de -25% ?") :
+        # on garde l'analyse de la question précédente au lieu de retomber sur une simple prévision.
+        is_explain_followup = bool(
+            re.search(r"\b(?:pourquoi|expliqu(?:e|ez)|comment|raison|cause|ecart|anomalie)\b", q_norm)
+        )
+        if history and intent == "forecast" and (
+            (_FOLLOW_UP_RE.match(q_norm) and len(q_norm.split()) <= 8) or is_explain_followup
+        ):
             prev_users = [
                 str(m.get("content", "")) for m in history
                 if isinstance(m, dict) and m.get("role", "user") == "user" and m.get("content")
             ]
             for prev_text in reversed(prev_users[-3:]):
                 prev = self._extract_entities(prev_text)  # sans historique : pas de récursion
-                if prev["intent"] in ("credit_passport", "alerts", "opportunity"):
+                if prev["intent"] in ("credit_passport", "alerts", "opportunity", "anomalies", "timing"):
                     intent = prev["intent"]
                     if intent == "credit_passport" and prev.get("loan_amount_given") and not loan_amount_given:
                         loan_amount, loan_amount_given = prev["loan_amount"], True
                     break
                 if prev["intent"] == "forecast":
                     break
+            if intent == "forecast":
+                prev_assistants = [
+                    _normalize_text(str(m.get("content", "")))
+                    for m in history
+                    if isinstance(m, dict) and m.get("role") == "assistant" and m.get("content")
+                ]
+                for prev_rep in reversed(prev_assistants[-2:]):
+                    if "anomalies de prix" in prev_rep or "ecart avec les autres marches" in prev_rep:
+                        intent = "anomalies"
+                        break
+                    if "saisonnalite du" in prev_rep:
+                        intent = "timing"
+                        break
+                    if "alertes de tension" in prev_rep or "alertes actives" in prev_rep:
+                        intent = "alerts"
+                        break
 
         return {
             "province": matched_prov,

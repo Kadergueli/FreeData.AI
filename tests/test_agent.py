@@ -1475,3 +1475,39 @@ def test_capital_followup_with_glued_list_and_typo_resolves_dynamically(agent):
     assert "700 000 XAF" in res["reply"]
     assert "Mil" in res["reply"]
     assert res["summary"] is not None
+
+
+def test_explain_anomaly_followup_stays_on_anomalies_and_explains_gap(pipeline_outputs):
+    from api import server
+    from src.ai_agent import FreeDataAIAgent
+    import pandas as pd
+
+    _, _, forecast, passport = pipeline_outputs
+    anom_df = pd.DataFrame([
+        {
+            "source": "FEWS NET",
+            "province": "Mayo-Kebbi Ouest",
+            "market_name": "Pala",
+            "commodity_std": "Rice (imported)",
+            "kind": "divergence",
+            "severity": "forte",
+            "month": "2026-09",
+            "value": 534.0,
+            "reference": 706.0,
+            "change_pct": -25.0,
+            "score": -4.1,
+        }
+    ])
+    state = server.build_state_from_gold(forecast, passport, anomaly_rows=anom_df.to_dict("records"))
+    ag = FreeDataAIAgent(state["hist_df"], state["forecast_df"], state["passport_df"], anomalies=state["anomalies"])
+
+    first = ag.answer("Quelles sont les anomalies récentes ?")
+    assert first["intent"] == "anomalies"
+    history = [
+        {"role": "user", "content": "Quelles sont les anomalies récentes ?"},
+        {"role": "assistant", "content": first["reply"]},
+    ]
+    follow = ag.answer("pourquoi pala l ecart est de -25%", history=history)
+    assert follow["intent"] == "anomalies"
+    assert "534" in follow["reply"] and "706" in follow["reply"]
+    assert "Pourquoi cet écart" in follow["reply"]

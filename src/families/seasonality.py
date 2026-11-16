@@ -11,7 +11,7 @@ from src.families.base import FamilySpec
 from src.seasonality import MONTHS_FR as _MONTHS_FR
 
 PATTERN = re.compile(
-    r"\b(?:quand|quel\s+mois|quels\s+mois|quelle\s+periode|quelles\s+periodes|meilleur\s+moment|meilleure\s+periode|"
+    r"\b(?:quand|quel\s+mois|quels\s+mois|meilleur(?:e|s)?\s+mois|bons?\s+mois|quelle\s+periode|quelles\s+periodes|meilleur\s+moment|meilleure\s+periode|"
     r"bon\s+moment|saison(?:s|nier|niere|nalite)?|soudure|periode\s+de\s+soudure|destock(?:er|age)?|stock(?:er|age)?)\b"
     r".*\b(?:acheter|achat|vendre|vente|stocker|stockage|destocker|destockage|prix|cher|bas|haut|monte|baisse)\b"
     r"|\b(?:saisonnalite|saisonnier|saisonniere|calendrier\s+(?:d[\s']?achat|des?\s+prix)|periode\s+de\s+soudure|soudure)\b"

@@ -91,6 +91,31 @@ def format_anomalies(agent, d: dict) -> str:
         if d.get("n_movement", 0) > len(d["items"]):
             lines.append(f"\n*{d['n_movement'] - len(d['items'])} autre(s) signal(aux) de moindre intensité non affiché(s).*")
         lines.append("")
+        if d.get("province") or len(d["items"]) <= 2:
+            r0 = d["items"][0]
+            c_fr = fr_commodity(r0["commodity_std"])
+            kind = r0["kind"]
+            if kind in ("divergence", "jump+divergence"):
+                lines.append(
+                    f"**Pourquoi cet écart de {r0['change_pct']:+.0f} % ({r0['market_name']}) ?** "
+                    f"Le détecteur compare l'évolution mensuelle de **{r0['market_name']}** à la médiane des autres marchés suivis "
+                    f"pour le **{c_fr}**. Le prix observé (**{r0['value']:.0f} XAF/kg**) s'écarte de **{r0['change_pct']:+.0f} %** "
+                    f"du niveau attendu s'il avait suivi ses pairs (**{r0['reference']:.0f} XAF/kg**). "
+                    "Causes fréquentes : arrivage ou récolte locale, variation de demande, ou erreur de relevé/d'unité."
+                )
+            elif kind == "jump":
+                lines.append(
+                    f"**Pourquoi ce saut de {r0['change_pct']:+.0f} % ({r0['market_name']}) ?** "
+                    f"Le prix du **{c_fr}** est passé à **{r0['value']:.0f} XAF/kg** (vs **{r0['reference']:.0f} XAF/kg** le mois précédent), "
+                    "une variation mensuelle atypique par rapport à l'historique propre de ce marché."
+                )
+            elif kind == "regional":
+                lines.append(
+                    f"**Pourquoi cet épisode régional ({r0['province']}) ?** "
+                    f"Plusieurs marchés de la province ont varié dans le même sens ({r0['change_pct']:+.0f} %) sur le **{c_fr}** : "
+                    "vérifiez un choc d'offre régional, une contrainte logistique ou un changement de source."
+                )
+            lines.append("")
     if d["quality"]:
         lines.append("**Qualité des données** (peut fausser les prévisions de ces séries) :")
         for r in d["quality"]:
