@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.table_ml_anomalies (
     province      TEXT        NOT NULL,
     market_name   TEXT        NOT NULL,
     commodity_std TEXT        NOT NULL,
-    kind          TEXT        NOT NULL,   -- jump | divergence | jump+divergence | stale | stopped
+    kind          TEXT        NOT NULL,   -- jump | divergence | jump+divergence | regional | stale | stopped
     severity      TEXT        NOT NULL,   -- modérée | forte
     month         TEXT        NOT NULL,   -- 'YYYY-MM'
     value         DOUBLE PRECISION,

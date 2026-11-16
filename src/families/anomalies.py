@@ -26,6 +26,7 @@ _KIND_FR = {
     "jump": "Saut de prix",
     "divergence": "Écart avec les autres marchés",
     "jump+divergence": "Saut et écart avec les autres marchés",
+    "regional": "Épisode régional (plusieurs marchés à la fois : événement ou changement d'unité/de source ?)",
 }
 
 

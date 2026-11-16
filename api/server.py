@@ -471,7 +471,7 @@ def get_alerts(
 def get_anomalies(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
-    kind: Optional[str] = Query(None, pattern="^(jump|divergence|jump\\+divergence|stale|stopped)$"),
+    kind: Optional[str] = Query(None, pattern="^(jump|divergence|jump\\+divergence|regional|stale|stopped)$"),
     severity: Optional[str] = Query(None, pattern="^(forte|modérée)$"),
     limit: int = Query(100, ge=1, le=1000),
     state: dict = Depends(get_state),

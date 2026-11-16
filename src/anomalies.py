@@ -111,19 +111,20 @@ def _checks(kg_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _calibrated(checks: pd.DataFrame, col: str, base: float, target_rate: float) -> pd.Series:
+def _calibrated(checks: pd.DataFrame, col: str, base: float, target_rate: float, cap: float = CALIBRATION_CAP) -> pd.Series:
     """Seuil de |z| par produit : au moins `base`, et au moins le quantile (1 - target_rate) de son bruit réel."""
     def thr(g):
         v = g[col].abs().dropna()
-        return min(max(base, float(v.quantile(1.0 - target_rate))), CALIBRATION_CAP * base) if len(v) >= MIN_CALIBRATION else base
+        return min(max(base, float(v.quantile(1.0 - target_rate))), cap * base) if len(v) >= MIN_CALIBRATION else base
     return checks.groupby("commodity_std").apply(thr, include_groups=False)
 
 
-def _signals(checks: pd.DataFrame, kind: str, z_threshold: float, min_size: float, target_rate: float) -> list[dict]:
+def _signals(checks: pd.DataFrame, kind: str, z_threshold: float, min_size: float, target_rate: float,
+             cap: float = CALIBRATION_CAP) -> list[dict]:
     if checks.empty:
         return []
     zcol, sizecol = ("z_jump", "move") if kind == "jump" else ("z_div", "gap")
-    thr = checks["commodity_std"].map(_calibrated(checks, zcol, z_threshold, target_rate))
+    thr = checks["commodity_std"].map(_calibrated(checks, zcol, z_threshold, target_rate, cap))
     hit = (checks[zcol].abs() >= thr) & (checks[sizecol].abs() >= min_size)
     if kind == "jump":
         common = checks["peer_move"].notna() & (np.sign(checks["peer_move"]) == np.sign(checks["move"])) & \
@@ -138,14 +139,16 @@ def _signals(checks: pd.DataFrame, kind: str, z_threshold: float, min_size: floa
 
 
 def jump_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD, min_move: float = MIN_MOVE,
-                   target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None) -> list[dict]:
-    return _signals(_checks(kg_df) if checks is None else checks, "jump", z_threshold, min_move, target_rate)
+                   target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None,
+                   cap: float = CALIBRATION_CAP) -> list[dict]:
+    return _signals(_checks(kg_df) if checks is None else checks, "jump", z_threshold, min_move, target_rate, cap)
 
 
 def divergence_anomalies(kg_df: pd.DataFrame, z_threshold: float = Z_THRESHOLD, min_divergence: float = MIN_DIVERGENCE,
-                         target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None) -> list[dict]:
+                         target_rate: float = TARGET_RATE, checks: Optional[pd.DataFrame] = None,
+                         cap: float = CALIBRATION_CAP) -> list[dict]:
     """Un choc commun à tous les marchés n'est pas une divergence ; un marché qui bouge seul l'est."""
-    return _signals(_checks(kg_df) if checks is None else checks, "divergence", z_threshold, min_divergence, target_rate)
+    return _signals(_checks(kg_df) if checks is None else checks, "divergence", z_threshold, min_divergence, target_rate, cap)
 
 
 # ----------------------------------------------------------------------------
@@ -174,10 +177,42 @@ def quality_issues(kg_df: pd.DataFrame) -> list[dict]:
 # ----------------------------------------------------------------------------
 # Assemblage
 # ----------------------------------------------------------------------------
-def detect_anomalies(kg_df: pd.DataFrame) -> pd.DataFrame:
+REGIONAL_MIN_MARKETS = 3   # ≥ 3 marchés d'une même province, même produit, même mois, même sens = épisode régional
+
+
+def _group_regional(df: pd.DataFrame) -> pd.DataFrame:
+    """Regroupe en UNE ligne les anomalies simultanées de plusieurs marchés d'une province (même produit, mois, sens).
+
+    Plusieurs marchés qui bougent ensemble évoquent un événement régional (pénurie, route coupée) ou un problème de
+    données (changement d'unité ou de source) : à vérifier d'abord, plutôt que N alertes isolées.
+    """
+    mv = df[df["kind"].isin(["jump", "divergence", "jump+divergence"])].copy()
+    if mv.empty:
+        return df
+    mv["_sign"] = np.sign(mv["change_pct"])
+    rows, drop = [], []
+    for _, g in mv.groupby(["province", "commodity_std", "month", "_sign"]):
+        if g["market_name"].nunique() < REGIONAL_MIN_MARKETS:
+            continue
+        drop.extend(g.index)
+        rows.append({
+            "source": "multi", "province": g["province"].iloc[0], "market_name": ", ".join(sorted(g["market_name"].unique())),
+            "commodity_std": g["commodity_std"].iloc[0], "kind": "regional",
+            "severity": "forte" if (g["severity"] == "forte").any() else "modérée", "month": g["month"].iloc[0],
+            "value": float(g["value"].median()), "reference": float(g["reference"].median()),
+            "change_pct": float(g["change_pct"].median()), "score": float(g["score"].abs().median()) * float(g["_sign"].iloc[0]),
+        })
+    if not rows:
+        return df
+    return pd.concat([df.drop(index=drop), pd.DataFrame(rows)[COLUMNS]], ignore_index=True)
+
+
+def detect_anomalies(kg_df: pd.DataFrame, target_rate: float = TARGET_RATE, cap: float = CALIBRATION_CAP,
+                     group_regional: bool = True, checks: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Toutes les anomalies de l'historique, une ligne par (série, mois, type) ; jump+divergence fusionnés."""
-    checks = _checks(kg_df)
-    rows = jump_anomalies(kg_df, checks=checks) + divergence_anomalies(kg_df, checks=checks) + quality_issues(kg_df)
+    checks = _checks(kg_df) if checks is None else checks
+    rows = (jump_anomalies(kg_df, target_rate=target_rate, checks=checks, cap=cap)
+            + divergence_anomalies(kg_df, target_rate=target_rate, checks=checks, cap=cap) + quality_issues(kg_df))
     if not rows:
         return pd.DataFrame(columns=COLUMNS)
     df = pd.DataFrame(rows)
@@ -192,8 +227,11 @@ def detect_anomalies(kg_df: pd.DataFrame) -> pd.DataFrame:
         merged.append(top)
     rest = pd.concat([both[~dup], df[~df["kind"].isin(["jump", "divergence"])]], ignore_index=True)
     out = pd.concat([rest, pd.DataFrame(merged)], ignore_index=True) if merged else rest
-    return out[COLUMNS].sort_values(["month", "score"], ascending=[False, False], key=lambda s: s.abs() if s.name == "score" else s,
-                                    ignore_index=True)
+    out = out[COLUMNS]
+    if group_regional:
+        out = _group_regional(out)
+    return out.sort_values(["month", "score"], ascending=[False, False],
+                           key=lambda s: s.abs() if s.name == "score" else s, ignore_index=True)
 
 
 def recent_anomalies(anom: pd.DataFrame, months: int = 3) -> pd.DataFrame:
@@ -235,31 +273,48 @@ def inject_shocks(kg_df: pd.DataFrame, n: int, magnitude: float, seed: int = 0, 
     return df, truth
 
 
-def evaluate_detection(kg_df: pd.DataFrame, magnitudes=(0.15, 0.25, 0.40), n: int = 150, seed: int = 0,
-                       window_months: int = 12) -> dict:
-    """Taux de détection par amplitude de choc + taux d'alertes sur les données telles quelles.
+OPERATING_POINTS = {  # nom -> plafond d'étalonnage (× seuil de base) : plus bas = plus sensible et plus bruyant
+    "prudent (plafond ×2)": 2.0,
+    "intermédiaire (×1,5)": 1.5,
+    "sensible (×1, sans étalonnage)": 1.0,
+}
 
-    Les données réelles contiennent de vraies anomalies : « alertes sur données brutes » est donc une borne
-    HAUTE du taux de fausses alertes, pas une mesure exacte.
+
+def evaluate_detection(kg_df: pd.DataFrame, magnitudes=(0.15, 0.25, 0.40), n: int = 150, seed: int = 0,
+                       window_months: int = 12, operating_points: Optional[dict] = None) -> dict:
+    """Taux d'alertes sur les données telles quelles + taux de détection de chocs injectés, par réglage.
+
+    Les données réelles contiennent de vraies anomalies : « alertes sur données brutes » est une borne HAUTE du
+    taux de fausses alertes, pas une mesure exacte. Les chocs sont injectés un par un : l'évaluation se fait sans
+    regroupement régional. Le premier réglage est celui par défaut ; ses chiffres sont aussi à la racine du résultat.
     """
-    base = detect_anomalies(kg_df)
+    points = operating_points or OPERATING_POINTS
     d = _clean(kg_df)
     end = int(d["ordinal"].max())
-    series_months = int(((d["ordinal"] > end - window_months)).sum())
-    recent = base[base["kind"].isin(["jump", "divergence", "jump+divergence"])]
+    series_months = int((d["ordinal"] > end - window_months).sum())
     cutoff_year, cutoff_m0 = divmod(end - window_months, 12)
     cutoff = f"{cutoff_year:04d}-{cutoff_m0 + 1:02d}"
-    n_alerts = int((recent["month"] > cutoff).sum())
-    out = {"series_months": series_months, "alerts_on_raw_data": n_alerts,
-           "alert_rate_pct": 100.0 * n_alerts / max(series_months, 1), "detection": {}}
+    moves = ["jump", "divergence", "jump+divergence"]
+
+    base_checks = _checks(kg_df)
+    result = {name: {"cap": cap, "detection": {}} for name, cap in points.items()}
+    for name, cap in points.items():
+        an = detect_anomalies(kg_df, cap=cap, group_regional=False, checks=base_checks)
+        n_alerts = int(((an["kind"].isin(moves)) & (an["month"] > cutoff)).sum())
+        result[name].update(alerts_on_raw_data=n_alerts, alert_rate_pct=100.0 * n_alerts / max(series_months, 1))
     for mag in magnitudes:
         shocked, truth = inject_shocks(kg_df, n, mag, seed=seed, window_months=window_months)
         if not truth:
-            out["detection"][mag] = {"injected": 0, "detected": 0, "rate": float("nan")}
+            for name in points:
+                result[name]["detection"][mag] = {"injected": 0, "detected": 0, "rate": float("nan")}
             continue
-        found = detect_anomalies(shocked)
-        found = found[found["kind"].isin(["jump", "divergence", "jump+divergence"])]
-        flagged = set(map(tuple, found[SERIES_KEYS + ["month"]].itertuples(index=False, name=None)))
-        hit = len(truth & flagged)
-        out["detection"][mag] = {"injected": len(truth), "detected": hit, "rate": hit / len(truth)}
-    return out
+        ck = _checks(shocked)
+        for name, cap in points.items():
+            found = detect_anomalies(shocked, cap=cap, group_regional=False, checks=ck)
+            found = found[found["kind"].isin(moves)]
+            flagged = set(map(tuple, found[SERIES_KEYS + ["month"]].itertuples(index=False, name=None)))
+            hit = len(truth & flagged)
+            result[name]["detection"][mag] = {"injected": len(truth), "detected": hit, "rate": hit / len(truth)}
+    first = next(iter(result.values()))
+    return {"series_months": series_months, "alerts_on_raw_data": first["alerts_on_raw_data"],
+            "alert_rate_pct": first["alert_rate_pct"], "detection": first["detection"], "points": result}

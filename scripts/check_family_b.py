@@ -25,8 +25,19 @@ def report(anom, ev) -> str:
              "## Détection de chocs injectés", "", "| Amplitude du choc | Injectés | Détectés | Taux |", "| :--- | ---: | ---: | ---: |"]
     for mag, d in ev["detection"].items():
         lines.append(f"| ±{mag * 100:.0f} % | {d['injected']} | {d['detected']} | {d['rate'] * 100:.0f} % |")
+    lines += ["", "## Réglages comparés (taux d'alertes vs capacité de détection)", "",
+              "| Réglage | Alertes (12 mois) | " + " | ".join(f"Détectés ±{m * 100:.0f} %" for m in ev["detection"]) + " |",
+              "| :--- | ---: | " + " | ".join("---:" for _ in ev["detection"]) + " |"]
+    for name, pt in ev["points"].items():
+        cells = " | ".join(f"{d['rate'] * 100:.0f} %" for d in pt["detection"].values())
+        lines.append(f"| {name} | {pt['alert_rate_pct']:.2f} % | {cells} |")
+    reg = rec[rec["kind"] == "regional"]
+    if len(reg):
+        lines += ["", "## Épisodes régionaux (plusieurs marchés d'une province à la fois : événement ou problème de données ?)", ""]
+        for r in reg.head(15).itertuples():
+            lines.append(f"- {r.month} — {r.commodity_std} ({r.province} : {r.market_name}) : {r.change_pct:+.0f} %")
     lines += ["", "## Dernières anomalies fortes", ""]
-    top = rec[rec["severity"] == "forte"].head(15)
+    top = rec[(rec["severity"] == "forte") & (rec["kind"] != "regional")].head(15)
     for r in top.itertuples():
         lines.append(f"- {r.month} — {r.commodity_std} ({r.province}, {r.market_name}) : {r.kind}, {r.change_pct:+.0f} %")
     return "\n".join(lines) + "\n"

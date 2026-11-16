@@ -206,3 +206,32 @@ def test_calibration_never_exceeds_cap_so_real_shocks_survive():
     ck = an._checks(shocked)
     thr = an._calibrated(ck, "z_jump", an.Z_THRESHOLD, an.TARGET_RATE)
     assert (thr <= an.CALIBRATION_CAP * an.Z_THRESHOLD + 1e-9).all()
+
+
+def test_simultaneous_moves_in_one_province_become_one_regional_episode():
+    df = panel(n_months=30, n_markets=9, noise=0.015)           # Prov0/1/2 : 3 marchés chacun
+    for market in ("Marche0", "Marche3", "Marche6"):             # les 3 marchés de Prov0 montent ensemble
+        df = set_value(df, market, "2026-04", 1.6)
+    det = detect_anomalies(df)
+    reg = det[(det["kind"] == "regional") & (det["month"] == "2026-04")]
+    assert len(reg) == 1 and reg.iloc[0]["province"] == "Prov0" and reg.iloc[0]["market_name"] == "Marche0, Marche3, Marche6"
+    assert reg.iloc[0]["change_pct"] > 40
+    isolated = detect_anomalies(df, group_regional=False)
+    assert (isolated["kind"] == "regional").sum() == 0
+
+
+def test_two_markets_only_are_not_a_regional_episode():
+    df = panel(n_months=30, n_markets=9, noise=0.015)
+    for market in ("Marche0", "Marche3"):
+        df = set_value(df, market, "2026-04", 1.6)
+    det = detect_anomalies(df)
+    assert (det["kind"] == "regional").sum() == 0
+
+
+def test_evaluation_compares_operating_points():
+    ev = evaluate_detection(panel(n_months=36, n_markets=12, noise=0.02, seed=5), magnitudes=(0.40,), n=20, seed=1)
+    pts = ev["points"]
+    assert len(pts) == 3
+    rates = [p["alert_rate_pct"] for p in pts.values()]
+    assert rates == sorted(rates)  # plus le plafond baisse, plus on alerte (ou autant)
+    assert ev["alert_rate_pct"] == rates[0]
