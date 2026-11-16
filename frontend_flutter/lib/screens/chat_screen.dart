@@ -117,6 +117,13 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    if (_thread != null && id != _thread!.id) {
+      _lastPrompt = null;
+      if (widget.initialPrompt == null || widget.initialPrompt!.isEmpty) {
+        _controller.clear();
+      }
+    }
+
     setState(() {
       _loading = false;
     });

@@ -224,15 +224,32 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _reloadConversations() async {
+    final activeAtStart = _activeConversationId;
+    final wasSaved = activeAtStart != null &&
+        _conversations.any((c) => c.id == activeAtStart);
     final list = await LocalConversationStorage.instance.loadConversations();
     if (!mounted) return;
+
+    String? replacementId;
+    final shouldReplace = wasSaved && !list.any((c) => c.id == activeAtStart);
+    if (shouldReplace) {
+      if (list.isNotEmpty) {
+        replacementId = list.first.id;
+      } else {
+        final draft = await LocalConversationStorage.instance.createConversation();
+        if (!mounted) return;
+        replacementId = draft.id;
+      }
+    }
+
     setState(() {
       _conversations = list;
-      if (_activeConversationId != null &&
-          !list.any((c) => c.id == _activeConversationId)) {
-        _activeConversationId = list.isNotEmpty ? list.first.id : null;
-      } else if (_activeConversationId == null && list.isNotEmpty) {
-        _activeConversationId = list.first.id;
+      if (_activeConversationId == activeAtStart) {
+        if (shouldReplace) {
+          _activeConversationId = replacementId;
+        } else if (_activeConversationId == null && list.isNotEmpty) {
+          _activeConversationId = list.first.id;
+        }
       }
     });
   }
@@ -275,9 +292,6 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _deleteConversation(String id) async {
     await LocalConversationStorage.instance.deleteConversation(id);
-    if (_activeConversationId == id) {
-      _activeConversationId = null;
-    }
     await _reloadConversations();
     if (!mounted) return;
     _showSnackBar(

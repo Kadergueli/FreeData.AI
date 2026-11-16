@@ -1024,6 +1024,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sarh'), findsNothing);
   });
+
+  testWidgets('New conversation buttons in sidebar and mobile AppBar start a fresh chat even when history exists',
+      (tester) async {
+    final existing = ConversationThread(
+      id: 'conv-existing',
+      title: 'Analyse Mil Moundou',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 2),
+      messages: [
+        ChatMessage.user('Prix du mil à Moundou ?'),
+        ChatMessage.assistant(text: 'Réponse historique Moundou.'),
+      ],
+    );
+    await LocalConversationStorage.instance.saveAll([existing]);
+
+    // 1. Desktop : bouton "Nouvelle conversation" dans la barre latérale
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Brouillon en cours');
+
+    await tester.tap(find.text('Nouvelle conversation').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Prix du mil à Moundou ?'), findsNothing);
+    expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
+    expect(find.text('Analyse Mil Moundou'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, isEmpty);
+
+    // 2. Mobile : bouton icône en haut à droite (AppBar actions)
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.edit_square));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Prix du mil à Moundou ?'), findsNothing);
+    expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _FullCatalogFakeApi extends ApiService {
