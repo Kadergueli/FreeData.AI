@@ -856,12 +856,12 @@ void main() {
     await tester.tap(find.byTooltip('Options'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Supprimer'));
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
 
     expect(find.text('Conversation mise à la corbeille'), findsOneWidget);
     expect(find.byType(SnackBarAction), findsNothing);
 
-    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(seconds: 3, milliseconds: 100));
     await tester.pumpAndSettle();
     expect(find.text('Conversation mise à la corbeille'), findsNothing);
   });

@@ -51,7 +51,9 @@ class ApiService {
                 resp.statusCode == 504 ||
                 (retryOn503 &&
                     resp.statusCode == 503 &&
-                    !utf8.decode(resp.bodyBytes).contains('PREMIUM_API_KEYS')))) {
+                    !utf8
+                        .decode(resp.bodyBytes, allowMalformed: true)
+                        .contains('PREMIUM_API_KEYS')))) {
           await Future.delayed(const Duration(seconds: 2));
           continue;
         }
@@ -93,7 +95,9 @@ class ApiService {
       return false;
     }
     if (resp.statusCode == 503 &&
-        utf8.decode(resp.bodyBytes).contains('PREMIUM_API_KEYS')) {
+        utf8
+            .decode(resp.bodyBytes, allowMalformed: true)
+            .contains('PREMIUM_API_KEYS')) {
       throw const ApiHttpException(
         503,
         'Sur Render, vérifiez que la variable se nomme PREMIUM_API_KEYS (avec S, min. 16 caractères) puis redémarrez le service Render.',

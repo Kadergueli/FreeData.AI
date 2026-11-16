@@ -280,6 +280,7 @@ class _MainShellState extends State<MainShell> {
     _showSnackBar(
       SnackBar(
         duration: const Duration(seconds: 3),
+        persist: false,
         content: Row(
           children: [
             const Expanded(child: Text('Conversation mise à la corbeille')),
@@ -783,7 +784,12 @@ class _SidebarContent extends StatelessWidget {
                                   children: [
                                     Icon(Icons.edit_outlined, size: 16),
                                     SizedBox(width: 8),
-                                    Text('Renommer'),
+                                    Flexible(
+                                      child: Text(
+                                        'Renommer',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -792,8 +798,13 @@ class _SidebarContent extends StatelessWidget {
                                 child: Row(
                                   children: [
                                     Icon(conv.isSavedInLibrary ? Icons.bookmark_remove_outlined : Icons.bookmark_add_outlined, size: 16),
-                                    SizedBox(width: 8),
-                                    Text(conv.isSavedInLibrary ? 'Retirer de Library' : 'Sauvegarder dans Library'),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        conv.isSavedInLibrary ? 'Retirer de Library' : 'Sauvegarder dans Library',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -803,7 +814,13 @@ class _SidebarContent extends StatelessWidget {
                                   children: [
                                     Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
                                     SizedBox(width: 8),
-                                    Text('Supprimer', style: TextStyle(color: Color(0xFFDC2626))),
+                                    Flexible(
+                                      child: Text(
+                                        'Supprimer',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: Color(0xFFDC2626)),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
