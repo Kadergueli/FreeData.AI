@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/fd_theme.dart';
 
 class SourceCard extends StatelessWidget {
   final Map<String, dynamic> source;
@@ -25,9 +26,9 @@ class SourceCard extends StatelessWidget {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: FDTheme.canvas,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: FDTheme.line),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -35,13 +36,13 @@ class SourceCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
+              color: FDTheme.blueSoft,
               borderRadius: BorderRadius.circular(6),
             ),
             child: const Icon(
               Icons.verified_outlined,
               size: 14,
-              color: Color(0xFF1D4ED8),
+              color: FDTheme.blue,
             ),
           ),
           const SizedBox(width: 10),
@@ -57,7 +58,7 @@ class SourceCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF0F172A),
+                          color: FDTheme.ink,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -67,7 +68,7 @@ class SourceCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
+                          color: FDTheme.blueSoft,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
@@ -75,7 +76,7 @@ class SourceCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF1D4ED8),
+                            color: FDTheme.blue,
                           ),
                         ),
                       ),
@@ -88,7 +89,7 @@ class SourceCard extends StatelessWidget {
                     details,
                     style: const TextStyle(
                       fontSize: 11.5,
-                      color: Color(0xFF64748B),
+                      color: FDTheme.subtle,
                     ),
                   ),
                 ],

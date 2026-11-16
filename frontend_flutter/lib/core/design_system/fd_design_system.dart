@@ -137,53 +137,6 @@ class FDSecondaryButton extends StatelessWidget {
   }
 }
 
-class FDInputField extends StatelessWidget {
-  final TextEditingController? controller;
-  final String? hintText;
-  final String? labelText;
-  final int? minLines;
-  final int? maxLines;
-  final TextInputAction? textInputAction;
-  final ValueChanged<String>? onSubmitted;
-  final bool autofocus;
-  final Widget? prefixIcon;
-  final Widget? suffixIcon;
-
-  const FDInputField({
-    super.key,
-    this.controller,
-    this.hintText,
-    this.labelText,
-    this.minLines,
-    this.maxLines,
-    this.textInputAction,
-    this.onSubmitted,
-    this.autofocus = false,
-    this.prefixIcon,
-    this.suffixIcon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      minLines: minLines,
-      maxLines: maxLines ?? 1,
-      autofocus: autofocus,
-      textInputAction: textInputAction,
-      onSubmitted: onSubmitted,
-      decoration: InputDecoration(
-        hintText: hintText,
-        labelText: labelText,
-        prefixIcon: prefixIcon,
-        suffixIcon: suffixIcon,
-        filled: true,
-        fillColor: AppColors.surface,
-      ),
-    );
-  }
-}
-
 class FDBadge extends StatelessWidget {
   final String label;
   final Color color;
@@ -439,66 +392,6 @@ class FDSectionTitle extends StatelessWidget {
           ),
         ),
         if (trailing != null) trailing!,
-      ],
-    );
-  }
-}
-
-class FDToolbarPill extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const FDToolbarPill({
-    super.key,
-    required this.label,
-    this.color = AppColors.green,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 7, color: color),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class FDDataRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const FDDataRow({
-    super.key,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-        ),
-        Text(value, style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 12)),
       ],
     );
   }

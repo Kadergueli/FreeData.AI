@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/fd_theme.dart';
 
 class AnalysisSummary extends StatelessWidget {
   final Map<String, dynamic> summary;
@@ -14,23 +15,23 @@ class AnalysisSummary extends StatelessWidget {
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0FDF4),
+        color: FDTheme.greenSoft,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBBF7D0)),
+        border: Border.all(color: FDTheme.greenBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF16A34A)),
+              const Icon(Icons.check_circle_outline_rounded, size: 16, color: FDTheme.green),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF166534),
+                    color: FDTheme.greenDark,
                     fontSize: 13,
                   ),
                 ),
@@ -44,11 +45,11 @@ class AnalysisSummary extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('• ', style: TextStyle(color: Color(0xFF16A34A), fontWeight: FontWeight.bold)),
+                      const Text('• ', style: TextStyle(color: FDTheme.green, fontWeight: FontWeight.bold)),
                       Expanded(
                         child: Text(
                           item.toString(),
-                          style: const TextStyle(fontSize: 12.5, color: Color(0xFF14532D), height: 1.4),
+                          style: const TextStyle(fontSize: 12.5, color: FDTheme.greenDark, height: 1.4),
                         ),
                       ),
                     ],
@@ -76,8 +77,8 @@ class DataTableCard extends StatelessWidget {
       margin: const EdgeInsets.only(top: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        color: Colors.white,
+        border: Border.all(color: FDTheme.line),
+        color: FDTheme.surface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -85,19 +86,19 @@ class DataTableCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: const BoxDecoration(
-              color: Color(0xFFF8FAFC),
+              color: FDTheme.canvas,
               borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
             ),
             child: const Row(
               children: [
-                Icon(Icons.table_chart_outlined, size: 15, color: Color(0xFF64748B)),
+                Icon(Icons.table_chart_outlined, size: 15, color: FDTheme.subtle),
                 SizedBox(width: 6),
                 Text(
                   'Données structurées',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF475569),
+                    color: FDTheme.muted,
                   ),
                 ),
               ],
@@ -117,7 +118,7 @@ class DataTableCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
+                          color: FDTheme.ink,
                         ),
                       ),
                     ),
@@ -131,7 +132,7 @@ class DataTableCard extends StatelessWidget {
                             (h) => DataCell(
                               Text(
                                 r[h]?.toString() ?? '—',
-                                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                                style: const TextStyle(fontSize: 12, color: FDTheme.body),
                               ),
                             ),
                           )
@@ -167,23 +168,23 @@ class ChartCard extends StatelessWidget {
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: FDTheme.canvas,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: FDTheme.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.bar_chart_rounded, size: 16, color: Color(0xFF1D4ED8)),
+              Icon(Icons.bar_chart_rounded, size: 16, color: FDTheme.blue),
               SizedBox(width: 6),
               Text(
                 'Aperçu comparatif',
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F172A),
+                  color: FDTheme.ink,
                 ),
               ),
             ],
@@ -195,32 +196,37 @@ class ChartCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: entries.map((e) {
                 final val = num.tryParse(e.value.toString()) ?? 0;
-                final ratio = maxValue == 0 ? 0.0 : val.toDouble() / maxValue;
+                final ratio = maxValue <= 0
+                    ? 0.0
+                    : (val.toDouble() / maxValue).clamp(0.0, 1.0);
                 return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text(
-                          val.toStringAsFixed(0),
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          height: 70 * ratio,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF1D4ED8),
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+                  child: Tooltip(
+                    message: '${e.key} : ${val.toStringAsFixed(0)}',
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            val.toStringAsFixed(0),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: FDTheme.subtle),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          e.key.length > 7 ? '${e.key.substring(0, 6)}…' : e.key,
-                          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Container(
+                            height: 70 * ratio,
+                            decoration: const BoxDecoration(
+                              color: FDTheme.blue,
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            e.key.length > 10 ? '${e.key.substring(0, 9)}…' : e.key,
+                            style: const TextStyle(fontSize: 10, color: FDTheme.subtle),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );

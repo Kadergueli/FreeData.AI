@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/fd_theme.dart';
 
 class LoadingIndicator extends StatelessWidget {
   final String label;
@@ -19,7 +20,7 @@ class LoadingIndicator extends StatelessWidget {
             width: 26,
             height: 26,
             decoration: BoxDecoration(
-              color: const Color(0xFF1D4ED8),
+              color: FDTheme.blue,
               borderRadius: BorderRadius.circular(6),
             ),
             alignment: Alignment.center,
@@ -36,9 +37,9 @@ class LoadingIndicator extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
+              color: FDTheme.canvas,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: FDTheme.line),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -48,7 +49,7 @@ class LoadingIndicator extends StatelessWidget {
                   height: 14,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1D4ED8)),
+                    valueColor: AlwaysStoppedAnimation<Color>(FDTheme.blue),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -56,7 +57,7 @@ class LoadingIndicator extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: Color(0xFF64748B),
+                    color: FDTheme.subtle,
                   ),
                 ),
               ],

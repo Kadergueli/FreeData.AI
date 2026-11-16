@@ -72,7 +72,7 @@ void main() {
 
     expect(find.text('Explorer les données'), findsOneWidget);
     expect(find.text('Marchés et prix des produits'), findsWidgets);
-    expect(find.text('Millet'), findsNWidgets(2));
+    expect(find.text('Mil (Millet)'), findsNWidgets(2));
     expect(find.text("N'Djamena"), findsWidgets);
     expect(find.text('Supabase'), findsOneWidget);
     expect(find.text('Dates de mise à jour'), findsOneWidget);

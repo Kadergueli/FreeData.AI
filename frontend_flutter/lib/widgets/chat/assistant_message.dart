@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/fd_theme.dart';
 import '../../core/models/chat_models.dart';
+import '../../core/utils/formatters.dart';
 import 'markdown_renderer.dart';
 import 'source_card.dart';
 import 'data_cards.dart';
@@ -11,6 +13,7 @@ class AssistantMessage extends StatelessWidget {
   final Future<void> Function()? onRetry;
   final VoidCallback? onSaveToLibrary;
   final bool isSavedInLibrary;
+  final bool showSaveButton;
 
   const AssistantMessage({
     super.key,
@@ -18,6 +21,7 @@ class AssistantMessage extends StatelessWidget {
     this.onRetry,
     this.onSaveToLibrary,
     this.isSavedInLibrary = false,
+    this.showSaveButton = true,
   });
 
   static final RegExp _trailingDisclaimerRegex = RegExp(
@@ -65,7 +69,7 @@ class AssistantMessage extends StatelessWidget {
                 width: 20,
                 height: 20,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1D4ED8),
+                  color: FDTheme.blue,
                   borderRadius: BorderRadius.circular(5),
                 ),
                 alignment: Alignment.center,
@@ -84,7 +88,7 @@ class AssistantMessage extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF64748B),
+                  color: FDTheme.subtle,
                 ),
               ),
             ],
@@ -117,8 +121,8 @@ class AssistantMessage extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 10),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  color: FDTheme.canvas,
+                  border: Border.all(color: FDTheme.line),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -126,7 +130,7 @@ class AssistantMessage extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     height: 1.45,
-                    color: Color(0xFF64748B),
+                    color: FDTheme.subtle,
                   ),
                 ),
               ),
@@ -136,12 +140,12 @@ class AssistantMessage extends StatelessWidget {
               spacing: 8,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF64748B)),
+                  icon: const Icon(Icons.copy_rounded, size: 18, color: FDTheme.subtle),
                   tooltip: 'Copier la réponse',
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: const EdgeInsets.all(10),
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                   onPressed: () {
-                    Clipboard.setData(ClipboardData(text: message.text));
+                    Clipboard.setData(ClipboardData(text: cleanMarkdownForClipboard(message.text)));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Réponse copiée dans le presse-papiers'),
@@ -150,38 +154,39 @@ class AssistantMessage extends StatelessWidget {
                     );
                   },
                 ),
-                TextButton.icon(
-                  icon: Icon(
-                    isSavedInLibrary ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                    size: 18,
-                    color: isSavedInLibrary ? const Color(0xFF1D4ED8) : const Color(0xFF64748B),
-                  ),
-                  label: Text(
-                    isSavedInLibrary ? 'Enregistrée dans Library' : 'Sauvegarder dans Library',
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w500,
-                      color: isSavedInLibrary ? const Color(0xFF1D4ED8) : const Color(0xFF64748B),
+                if (showSaveButton)
+                  TextButton.icon(
+                    icon: Icon(
+                      isSavedInLibrary ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                      size: 18,
+                      color: isSavedInLibrary ? FDTheme.blue : FDTheme.subtle,
                     ),
+                    label: Text(
+                      isSavedInLibrary ? 'Enregistrée dans Library' : 'Sauvegarder dans Library',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w500,
+                        color: isSavedInLibrary ? FDTheme.blue : FDTheme.subtle,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      minimumSize: const Size(0, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () {
+                      if (onSaveToLibrary != null) {
+                        onSaveToLibrary!();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Analyse enregistrée dans la Bibliothèque locale'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
                   ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  onPressed: () {
-                    if (onSaveToLibrary != null) {
-                      onSaveToLibrary!();
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Analyse enregistrée dans la Bibliothèque locale'),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  },
-                ),
               ],
             ),
           ],

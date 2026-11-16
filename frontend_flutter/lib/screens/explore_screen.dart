@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/fd_theme.dart';
+import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 
 class ExploreScreen extends StatefulWidget {
@@ -29,15 +30,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
+    if (forceRefresh) {
+      widget.apiService.invalidateMetadataCache();
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final metaFuture = widget.apiService.getMetadata();
-      final forecastsFuture = widget.apiService.getForecasts().catchError((_) => <dynamic>[]);
-
-      final meta = await metaFuture;
+      final meta = await widget.apiService.getMetadata();
       if (!mounted) return;
 
-      final forecasts = await forecastsFuture;
+      final rawProducts = _asStringList(meta['products']);
+      final forecasts = rawProducts.isEmpty
+          ? await widget.apiService.getForecasts().catchError((_) => <dynamic>[])
+          : const <dynamic>[];
       if (!mounted) return;
 
       setState(() {
@@ -47,6 +55,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _error = null;
       });
     } catch (_) {
+      try {
+        final forecasts = await widget.apiService.getForecasts();
+        if (!mounted) return;
+        if (forecasts.isNotEmpty) {
+          setState(() {
+            _metadata = const <String, dynamic>{};
+            _forecasts = forecasts;
+            _loading = false;
+            _error = null;
+          });
+          return;
+        }
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -160,7 +181,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 if (_loading)
                   const FDLoadingState(message: 'Chargement du catalogue…')
                 else if (_error != null)
-                  FDErrorState(message: _error!)
+                  FDErrorState(
+                    message: _error!,
+                    onRetry: () => _load(forceRefresh: true),
+                  )
                 else ...[
                   FDCard(
                     child: Column(
@@ -209,14 +233,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     title: 'Produits',
                     values: products,
                     color: FDTheme.blue,
-                    onTapItem: (item) => _triggerPrompt(item, true),
+                    labelBuilder: commodityLabelFr,
+                    onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
                   ),
                   const SizedBox(height: 18),
                   _MetadataSection(
                     title: 'Céréales',
                     values: cereals,
                     color: FDTheme.green,
-                    onTapItem: (item) => _triggerPrompt(item, true),
+                    labelBuilder: commodityLabelFr,
+                    onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
                   ),
                   const SizedBox(height: 18),
                   LayoutBuilder(
@@ -386,12 +412,14 @@ class _MetadataSection extends StatelessWidget {
   final String title;
   final List<String> values;
   final Color color;
+  final String Function(String)? labelBuilder;
   final ValueChanged<String>? onTapItem;
 
   const _MetadataSection({
     required this.title,
     required this.values,
     required this.color,
+    this.labelBuilder,
     this.onTapItem,
   });
 
@@ -415,7 +443,7 @@ class _MetadataSection extends StatelessWidget {
               children: values
                   .map(
                     (value) => _Pill(
-                      text: value,
+                      text: labelBuilder != null ? labelBuilder!(value) : value,
                       color: color,
                       onTap: onTapItem != null ? () => onTapItem!(value) : null,
                     ),
@@ -483,26 +511,39 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = Container(
+    final pillContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .09),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: color.withValues(alpha: .18)),
-      ),
       child: Text(
         text,
         style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
 
-    if (onTap == null) return body;
+    if (onTap == null) {
+      return Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: color.withValues(alpha: .18)),
+        ),
+        child: pillContent,
+      );
+    }
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: body,
+    return Semantics(
+      button: true,
+      label: text,
+      child: Material(
+        color: color.withValues(alpha: .09),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+          side: BorderSide(color: color.withValues(alpha: .18)),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(30),
+          onTap: onTap,
+          child: pillContent,
+        ),
       ),
     );
   }
@@ -523,31 +564,42 @@ class _ComingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FDCard(
+    final content = Padding(
       padding: const EdgeInsets.all(16),
-      child: MouseRegion(
-        cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(icon, color: FDTheme.muted),
-                  const Spacer(),
-                  FDBadge(
-                    label: 'En préparation',
-                    color: const Color(0xFF64748B),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                  ),
-                ],
+              Icon(icon, color: FDTheme.muted),
+              const Spacer(),
+              FDBadge(
+                label: 'En préparation',
+                color: const Color(0xFF64748B),
+                backgroundColor: const Color(0xFFF1F5F9),
               ),
-              const SizedBox(height: 12),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink)),
-              const SizedBox(height: 5),
-              Text(desc, style: const TextStyle(fontSize: 12, color: FDTheme.muted, height: 1.4)),
             ],
+          ),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink)),
+          const SizedBox(height: 5),
+          Text(desc, style: const TextStyle(fontSize: 12, color: FDTheme.muted, height: 1.4)),
+        ],
+      ),
+    );
+
+    return FDCard(
+      padding: EdgeInsets.zero,
+      child: Semantics(
+        button: onTap != null,
+        label: title,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onTap,
+            child: content,
           ),
         ),
       ),

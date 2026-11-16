@@ -1,9 +1,77 @@
-import 'dart:convert';
-import '../../services/conversation_storage.dart';
-
-export '../../services/conversation_storage.dart' show ConversationThread;
+import '../utils/formatters.dart';
 
 typedef ChatConversation = ConversationThread;
+
+class ConversationThread {
+  final String id;
+  final String title;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final bool isSavedInLibrary;
+  final bool isDeleted;
+  final List<ChatMessage> messages;
+
+  const ConversationThread({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+    this.isSavedInLibrary = false,
+    this.isDeleted = false,
+    this.messages = const [],
+  });
+
+  ConversationThread copyWith({
+    String? id,
+    String? title,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isSavedInLibrary,
+    bool? isDeleted,
+    List<ChatMessage>? messages,
+  }) {
+    return ConversationThread(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      isSavedInLibrary: isSavedInLibrary ?? this.isSavedInLibrary,
+      isDeleted: isDeleted ?? this.isDeleted,
+      messages: messages ?? this.messages,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'createdAt': createdAt.toIso8601String(),
+        'updatedAt': updatedAt.toIso8601String(),
+        'isSavedInLibrary': isSavedInLibrary,
+        'isDeleted': isDeleted,
+        'messages': messages.map((m) => m.toJson()).toList(),
+      };
+
+  factory ConversationThread.fromJson(Map<String, dynamic> json) {
+    final list = (json['messages'] as List? ?? const [])
+        .map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+
+    return ConversationThread(
+      id: json['id']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      title: json['title']?.toString() ?? 'Nouvelle conversation',
+      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      isSavedInLibrary: json['isSavedInLibrary'] == true,
+      isDeleted: json['isDeleted'] == true,
+      messages: list,
+    );
+  }
+
+  String get previewText {
+    if (messages.isEmpty) return '';
+    return stripMarkdown(messages.last.text);
+  }
+}
 
 class ChatMessage {
   final String id;
@@ -69,17 +137,3 @@ class ChatMessage {
     );
   }
 }
-
-class ConversationSummary {
-  final String title;
-  final DateTime updatedAt;
-  final String preview;
-
-  const ConversationSummary({
-    required this.title,
-    required this.updatedAt,
-    required this.preview,
-  });
-}
-
-String safeJsonEncode(Object? data) => jsonEncode(data);

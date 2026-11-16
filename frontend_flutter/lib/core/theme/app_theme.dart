@@ -1,19 +1,31 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const blue = Color(0xFF2878D0);
-  static const blueDark = Color(0xFF1759A6);
+  static const blue = Color(0xFF1D4ED8);
+  static const blueDark = Color(0xFF1E40AF);
+  static const blueSoft = Color(0xFFEFF6FF);
   static const turquoise = Color(0xFF35D2C5);
-  static const green = Color(0xFF36A269);
+  static const green = Color(0xFF16A34A);
+  static const greenDark = Color(0xFF166534);
+  static const greenSoft = Color(0xFFF0FDF4);
+  static const greenBorder = Color(0xFFBBF7D0);
   static const mint = Color(0xFFE9F9F6);
-  static const ink = Color(0xFF172033);
-  static const muted = Color(0xFF667085);
-  static const canvas = Color(0xFFF5F8FC);
-  static const canvasSoft = Color(0xFFF9FBFF);
-  static const line = Color(0xFFE5EAF1);
+  static const ink = Color(0xFF0F172A);
+  static const inkSoft = Color(0xFF1E293B);
+  static const body = Color(0xFF334155);
+  static const muted = Color(0xFF475569);
+  static const subtle = Color(0xFF64748B);
+  static const canvas = Color(0xFFF8FAFC);
+  static const canvasSoft = Color(0xFFF1F5F9);
+  static const line = Color(0xFFE2E8F0);
+  static const borderStrong = Color(0xFFCBD5E1);
   static const surface = Colors.white;
-  static const danger = Color(0xFFB54745);
+  static const danger = Color(0xFFDC2626);
+  static const dangerDark = Color(0xFF991B1B);
+  static const dangerSoft = Color(0xFFFEF2F2);
+  static const dangerBorder = Color(0xFFFECACA);
   static const warning = Color(0xFFD98B24);
+  static const warningDark = Color(0xFFB45309);
   static const shadow = Color(0x1A172033);
 }
 

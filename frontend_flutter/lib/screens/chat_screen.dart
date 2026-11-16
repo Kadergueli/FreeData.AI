@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../core/fd_theme.dart';
 import '../core/models/chat_models.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
@@ -10,6 +12,7 @@ class ChatScreen extends StatefulWidget {
   final String? conversationId;
   final VoidCallback? onConversationUpdated;
   final String? initialPrompt;
+  final VoidCallback? onPromptHandled;
 
   const ChatScreen({
     super.key,
@@ -17,6 +20,7 @@ class ChatScreen extends StatefulWidget {
     this.conversationId,
     this.onConversationUpdated,
     this.initialPrompt,
+    this.onPromptHandled,
   });
 
   @override
@@ -69,13 +73,16 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Pré-réveil silencieux Render
+    // Pré-réveil silencieux Render (partagé via le cache getMetadata)
     widget.apiService.getMetadata().catchError((_) => <String, dynamic>{});
     _loadConversation(widget.conversationId);
 
     if (widget.initialPrompt != null && widget.initialPrompt!.isNotEmpty) {
+      final promptToSend = widget.initialPrompt!;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _sendMessage(widget.initialPrompt!);
+        if (!mounted) return;
+        widget.onPromptHandled?.call();
+        _sendMessage(promptToSend);
       });
     }
   }
@@ -89,7 +96,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.initialPrompt != null &&
         widget.initialPrompt!.isNotEmpty &&
         widget.initialPrompt != oldWidget.initialPrompt) {
-      _sendMessage(widget.initialPrompt!);
+      final promptToSend = widget.initialPrompt!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.onPromptHandled?.call();
+        _sendMessage(promptToSend);
+      });
     }
   }
 
@@ -101,9 +113,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadConversation(String? id) async {
+    setState(() {
+      _loading = false;
+    });
+
     if (id != null) {
       final found = await LocalConversationStorage.instance.getConversation(id);
-      if (!mounted) return;
+      if (!mounted || widget.conversationId != id) return;
+      if (_thread?.id == id && (_thread?.messages.isNotEmpty ?? false)) return;
+
       if (found != null) {
         setState(() => _thread = found);
         _scrollToBottom();
@@ -124,13 +142,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // Sinon, charger la plus récente active ou préparer un brouillon vide en mémoire
     final conversations = await LocalConversationStorage.instance.loadConversations();
-    if (!mounted) return;
+    if (!mounted || widget.conversationId != null) return;
 
     if (conversations.isNotEmpty) {
       setState(() => _thread = conversations.first);
     } else {
       final draft = await LocalConversationStorage.instance.createConversation();
-      if (!mounted) return;
+      if (!mounted || widget.conversationId != null) return;
       setState(() => _thread = draft);
     }
     _scrollToBottom();
@@ -182,6 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final userMessage = ChatMessage.user(trimmed);
     final currentThread = _thread!;
+    final targetThreadId = currentThread.id;
     final updatedMessages = [...currentThread.messages, userMessage];
 
     final nextTitle = currentThread.title == 'Nouvelle conversation'
@@ -219,9 +238,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final response = await widget.apiService.sendChatMessage(
         trimmed,
         history: recentHistory,
-        tier: 'premium',
+        tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
       );
-      if (!mounted) return;
 
       final raw = Map<String, dynamic>.from(response);
       final reply = raw['reply']?.toString() ??
@@ -246,14 +264,17 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: [...updatedMessages, assistantMessage],
       );
 
-      setState(() {
-        _thread = finalThread;
-        _loading = false;
-      });
       await LocalConversationStorage.instance.saveConversation(finalThread);
       widget.onConversationUpdated?.call();
-    } catch (e) {
       if (!mounted) return;
+      if (_thread?.id == targetThreadId) {
+        setState(() {
+          _thread = finalThread;
+          _loading = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
       final errorText = e.toString().contains('429')
           ? 'Trop de messages envoyés en peu de temps. Veuillez patienter une minute.'
           : (kDebugMode
@@ -270,15 +291,17 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: [...updatedMessages, errorMessage],
       );
 
-      setState(() {
-        _thread = finalThread;
-        _loading = false;
-      });
       await LocalConversationStorage.instance.saveConversation(finalThread);
       widget.onConversationUpdated?.call();
+      if (!mounted) return;
+      if (_thread?.id == targetThreadId) {
+        setState(() {
+          _thread = finalThread;
+          _loading = false;
+        });
+        _scrollToBottom();
+      }
     }
-
-    _scrollToBottom();
   }
 
   Future<void> _toggleSaveLibrary() async {
@@ -335,7 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
+                  color: FDTheme.ink,
                 ),
               ),
               const SizedBox(height: 18),
@@ -354,10 +377,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildQuickActionButton(_QuickAction action) {
     return Material(
-      color: Colors.white,
+      color: FDTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
+        side: const BorderSide(color: FDTheme.line, width: 1),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -367,7 +390,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(action.icon, size: 16, color: const Color(0xFF1D4ED8)),
+              Icon(action.icon, size: 16, color: FDTheme.blue),
               const SizedBox(width: 7),
               Flexible(
                 child: Text(
@@ -376,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: const TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF0F172A),
+                    color: FDTheme.ink,
                   ),
                 ),
               ),
@@ -389,6 +412,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildConversationState(List<ChatMessage> messages) {
     final isSaved = _thread?.isSavedInLibrary ?? false;
+    final lastAssistantIndex = messages.lastIndexWhere((m) => m.role != 'user');
 
     return Center(
       child: ConstrainedBox(
@@ -408,6 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
               return AssistantMessage(
                 message: msg,
                 isSavedInLibrary: isSaved,
+                showSaveButton: index == lastAssistantIndex,
                 onRetry: _lastPrompt != null ? () => _sendMessage(_lastPrompt!) : null,
                 onSaveToLibrary: _toggleSaveLibrary,
               );
@@ -426,8 +451,8 @@ class _ChatScreenState extends State<ChatScreen> {
           constraints: const BoxConstraints(maxWidth: 820),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+              color: FDTheme.canvas,
+              border: Border.all(color: FDTheme.borderStrong, width: 1),
               borderRadius: BorderRadius.circular(26),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -440,8 +465,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     minLines: 1,
                     maxLines: 4,
                     textInputAction: TextInputAction.send,
+                    inputFormatters: [
+                      LengthLimitingTextInputFormatter(1000),
+                    ],
                     style: const TextStyle(
-                      color: Color(0xFF0F172A),
+                      color: FDTheme.ink,
                       fontSize: 16,
                       height: 1.45,
                     ),
@@ -451,7 +479,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: const InputDecoration(
                       hintText: 'Interroger un marché, un produit ou un risque...',
                       hintStyle: TextStyle(
-                        color: Color(0xFF94A3B8),
+                        color: FDTheme.subtle,
                         fontSize: 15.5,
                       ),
                       filled: false,
@@ -474,10 +502,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     onPressed: _loading ? null : () => _sendMessage(_controller.text),
                     icon: const Icon(Icons.arrow_upward_rounded, size: 22),
                     style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFF1D4ED8),
+                      backgroundColor: FDTheme.blue,
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFE2E8F0),
-                      disabledForegroundColor: const Color(0xFF94A3B8),
+                      disabledBackgroundColor: FDTheme.line,
+                      disabledForegroundColor: FDTheme.subtle,
                       shape: const CircleBorder(),
                       padding: const EdgeInsets.all(10),
                     ),

@@ -1,24 +1,34 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:freedata_ai/core/models/chat_models.dart';
 import 'package:freedata_ai/core/utils/formatters.dart';
+import 'package:freedata_ai/main.dart';
 import 'package:freedata_ai/screens/chat_screen.dart';
+import 'package:freedata_ai/screens/explore_screen.dart';
 import 'package:freedata_ai/screens/forecast_screen.dart';
 import 'package:freedata_ai/screens/library_screen.dart';
 import 'package:freedata_ai/screens/passport_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
 import 'package:freedata_ai/widgets/chat/assistant_message.dart';
+import 'package:freedata_ai/widgets/chat/data_cards.dart';
 
 class _PolishFakeApiService extends ApiService {
   @override
   Future<Map<String, dynamic>> getMetadata() async => {
         'provinces': ["N'Djamena", 'Salamat'],
-        'commodities': ['Millet', 'Sorghum (red)'],
+        'products': ['Millet', 'Sorghum (red)'],
+        'legacy_fields': {
+          'commodities': ['Millet', 'Sorghum (red)'],
+          'provinces': ["N'Djamena", 'Salamat'],
+        },
       };
 
   @override
@@ -32,6 +42,7 @@ class _PolishFakeApiService extends ApiService {
           'forecast_t1': 1320,
           'ci_low_80': 232.57,
           'ci_high_80': 310.59,
+          'forecast_quality': 'standard',
         },
       ];
 
@@ -330,5 +341,681 @@ void main() {
       expect(tester.takeException(), isNull);
     }
   });
+
+  testWidgets('ForecastScreen reads products, renders French commodity labels, and shows reduced confidence badge',
+      (tester) async {
+    final reducedApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ForecastScreen(apiService: reducedApi),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mil (Millet)'), findsOneWidget);
+    expect(find.text('Confiance réduite'), findsOneWidget);
+    expect(reducedApi.requestedCommodity, 'Millet');
+    expect(tester.takeException(), isNull);
+  });
+
+  test('ApiService uses tier free by default, caches metadata, and retries only transient 5xx/network errors',
+      () async {
+    int metadataCalls = 0;
+    int chat422Calls = 0;
+    int chat400Calls = 0;
+    int chat503Calls = 0;
+    String? capturedTier;
+
+    final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/v1/metadata') {
+        metadataCalls++;
+        return http.Response(jsonEncode({'products': ['Millet'], 'provinces': ["N'Djamena"]}), 200);
+      }
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final msg = body['message'] as String;
+      if (msg == 'free-check') {
+        capturedTier = body['tier'] as String?;
+        return http.Response(jsonEncode({'reply': 'OK', 'intent': 'forecast', 'sources': []}), 200);
+      }
+      if (msg == 'err-422') {
+        chat422Calls++;
+        return http.Response('Unprocessable Entity', 422);
+      }
+      if (msg == 'err-400') {
+        chat400Calls++;
+        return http.Response('Bad Request', 400);
+      }
+      if (msg == 'err-503') {
+        chat503Calls++;
+        if (chat503Calls == 1) {
+          return http.Response('Service Unavailable', 503);
+        }
+        return http.Response(jsonEncode({'reply': 'Recovered', 'intent': 'forecast', 'sources': []}), 200);
+      }
+      return http.Response('{}', 404);
+    });
+
+    final service = ApiService(client: mockClient);
+
+    // 1. Default tier is 'free'
+    final chatRes = await service.sendChatMessage('free-check');
+    expect(capturedTier, 'free');
+    expect(chatRes['reply'], 'OK');
+
+    // 2. getMetadata() is cached across consecutive calls
+    await service.getMetadata();
+    await service.getMetadata();
+    expect(metadataCalls, 1);
+
+    // 3. No retry on 422 or 400
+    await expectLater(service.sendChatMessage('err-422'), throwsA(isA<ApiHttpException>()));
+    expect(chat422Calls, 1);
+    await expectLater(service.sendChatMessage('err-400'), throwsA(isA<ApiHttpException>()));
+    expect(chat400Calls, 1);
+
+    // 4. Retries once on 503
+    final recovered = await service.sendChatMessage('err-503');
+    expect(chat503Calls, 2);
+    expect(recovered['reply'], 'Recovered');
+  });
+
+  testWidgets('Switching conversation during pending sendChatMessage does not overwrite active thread',
+      (tester) async {
+    final pendingResponse = Completer<Map<String, dynamic>>();
+    final slowApi = _DelayedChatFakeApi(pendingResponse);
+
+    final conv1 = ConversationThread(
+      id: 'conv-1',
+      title: 'Fil 1',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 1),
+      messages: [ChatMessage.user('Message initial 1')],
+    );
+    final conv2 = ConversationThread(
+      id: 'conv-2',
+      title: 'Fil 2',
+      createdAt: DateTime(2025, 1, 2),
+      updatedAt: DateTime(2025, 1, 2),
+      messages: [ChatMessage.user('Message initial 2')],
+    );
+    await LocalConversationStorage.instance.saveAll([conv1, conv2]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatScreen(
+            apiService: slowApi,
+            conversationId: 'conv-1',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Envoyer un message dans conv-1 (la requête reste en attente)
+    await tester.enterText(find.byType(TextField), 'Question lente sur le mil');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pump();
+
+    // Basculer sur conv-2 avant que la réponse n'arrive
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatScreen(
+            apiService: slowApi,
+            conversationId: 'conv-2',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Message initial 2'), findsOneWidget);
+
+    // Résoudre la réponse de conv-1
+    pendingResponse.complete({
+      'reply': 'Réponse tardive de conv-1',
+      'intent': 'forecast',
+      'sources': [],
+    });
+    await tester.pumpAndSettle();
+
+    // conv-2 reste affichée sans être écrasée, et la réponse est bien persistée dans conv-1
+    expect(find.text('Message initial 2'), findsOneWidget);
+    expect(find.text('Réponse tardive de conv-1'), findsNothing);
+
+    final savedConv1 = await LocalConversationStorage.instance.getConversation('conv-1');
+    expect(savedConv1?.messages.last.text, 'Réponse tardive de conv-1');
+  });
+
+  test('cleanMarkdownForClipboard preserves newlines and cleans Markdown tables and headers', () {
+    const raw = '''
+### Prévisions — Mil
+
+| Marché | Prix |
+| :--- | ---: |
+| **Moundou** | `224 XAF` |
+
+---
+*Note finale*
+''';
+    final cleaned = cleanMarkdownForClipboard(raw);
+    expect(cleaned, contains('Prévisions — Mil'));
+    expect(cleaned, contains('Marché · Prix'));
+    expect(cleaned, contains('Moundou · 224 XAF'));
+    expect(cleaned, contains('\n'));
+    expect(cleaned.contains('###'), isFalse);
+    expect(cleaned.contains('**'), isFalse);
+    expect(cleaned.contains('`'), isFalse);
+    expect(cleaned.contains(':---'), isFalse);
+    expect(cleaned.contains('---'), isFalse);
+  });
+
+  testWidgets('Multi-message ChatScreen shows Sauvegarder dans Library only on the last assistant message',
+      (tester) async {
+    final conv = ConversationThread(
+      id: 'conv-multi',
+      title: 'Multi échanges',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 1),
+      messages: [
+        ChatMessage.user('Question 1'),
+        ChatMessage.assistant(text: 'Réponse 1'),
+        ChatMessage.user('Question 2'),
+        ChatMessage.assistant(text: 'Réponse 2'),
+      ],
+    );
+    await LocalConversationStorage.instance.saveAll([conv]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatScreen(
+            apiService: _PolishFakeApiService(),
+            conversationId: 'conv-multi',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Réponse 1'), findsOneWidget);
+    expect(find.text('Réponse 2'), findsOneWidget);
+    expect(find.text('Sauvegarder dans Library'), findsOneWidget);
+  });
+
+  testWidgets('ForecastScreen Alertes (>15%) chip loads and renders active alerts', (tester) async {
+    final alertsApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ForecastScreen(apiService: alertsApi),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Alertes (>15%)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 alerte(s) active(s)'), findsOneWidget);
+    expect(find.text('+28.4%'), findsOneWidget);
+    expect(find.text('Am Timan (Salamat)'), findsOneWidget);
+    expect(find.text('385 XAF/kg'), findsOneWidget);
+    expect(find.text('300 XAF/kg'), findsOneWidget);
+  });
+
+  test('ApiService.getSeasonalityStudy sends X-Premium-Key and handles 200 and 403', () async {
+    String? sentHeader;
+    int statusToReturn = 200;
+
+    final mockClient = MockClient((request) async {
+      sentHeader = request.headers['X-Premium-Key'];
+      expect(request.url.path, '/api/v1/studies/seasonality');
+      expect(request.url.queryParameters['commodity'], 'Millet');
+      if (statusToReturn == 403) {
+        return http.Response('Forbidden', 403);
+      }
+      return http.Response(
+        jsonEncode({
+          'status': 'ok',
+          'commodity': 'Millet',
+          'calendar': {
+            'buy_months': [10, 11],
+            'sell_months': [7, 8],
+            'amplitude_pct': 34.0,
+          },
+        }),
+        200,
+      );
+    });
+
+    final service = ApiService(client: mockClient);
+    service.setRuntimePremiumKey('secret-premium-key');
+
+    final study = await service.getSeasonalityStudy(commodity: 'Millet', province: 'Salamat');
+    expect(sentHeader, 'secret-premium-key');
+    expect(study['status'], 'ok');
+    expect(study['calendar']['amplitude_pct'], 34.0);
+
+    statusToReturn = 403;
+    await expectLater(
+      service.getSeasonalityStudy(commodity: 'Millet'),
+      throwsA(isA<ApiHttpException>().having((e) => e.statusCode, 'statusCode', 403)),
+    );
+    expect(service.hasPremiumKey, isFalse);
+  });
+
+  test('ApiService.verifyPremiumKey validates against Render and rejects forged keys', () async {
+    const serverKey = 'FD-RENDER-SECRET-2026';
+    final mockClient = MockClient((request) async {
+      expect(request.url.path, '/api/v1/studies/seasonality');
+      expect(request.url.queryParameters['commodity'], 'Millet');
+      if (request.headers['X-Premium-Key'] == serverKey) {
+        return http.Response(jsonEncode({'status': 'ok'}), 200);
+      }
+      return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
+    });
+
+    final service = ApiService(client: mockClient);
+    expect(await service.verifyPremiumKey(''), isFalse);
+    expect(await service.verifyPremiumKey('fausse-cle-123'), isFalse);
+    expect(await service.verifyPremiumKey(serverKey), isTrue);
+  });
+
+  testWidgets('MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    // Tentative avec une clé inventée dans l'URL : refusée par le serveur
+    final forgedUrlApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MainShell(
+          apiService: forgedUrlApi,
+          initialUri: Uri.parse('https://freedata-ai.web.app/?key=fausse-cle-123'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Tchad · Marchés et Prix'), findsOneWidget);
+    expect(find.text('Tchad · Accès Partenaire'), findsNothing);
+    expect(forgedUrlApi.hasPremiumKey, isFalse);
+    final prefsAfterForged = await SharedPreferences.getInstance();
+    expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), isNull);
+
+    // Tentative de falsification directe dans SharedPreferences / localStorage : nettoyée au démarrage
+    await prefsAfterForged.setString('fd_ai_premium_key_v1', 'fausse-cle-pirate');
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    final forgedStorageApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(home: MainShell(apiService: forgedStorageApi)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Tchad · Marchés et Prix'), findsOneWidget);
+    expect(forgedStorageApi.hasPremiumKey, isFalse);
+    expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), isNull);
+
+    // Ouverture via lien avec la vraie clé définie sur Render
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    final validUrlApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MainShell(
+          apiService: validUrlApi,
+          initialUri: Uri.parse('https://freedata-ai.web.app/?key=FD-RENDER-SECRET-2026'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
+    expect(find.text('Accès Partenaire actif · Tchad'), findsOneWidget);
+    expect(find.text('PRO'), findsOneWidget);
+    expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), 'FD-RENDER-SECRET-2026');
+
+    // Réouverture ultérieure sans ?key= dans l'URL : la clé vérifiée reste active définitivement
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    final persistedApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: persistedApi)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
+    expect(find.text('Accès Partenaire actif · Tchad'), findsOneWidget);
+    expect(persistedApi.hasPremiumKey, isTrue);
+  });
+
+  testWidgets('MainShell Clé Pro dialog rejects user-invented key, accepts Render key, and unlocks Saisonnalité & Stockage',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final shellApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: shellApi)));
+    await tester.pumpAndSettle();
+
+    // Une fausse clé saisie manuellement via 'Clé Pro' est refusée
+    await tester.tap(find.text('Clé Pro'));
+    await tester.pumpAndSettle();
+    expect(find.text('Accès Partenaire & Clé Pro'), findsOneWidget);
+    await tester.enterText(
+      find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+      'cle-inventee-par-utilisateur',
+    );
+    await tester.tap(find.text('Activer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tchad · Marchés et Prix'), findsOneWidget);
+    expect(find.text('Tchad · Accès Partenaire'), findsNothing);
+    expect(shellApi.hasPremiumKey, isFalse);
+
+    // Saisie de la vraie clé configurée sur Render -> activée après vérification serveur
+    await tester.tap(find.text('Clé Pro'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+      'FD-RENDER-SECRET-2026',
+    );
+    await tester.tap(find.text('Activer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
+    expect(shellApi.hasPremiumKey, isTrue);
+
+    // ForecastScreen sans clé : l'onglet Saisonnalité & Stockage est masqué
+    final forecastApi = _ReducedForecastFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ForecastScreen(apiService: forecastApi)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Saisonnalité & Stockage'), findsNothing);
+
+    // Avec la clé serveur active : l'onglet et le simulateur de frais de stockage apparaissent
+    forecastApi.setRuntimePremiumKey('FD-RENDER-SECRET-2026');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ForecastScreen(apiService: forecastApi)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Saisonnalité & Stockage'), findsOneWidget);
+
+    await tester.tap(find.text('Saisonnalité & Stockage'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sans frais (0%)'), findsOneWidget);
+    expect(find.text('Stockage 1,5%/mois'), findsOneWidget);
+
+    await tester.tap(find.text('Stockage 1,5%/mois'));
+    await tester.pumpAndSettle();
+    expect(forecastApi.requestedStorageCostPctMonth, 1.5);
+    expect(find.textContaining('Rendement net après frais de stockage (1.5 %/mois)'), findsOneWidget);
+  });
+
+  testWidgets('ExploreScreen retries after failure and falls back to forecasts when metadata fails',
+      (tester) async {
+    final fallbackApi = _ExploreRetryFallbackApi();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ExploreScreen(apiService: fallbackApi)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Premier essai : metadata + forecasts échouent -> message d'erreur + bouton Réessayer visible
+    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'), findsOneWidget);
+    expect(find.text('Réessayer'), findsOneWidget);
+
+    // Second essai via Réessayer : metadata échoue encore, mais getForecasts() réussit en repli
+    fallbackApi.allowForecastsFallback = true;
+    await tester.tap(find.text('Réessayer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'), findsNothing);
+    expect(find.text('Mil (Millet)'), findsWidgets);
+    expect(find.text('Am Timan'), findsOneWidget);
+  });
+
+  testWidgets('ChartCard handles negative and zero values cleanly and ChatScreen enforces 1000 chars',
+      (tester) async {
+    expect(ApiService.baseUrl, 'https://freedata-ai.onrender.com');
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ChartCard(
+            data: {'Hausse': 12.0, 'Baisse': -8.5, 'Stable': 0.0},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Aperçu comparatif'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatScreen(apiService: _PolishFakeApiService()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final overLimit = 'a' * 1200;
+    await tester.enterText(find.byType(TextField), overLimit);
+    await tester.pump();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller!.text.length, 1000);
+  });
+
+  testWidgets('Delete conversation SnackBar auto-dismisses even with accessibleNavigation enabled',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final conv = ConversationThread(
+      id: 'conv-del-1',
+      title: 'Mil Salamat',
+      createdAt: DateTime(2025, 1, 1),
+      updatedAt: DateTime(2025, 1, 2),
+      messages: [ChatMessage.user('Bonjour')],
+    );
+    await LocalConversationStorage.instance.saveAll([conv]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(accessibleNavigation: true),
+          child: child!,
+        ),
+        home: MainShell(apiService: _ReducedForecastFakeApi()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Supprimer'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('Conversation mise à la corbeille'), findsOneWidget);
+    expect(find.byType(SnackBarAction), findsNothing);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(find.text('Conversation mise à la corbeille'), findsNothing);
+  });
+
+  test('ApiService.verifyPremiumKey surfaces 503 PREMIUM_API_KEYS diagnostic without retry delay',
+      () async {
+    int calls = 0;
+    final mockClient = MockClient((request) async {
+      calls++;
+      return http.Response(
+        jsonEncode({'detail': 'Études avancées désactivées : PREMIUM_API_KEYS non configuré.'}),
+        503,
+      );
+    });
+
+    final service = ApiService(client: mockClient);
+    await expectLater(
+      service.verifyPremiumKey('ma-cle'),
+      throwsA(
+        isA<ApiHttpException>()
+            .having((e) => e.statusCode, 'statusCode', 503)
+            .having((e) => e.message, 'message', contains('PREMIUM_API_KEYS')),
+      ),
+    );
+    expect(calls, 1);
+  });
+}
+
+class _ExploreRetryFallbackApi extends ApiService {
+  bool allowForecastsFallback = false;
+
+  @override
+  Future<Map<String, dynamic>> getMetadata() async {
+    throw const ApiHttpException(503, 'Indisponible');
+  }
+
+  @override
+  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async {
+    if (!allowForecastsFallback) {
+      throw const ApiHttpException(503, 'Indisponible');
+    }
+    return [
+      {
+        'commodity_std': 'Millet',
+        'market_name': 'Am Timan',
+        'province': 'Salamat',
+        'source': 'WFP',
+        'last_observed_month': '2025-02',
+        'forecast_month': '2025-03',
+      },
+    ];
+  }
+}
+
+class _ReducedForecastFakeApi extends ApiService {
+  static const String _expectedRenderKey = 'FD-RENDER-SECRET-2026';
+  String? requestedCommodity;
+  double? requestedStorageCostPctMonth;
+
+  @override
+  Future<bool> verifyPremiumKey(String candidateKey) async =>
+      candidateKey.trim() == _expectedRenderKey;
+
+  @override
+  Future<Map<String, dynamic>> getMetadata() async => {
+        'provinces': ['Salamat'],
+        'products': ['Millet', 'Sorghum (red)'],
+      };
+
+  @override
+  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async {
+    requestedCommodity = commodity;
+    return [
+      {
+        'market_name': 'Am Timan',
+        'source': 'WFP',
+        'last_observed_month': '2025-02',
+        'forecast_month': '2025-03',
+        'last_observed_price': 300,
+        'forecast_t1': 330,
+        'forecast_quality': 'reduced',
+      },
+    ];
+  }
+
+  @override
+  Future<List<dynamic>> getAlerts({
+    double thresholdPct = 15.0,
+    String? province,
+    String? commodity,
+  }) async =>
+      [
+        {
+          'month': '2025-02',
+          'source': 'WFP',
+          'province': 'Salamat',
+          'market_name': 'Am Timan',
+          'commodity_std': 'Millet',
+          'value': 385,
+          'predicted_price': 300,
+          'deviation_pct': 28.4,
+        },
+      ];
+
+  @override
+  Future<Map<String, dynamic>> getSeasonalityStudy({
+    required String commodity,
+    String? province,
+    double? storageCostPctMonth,
+  }) async {
+    requestedStorageCostPctMonth = storageCostPctMonth;
+    return {
+      'status': 'ok',
+      'commodity': commodity,
+      'scope_province': province ?? 'Toutes provinces suivies',
+      'calendar': {
+        'buy_months': [10, 11],
+        'sell_months': [7, 8],
+        'amplitude_pct': 34.0,
+        'buy_discount_pct': -14.0,
+        'sell_premium_pct': 18.0,
+      },
+      'storage_strategy': {
+        'status': 'ok',
+        'hit_rate_pct': 83.0,
+        'median_return_pct': 26.5,
+        'n_cycles': 6,
+        if (storageCostPctMonth != null) ...{
+          'storage_cost_pct_month': storageCostPctMonth,
+          'net_hit_rate_pct': 83.0,
+          'net_median_return_pct': 14.5,
+        },
+      },
+      'caveats': [
+        'Données historiques multi-marchés.',
+      ],
+    };
+  }
+}
+
+class _DelayedChatFakeApi extends ApiService {
+  final Completer<Map<String, dynamic>> completer;
+
+  _DelayedChatFakeApi(this.completer);
+
+  @override
+  Future<Map<String, dynamic>> getMetadata() async => {};
+
+  @override
+  Future<Map<String, dynamic>> sendChatMessage(
+    String message, {
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+  }) =>
+      completer.future;
 }
 

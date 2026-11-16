@@ -26,11 +26,18 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  final TextEditingController _searchController = TextEditingController();
   List<ConversationThread> _allConversations = const [];
   bool _loading = true;
   String _searchQuery = '';
   bool _showTrash = false;
   bool _filterSavedOnly = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -102,6 +109,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _permanentlyDelete(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer définitivement ?'),
+        content: const Text(
+          'Cette conversation sera définitivement effacée du stockage local et ne pourra plus être restaurée.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     await LocalConversationStorage.instance.permanentlyDelete(id);
     await _load();
     widget.onConversationsUpdated?.call();
@@ -220,12 +249,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   const SizedBox(height: 18),
                   // Barre de recherche
                   TextField(
+                    controller: _searchController,
                     onChanged: (v) => setState(() => _searchQuery = v.trim()),
                     style: const TextStyle(fontSize: 15.5, color: Color(0xFF0F172A)),
                     decoration: InputDecoration(
                       hintText: 'Rechercher dans les conversations et analyses…',
                       hintStyle: const TextStyle(fontSize: 15, color: Color(0xFF94A3B8)),
                       prefixIcon: const Icon(Icons.search_rounded, size: 22, color: Color(0xFF64748B)),
+                      suffixIcon: _searchQuery.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 20, color: Color(0xFF64748B)),
+                              tooltip: 'Effacer la recherche',
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            ),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -358,14 +398,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                                 : Icons.bookmark_border_rounded),
                                         size: 20,
                                         color: isDeleted
-                                            ? const Color(0xFFDC2626)
+                                            ? FDTheme.danger
                                             : (conv.isSavedInLibrary
-                                                ? const Color(0xFF1D4ED8)
-                                                : const Color(0xFF94A3B8)),
+                                                ? FDTheme.blue
+                                                : FDTheme.subtle),
                                       ),
                                       tooltip: conv.isSavedInLibrary ? 'Retirer des favoris' : 'Enregistrer dans Library',
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                      padding: const EdgeInsets.all(10),
+                                      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                                       onPressed: isDeleted ? null : () => _toggleBookmark(conv.id),
                                     ),
                                     const SizedBox(width: 8),
@@ -375,37 +415,37 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,
                                           fontSize: 16.5,
-                                          color: Color(0xFF0F172A),
+                                          color: FDTheme.ink,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                     if (!isDeleted) ...[
                                       IconButton(
-                                        icon: const Icon(Icons.download_rounded, size: 20, color: Color(0xFF64748B)),
+                                        icon: const Icon(Icons.download_rounded, size: 20, color: FDTheme.subtle),
                                         tooltip: 'Exporter (.md)',
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                        padding: const EdgeInsets.all(10),
+                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                                         onPressed: () => _exportMarkdown(conv),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete_outline_rounded, size: 20, color: Color(0xFFDC2626)),
+                                        icon: const Icon(Icons.delete_outline_rounded, size: 20, color: FDTheme.danger),
                                         tooltip: 'Mettre à la corbeille',
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                        padding: const EdgeInsets.all(10),
+                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                                         onPressed: () => _delete(conv.id),
                                       ),
                                     ] else ...[
                                       TextButton.icon(
                                         onPressed: () => _restore(conv.id),
-                                        icon: const Icon(Icons.restore_rounded, size: 18, color: Color(0xFF16A34A)),
-                                        label: const Text('Restaurer', style: TextStyle(color: Color(0xFF16A34A), fontSize: 13, fontWeight: FontWeight.w600)),
+                                        icon: const Icon(Icons.restore_rounded, size: 18, color: FDTheme.green),
+                                        label: const Text('Restaurer', style: TextStyle(color: FDTheme.green, fontSize: 13, fontWeight: FontWeight.w600)),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete_forever_rounded, size: 20, color: Color(0xFFDC2626)),
+                                        icon: const Icon(Icons.delete_forever_rounded, size: 20, color: FDTheme.danger),
                                         tooltip: 'Supprimer définitivement',
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                        padding: const EdgeInsets.all(10),
+                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                                         onPressed: () => _permanentlyDelete(conv.id),
                                       ),
                                     ],
@@ -416,7 +456,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   stripMarkdown(conv.previewText),
                                   style: const TextStyle(
                                     fontSize: 14.5,
-                                    color: Color(0xFF475569),
+                                    color: FDTheme.muted,
                                     height: 1.5,
                                   ),
                                   maxLines: 2,
@@ -427,7 +467,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        '${conv.messages.length} message(s) · Modifié le ${conv.updatedAt.day}/${conv.updatedAt.month}/${conv.updatedAt.year}',
+                                        '${conv.messages.length} message(s) · Modifié le ${conv.updatedAt.day.toString().padLeft(2, '0')}/${conv.updatedAt.month.toString().padLeft(2, '0')}/${conv.updatedAt.year}',
                                         style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -520,7 +560,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ),
                                   const SizedBox(height: 12),
                                   FDBadge(
-                                    label: 'STOCKAGE SÉCURISÉ',
+                                    label: 'STOCKAGE LOCAL',
                                     color: FDTheme.blue,
                                     backgroundColor: FDTheme.blue.withValues(alpha: 0.10),
                                   ),

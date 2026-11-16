@@ -17,6 +17,16 @@ class _PassportScreenState extends State<PassportScreen> {
       "Il n'a pas été calibré sur des historiques de défaut de paiement et ne constitue "
       "ni une décision de crédit ni un conseil financier.";
 
+  static const List<String> _defaultCommodities = [
+    'Millet',
+    'Sorghum (red)',
+    'Maize (white)',
+    'Rice (imported)',
+    'Groundnuts (shelled)',
+    'Sesame',
+  ];
+
+  List<String> _commodities = List<String>.from(_defaultCommodities);
   String _commodity = 'Millet';
   int _loanAmount = 1000000;
   List<dynamic> _passports = [];
@@ -26,7 +36,32 @@ class _PassportScreenState extends State<PassportScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      final meta = await widget.apiService.getMetadata();
+      final legacy = meta['legacy_fields'];
+      final rawComms = meta['products'] ??
+          (legacy is Map ? legacy['commodities'] : null) ??
+          meta['commodities'] ??
+          const [];
+      final comms = List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
+      if (mounted && comms.isNotEmpty) {
+        setState(() {
+          _commodities = comms;
+          if (!comms.contains(_commodity)) {
+            _commodity = comms.contains('Millet') ? 'Millet' : comms.first;
+          }
+        });
+      }
+    } catch (_) {
+      // Conservation de la liste par défaut si les métadonnées échouent.
+    }
+    if (mounted) {
+      await _load();
+    }
   }
 
   Future<void> _load() async {
@@ -93,39 +128,24 @@ class _PassportScreenState extends State<PassportScreen> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        initialValue: _commodity,
+                        key: ValueKey(_commodity),
+                        initialValue: _commodities.contains(_commodity) ? _commodity : null,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Produit',
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Millet',
-                            child: Text('Mil (Millet)', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Sorghum (red)',
-                            child: Text('Sorgho rouge', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Maize (white)',
-                            child: Text('Maïs blanc', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Rice (imported)',
-                            child: Text('Riz importé', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Groundnuts (shelled)',
-                            child: Text('Arachide', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Sesame',
-                            child: Text('Sésame', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                        ],
+                        items: _commodities
+                            .map((c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Text(
+                                    commodityLabelFr(c),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
                         onChanged: (v) {
                           if (v != null) {
                             setState(() => _commodity = v);
@@ -252,20 +272,23 @@ class _PassportScreenState extends State<PassportScreen> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: color.withValues(alpha: .10),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    score.toStringAsFixed(0),
-                                    style: TextStyle(
-                                      color: color,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w900,
+                              Semantics(
+                                label: 'Score Credit Passport ${score.toStringAsFixed(0)} sur 100',
+                                child: Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: color.withValues(alpha: .10),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      score.toStringAsFixed(0),
+                                      style: TextStyle(
+                                        color: color,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
                                 ),

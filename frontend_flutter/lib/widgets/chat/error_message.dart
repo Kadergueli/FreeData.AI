@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/fd_theme.dart';
 
 class ErrorMessage extends StatefulWidget {
   final String message;
@@ -35,22 +36,22 @@ class _ErrorMessageState extends State<ErrorMessage> {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFEF2F2),
+        color: FDTheme.dangerSoft,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFECACA)),
+        border: Border.all(color: FDTheme.dangerBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 18),
+              Icon(Icons.error_outline_rounded, color: FDTheme.danger, size: 18),
               SizedBox(width: 8),
               Text(
                 'Échec de communication',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF991B1B),
+                  color: FDTheme.dangerDark,
                   fontSize: 13,
                 ),
               ),
@@ -61,7 +62,7 @@ class _ErrorMessageState extends State<ErrorMessage> {
             widget.message,
             style: const TextStyle(
               fontSize: 13,
-              color: Color(0xFF7F1D1D),
+              color: FDTheme.dangerDark,
               height: 1.45,
             ),
           ),
@@ -73,23 +74,23 @@ class _ErrorMessageState extends State<ErrorMessage> {
                   ? const SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFDC2626)),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: FDTheme.danger),
                     )
-                  : const Icon(Icons.refresh_rounded, size: 16, color: Color(0xFFDC2626)),
+                  : const Icon(Icons.refresh_rounded, size: 16, color: FDTheme.danger),
               label: Text(
                 _retrying ? 'Tentative en cours...' : 'Réessayer',
                 style: const TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFFDC2626),
+                  color: FDTheme.danger,
                 ),
               ),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                backgroundColor: Colors.white,
+                backgroundColor: FDTheme.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
-                  side: const BorderSide(color: Color(0xFFFECACA)),
+                  side: const BorderSide(color: FDTheme.dangerBorder),
                 ),
               ),
             ),

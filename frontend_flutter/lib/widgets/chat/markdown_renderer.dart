@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import '../../core/fd_theme.dart';
 
 class MarkdownRenderer extends StatelessWidget {
   final String content;
@@ -12,34 +13,35 @@ class MarkdownRenderer extends StatelessWidget {
     return MarkdownBody(
       data: content,
       selectable: true,
+      onTapLink: (text, href, title) {},
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontSize: 16,
           height: 1.6,
         ),
         h1: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontSize: 21,
           fontWeight: FontWeight.w700,
           height: 1.35,
         ),
         h2: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontSize: 18.5,
           fontWeight: FontWeight.w700,
           height: 1.35,
         ),
         h2Padding: const EdgeInsets.only(top: 10, bottom: 2),
         h3: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontSize: 17,
           fontWeight: FontWeight.w700,
           height: 1.35,
         ),
         h3Padding: const EdgeInsets.only(top: 8, bottom: 2),
         h4: const TextStyle(
-          color: Color(0xFF1E293B),
+          color: FDTheme.inkSoft,
           fontSize: 15.5,
           fontWeight: FontWeight.w700,
           height: 1.35,
@@ -47,50 +49,50 @@ class MarkdownRenderer extends StatelessWidget {
         blockSpacing: 10,
         listIndent: 18,
         strong: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontWeight: FontWeight.w700,
           fontSize: 15.5,
         ),
         code: const TextStyle(
-          backgroundColor: Color(0xFFF1F5F9),
-          color: Color(0xFF1E40AF),
+          backgroundColor: FDTheme.canvasSoft,
+          color: FDTheme.blueDark,
           fontWeight: FontWeight.w600,
           fontSize: 14,
           fontFamily: 'monospace',
         ),
         codeblockDecoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
+          color: FDTheme.canvasSoft,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(color: FDTheme.line),
         ),
         codeblockPadding: const EdgeInsets.all(12),
         blockquoteDecoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: FDTheme.canvas,
           borderRadius: BorderRadius.circular(4),
           border: const Border(
-            left: BorderSide(color: Color(0xFF1D4ED8), width: 3),
+            left: BorderSide(color: FDTheme.blue, width: 3),
           ),
         ),
         horizontalRuleDecoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
+          border: Border(top: BorderSide(color: FDTheme.line, width: 1)),
         ),
         listBullet: const TextStyle(
-          color: Color(0xFF1D4ED8),
+          color: FDTheme.blue,
           fontWeight: FontWeight.bold,
         ),
         tableHead: const TextStyle(
-          color: Color(0xFF0F172A),
+          color: FDTheme.ink,
           fontWeight: FontWeight.w700,
           fontSize: 13.5,
           height: 1.3,
         ),
         tableBody: const TextStyle(
-          color: Color(0xFF1E293B),
+          color: FDTheme.inkSoft,
           fontSize: 13.5,
           height: 1.35,
         ),
         tableBorder: TableBorder.all(
-          color: const Color(0xFFE2E8F0),
+          color: FDTheme.line,
           borderRadius: BorderRadius.circular(8),
         ),
         tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
