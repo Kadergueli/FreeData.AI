@@ -18,6 +18,7 @@ from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR
 
 logger = logging.getLogger("freedata.agent")
 from src.chat.lexicon import (  # noqa: F401
+    _COMMODITY_GOLD_EQUIVALENTS,
     fr_commodity,
     CITY_TO_PROVINCE,
     COMMODITY_ALIASES,
@@ -372,6 +373,18 @@ class MarketDataProvider:
                 break
         if matched_comm is None:
             return None, None
+        available = (
+            set(self.forecast_df["commodity_std"].dropna().astype(str).unique())
+            if self.forecast_df is not None
+            and not self.forecast_df.empty
+            and "commodity_std" in self.forecast_df.columns
+            else set()
+        )
+        if available and matched_comm not in available:
+            for alt in _COMMODITY_GOLD_EQUIVALENTS.get(matched_comm, ()):
+                if alt in available:
+                    matched_comm = alt
+                    break
         # "riz" générique sans préciser local/importé couvre les deux variétés pour le calcul d'arbitrage.
         if matched_comm == "Rice (imported)" and not re.search(r"\briz importe\b", q_norm):
             return matched_comm, ["Rice (local)", "Rice (imported)"]

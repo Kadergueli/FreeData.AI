@@ -92,6 +92,23 @@ COMMODITY_ALIASES = {
     "cowpeas": "Cowpeas (Mixed)",
     "cowpea": "Cowpeas (Mixed)",
     "peanut": "Peanut",
+    "cassava chips": "Cassava Chips",
+    "cowpeas (red)": "Cowpeas (Red)",
+    "niebe blanc": "Cowpeas (White)",
+    "haricot blanc": "Cowpeas (White)",
+    "cowpeas (white)": "Cowpeas (White)",
+    "onions": "Onions",
+    "sesame (white)": "Sesame (White)",
+    "refined sugar": "Refined sugar",
+    "rice (milled)": "Rice (Milled)",
+    "pates alimentaires": "Pasta",
+    "pates alimentaires (melange)": "Pasta (Mixed)",
+    "pasta (mixed)": "Pasta (Mixed)",
+    "sorghum (berbere)": "Sorghum (Berbere)",
+    "sorghum (white)": "Sorghum (White)",
+    "cowpeas (mixed)": "Cowpeas (Mixed)",
+    "ble": "Wheat",
+    "wheat": "Wheat",
 }
 
 COMMODITY_FR = {
@@ -123,6 +140,13 @@ COMMODITY_FR = {
     "Sorghum (Berbere)": "Sorgho berbéré",
     "Sorghum (White)": "Sorgho blanc",
     "Cowpeas (Mixed)": "Niébé (mélange)",
+    "Onions": "Oignon",
+    "Pasta (Mixed)": "Pâtes alimentaires (mélange)",
+    "Cassava Chips": "Manioc (cossettes)",
+    "Cowpeas (Red)": "Niébé rouge",
+    "Cowpeas (White)": "Niébé blanc",
+    "Peanut": "Arachide",
+    "Wheat": "Blé",
 }
 
 CITY_TO_PROVINCE = {
@@ -255,4 +279,22 @@ _CITY_CANONICAL_HINTS = {
     "n'djamena": "djamena",
     "n djamena": "djamena",
     "faya-largeau": "faya",
+}
+
+
+_COMMODITY_GOLD_EQUIVALENTS = {
+    "Cassava (cossette)": ["Cassava Chips"],
+    "Cassava Chips": ["Cassava (cossette)"],
+    "Onions (red)": ["Onions"],
+    "Onions": ["Onions (red)"],
+    "Pasta": ["Pasta (Mixed)", "Macaroni", "Spaghetti"],
+    "Pasta (Mixed)": ["Pasta", "Macaroni", "Spaghetti"],
+    "Beans (niebe, red)": ["Cowpeas (Red)", "Cowpeas (Mixed)"],
+    "Beans (niebe)": ["Cowpeas (White)", "Cowpeas (Red)", "Cowpeas (Mixed)"],
+    "Cowpeas (Mixed)": ["Cowpeas (White)", "Cowpeas (Red)", "Beans (niebe)"],
+    "Groundnuts (shelled)": ["Peanut"],
+    "Peanut": ["Groundnuts (shelled)"],
+    "Sesame": ["Sesame (White)"],
+    "Sugar": ["Refined sugar"],
+    "Rice (local)": ["Rice (Milled)", "Rice (imported)"],
 }

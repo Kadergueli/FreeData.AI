@@ -34,12 +34,35 @@ def test_entity_extraction(agent, question, intent, province, commodity, loan):
 
 def test_unknown_product_is_announced(agent):
     """Un produit absent des données n'est jamais remplacé par un autre : on le dit et on propose les produits suivis."""
-    r = agent.answer_with_metadata("Quel est le prix du ble a N'Djamena ?")
+    r = agent.answer_with_metadata("Quel est le prix du cacao a N'Djamena ?")
     reply = r["reply"]
-    assert r["intent"] == "clarification" and r["entities"]["unknown_product"] == "ble"
-    assert "Je n'ai pas de données sur **ble**" in reply
+    assert r["intent"] == "clarification" and r["entities"]["unknown_product"] == "cacao"
+    assert "Je n'ai pas de données sur **cacao**" in reply
     assert "autre produit" in reply and "mil" in reply.lower()
     assert "XAF" not in reply and "%" not in reply  # aucun chiffre d'un autre produit
+
+
+def test_known_product_without_data_says_so_and_gives_no_number(agent):
+    """« blé » est un produit connu (alias Gold) mais absent de ces données : réponse honnête, sans chiffre ni autre produit."""
+    r = agent.answer_with_metadata("Quel est le prix du ble a N'Djamena ?")
+    assert "Aucune série active trouvée pour **Blé**" in r["reply"]
+    assert "XAF" not in r["reply"] and "Mil" not in r["reply"]
+
+
+def test_gold_commodity_names_resolve_to_available_series(agent):
+    """Les noms Gold (Cowpeas (Red), Cassava Chips...) sont reconnus ; l'équivalent présent dans les données est préféré."""
+    from src.chat.lexicon import COMMODITY_ALIASES, _COMMODITY_GOLD_EQUIVALENTS
+    assert COMMODITY_ALIASES["niebe blanc"] == "Cowpeas (White)" and COMMODITY_ALIASES["cassava chips"] == "Cassava Chips"
+    assert "Cowpeas (Red)" in _COMMODITY_GOLD_EQUIVALENTS["Beans (niebe, red)"]
+
+
+def test_premium_key_never_accepts_admin_token(monkeypatch):
+    """Le jeton administrateur ne sert jamais de clé premium (il ne doit pas circuler côté client)."""
+    import dataclasses
+    from api import server
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys="k" * 20, admin_token="a" * 20))
+    assert server._premium_key_ok("k" * 20) is True
+    assert server._premium_key_ok("a" * 20) is False
 
 
 def test_credit_reply_has_disclaimer(agent):
