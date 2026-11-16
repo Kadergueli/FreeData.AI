@@ -80,3 +80,17 @@ firebase deploy --only hosting
 - Le même traitement mensuel publie aussi un **bilan de fiabilité par produit** (`kind='track_record'`) : le chat indique si, sur
   12 mois, les prévisions du produit ont été plus justes, équivalentes ou moins justes que « le prix reste celui du mois dernier ».
 - Les noms de produit qui ne diffèrent que par la casse (« Wheat Flour » / « Wheat flour ») sont fusionnés au chargement.
+
+## Anomalies de prix (famille B)
+
+Détection de sauts de prix, de marchés qui divergent de leurs pairs et de séries figées ou arrêtées (`src/anomalies.py`).
+Ce sont des **signaux à vérifier**, jamais un verdict : l'historique réel est court.
+
+```bash
+python -m scripts.check_family_b --csv freedatatd-markets-full.csv   # contrôle en lecture seule (chocs injectés)
+# appliquer sql/07_gold_anomalies.sql dans Supabase, puis :
+python -m scripts.update_anomalies --apply                           # publie les 6 derniers mois
+```
+
+Lecture : `GET /api/v1/anomalies?province=&commodity=&kind=&severity=` et dans le chat (« anomalies de prix du mil »).
+Architecture des familles : `docs/families.md`.

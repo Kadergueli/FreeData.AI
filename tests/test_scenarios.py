@@ -81,7 +81,7 @@ S=[
  ("quelles sont les alertes de hausse ?",None,{"alerts"},r"",r""),
  ("y a-t-il une flambée des prix ?",None,{"alerts"},r"",r""),
  ("tension sur les prix au Salamat",None,{"alerts"},r"",r""),
- ("anomalies de prix du mil",None,{"alerts"},r"",r""),
+ ("anomalies de prix du mil",None,{"anomalies"},r"",r""),
  # --- crédit
  ("Évalue le risque de financer 3 millions de FCFA de mil au Salamat",None,{"credit_passport"},r"3|3 000 000",r""),
  ("puis-je prêter 500000 FCFA pour du sorgho à Lac ?",None,{"credit_passport"},r"",r""),
