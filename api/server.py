@@ -261,12 +261,8 @@ def _premium_key_ok(key: Optional[str]) -> bool:
     cleaned = _clean_secret(key)
     if not cleaned:
         return False
-    candidates = list(settings.premium_keys)
-    admin_tok = _clean_secret(settings.admin_token)
-    if admin_tok:
-        candidates.append(admin_tok)
     ok = False
-    for valid in candidates:
+    for valid in settings.premium_keys:
         ok |= hmac.compare_digest(cleaned.encode(), valid.encode())
     return ok
 
@@ -330,6 +326,12 @@ def get_metadata(state: dict = Depends(get_state)):
     observed_months = pd.Series(fc["last_observed_month"].dropna().astype(str).unique())
     start_period = observed_months.min() if not observed_months.empty else None
     end_period = observed_months.max() if not observed_months.empty else None
+    fc_months = (
+        pd.Series(fc["forecast_month"].dropna().astype(str).unique())
+        if "forecast_month" in fc.columns
+        else pd.Series(dtype=str)
+    )
+    forecast_month = fc_months.max() if not fc_months.empty else None
 
     active_domain = {
         "slug": "markets_and_prices",
@@ -360,7 +362,9 @@ def get_metadata(state: dict = Depends(get_state)):
         "periods_covered": {
             "start": start_period,
             "end": end_period,
+            "forecast_month": forecast_month,
         },
+        "forecast_month": forecast_month,
         "last_updated": end_period,
         "count": {
             "products": len(products),
@@ -477,7 +481,7 @@ def seasonality_study(
     x_premium_key: Optional[str] = Header(default=None),
 ):
     """Étude saisonnière avancée (offre premium) : calendrier, comparaison de provinces, stratégie de stockage rejouée."""
-    if not settings.premium_keys and not _clean_secret(settings.admin_token):
+    if not settings.premium_keys:
         raise HTTPException(status_code=503, detail="Études avancées désactivées : PREMIUM_API_KEYS non configuré.")
     if not _premium_key_ok(x_premium_key):
         raise HTTPException(status_code=403, detail="Clé premium invalide.")

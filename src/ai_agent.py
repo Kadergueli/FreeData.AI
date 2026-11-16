@@ -89,21 +89,38 @@ COMMODITY_ALIASES = {
     "cossette": "Cassava (cossette)",
     "cossettes": "Cassava (cossette)",
     "cassava": "Cassava (cossette)",
+    "cassava chips": "Cassava Chips",
     "niebe rouge": "Beans (niebe, red)",
     "haricot rouge": "Beans (niebe, red)",
+    "cowpeas (red)": "Cowpeas (Red)",
+    "niebe blanc": "Cowpeas (White)",
+    "haricot blanc": "Cowpeas (White)",
+    "cowpeas (white)": "Cowpeas (White)",
+    "onions": "Onions",
     "sesame blanc": "Sesame (White)",
+    "sesame (white)": "Sesame (White)",
     "sucre raffine": "Refined sugar",
+    "refined sugar": "Refined sugar",
     "riz decortique": "Rice (Milled)",
     "riz usine": "Rice (Milled)",
+    "rice (milled)": "Rice (Milled)",
     "macaroni": "Macaroni",
     "spaghetti": "Spaghetti",
     "spaghettis": "Spaghetti",
+    "pates alimentaires": "Pasta",
+    "pates alimentaires (melange)": "Pasta (Mixed)",
+    "pasta (mixed)": "Pasta (Mixed)",
     "sorgho berbere": "Sorghum (Berbere)",
+    "sorghum (berbere)": "Sorghum (Berbere)",
     "berbere": "Sorghum (Berbere)",
     "sorgho blanc": "Sorghum (White)",
+    "sorghum (white)": "Sorghum (White)",
     "cowpeas": "Cowpeas (Mixed)",
     "cowpea": "Cowpeas (Mixed)",
+    "cowpeas (mixed)": "Cowpeas (Mixed)",
     "peanut": "Peanut",
+    "ble": "Wheat",
+    "wheat": "Wheat",
 }
 
 COMMODITY_FR = {
@@ -115,9 +132,11 @@ COMMODITY_FR = {
     "Groundnuts (shelled)": "Arachide décortiquée",
     "Beans (niebe)": "Niébé (haricot)",
     "Onions (red)": "Oignon rouge",
+    "Onions": "Oignon",
     "Sesame": "Sésame",
     "Sugar": "Sucre",
     "Pasta": "Pâtes alimentaires",
+    "Pasta (Mixed)": "Pâtes alimentaires (mélange)",
     "Sweet potatoes": "Patate douce",
     "Fish (dry)": "Poisson séché",
     "Salt": "Sel",
@@ -128,13 +147,35 @@ COMMODITY_FR = {
     "Wheat flour": "Farine de blé",
     "Groundnut Oil (Refined)": "Huile d'arachide raffinée",
     "Cassava (cossette)": "Manioc (cossettes)",
+    "Cassava Chips": "Manioc (cossettes)",
     "Beans (niebe, red)": "Niébé rouge",
+    "Cowpeas (Red)": "Niébé rouge",
+    "Cowpeas (White)": "Niébé blanc",
     "Sesame (White)": "Sésame blanc",
     "Refined sugar": "Sucre raffiné",
     "Rice (Milled)": "Riz décortiqué",
     "Sorghum (Berbere)": "Sorgho berbéré",
     "Sorghum (White)": "Sorgho blanc",
     "Cowpeas (Mixed)": "Niébé (mélange)",
+    "Peanut": "Arachide",
+    "Wheat": "Blé",
+}
+
+_COMMODITY_GOLD_EQUIVALENTS = {
+    "Cassava (cossette)": ["Cassava Chips"],
+    "Cassava Chips": ["Cassava (cossette)"],
+    "Onions (red)": ["Onions"],
+    "Onions": ["Onions (red)"],
+    "Pasta": ["Pasta (Mixed)", "Macaroni", "Spaghetti"],
+    "Pasta (Mixed)": ["Pasta", "Macaroni", "Spaghetti"],
+    "Beans (niebe, red)": ["Cowpeas (Red)", "Cowpeas (Mixed)"],
+    "Beans (niebe)": ["Cowpeas (White)", "Cowpeas (Red)", "Cowpeas (Mixed)"],
+    "Cowpeas (Mixed)": ["Cowpeas (White)", "Cowpeas (Red)", "Beans (niebe)"],
+    "Groundnuts (shelled)": ["Peanut"],
+    "Peanut": ["Groundnuts (shelled)"],
+    "Sesame": ["Sesame (White)"],
+    "Sugar": ["Refined sugar"],
+    "Rice (local)": ["Rice (Milled)", "Rice (imported)"],
 }
 
 CITY_TO_PROVINCE = {
@@ -716,6 +757,18 @@ class MarketDataProvider:
                 break
         if matched_comm is None:
             return None, None
+        available = (
+            set(self.forecast_df["commodity_std"].dropna().astype(str).unique())
+            if self.forecast_df is not None
+            and not self.forecast_df.empty
+            and "commodity_std" in self.forecast_df.columns
+            else set()
+        )
+        if available and matched_comm not in available:
+            for alt in _COMMODITY_GOLD_EQUIVALENTS.get(matched_comm, ()):
+                if alt in available:
+                    matched_comm = alt
+                    break
         # "riz" générique sans préciser local/importé couvre les deux variétés pour le calcul d'arbitrage.
         if matched_comm == "Rice (imported)" and not re.search(r"\briz importe\b", q_norm):
             return matched_comm, ["Rice (local)", "Rice (imported)"]
