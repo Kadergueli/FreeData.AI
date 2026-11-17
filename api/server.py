@@ -299,12 +299,8 @@ def _premium_key_ok(key: Optional[str]) -> bool:
     cleaned = _clean_secret(key)
     if not cleaned:
         return False
-    candidates = list(settings.premium_keys)
-    admin_tok = _clean_secret(settings.admin_token)
-    if admin_tok:
-        candidates.append(admin_tok)
     ok = False
-    for valid in candidates:
+    for valid in settings.premium_keys:  # jamais le jeton administrateur : il ne doit pas circuler côté client
         ok |= hmac.compare_digest(cleaned.encode(), valid.encode())
     return ok
 
@@ -560,7 +556,7 @@ def seasonality_study(
     x_premium_key: Optional[str] = Header(default=None),
 ):
     """Étude saisonnière avancée (offre premium) : calendrier, comparaison de provinces, stratégie de stockage rejouée."""
-    if not settings.premium_keys and not _clean_secret(settings.admin_token):
+    if not settings.premium_keys:
         raise HTTPException(status_code=503, detail="Études avancées désactivées : PREMIUM_API_KEYS non configuré.")
     if not _premium_key_ok(x_premium_key):
         raise HTTPException(status_code=403, detail="Clé premium invalide.")
