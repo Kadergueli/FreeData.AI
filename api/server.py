@@ -14,7 +14,8 @@ import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -378,11 +379,26 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
     title="FreeData.AI API",
     description="API REST officielle de prévision des prix agricoles, alertes spatiales et Agricultural Credit Passport (Tchad).",
     version="1.2.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next):
+    """Refuse les corps de requête trop gros ou sans taille annoncée (POST/PUT/PATCH) avant tout traitement."""
+    if request.method in ("POST", "PUT", "PATCH"):
+        raw = request.headers.get("content-length")
+        if raw is None:
+            return JSONResponse({"detail": "En-tête Content-Length requis."}, status_code=411)
+        if not raw.isdigit() or int(raw) > settings.max_body_bytes:
+            return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -421,6 +437,17 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
     history: list[dict] = Field(default_factory=list, max_length=40)
     tier: Literal["free", "premium"] = Field(default="free")
+
+    @field_validator("history")
+    @classmethod
+    def _sanitize_history(cls, items: list[dict]) -> list[dict]:
+        """Ne garde que {role: user|assistant, content: texte} et tronque à 4000 caractères ; le reste est ignoré (jamais d'erreur)."""
+        clean = []
+        for item in items:
+            role, content = item.get("role", "user"), item.get("content")
+            if role in ("user", "assistant") and isinstance(content, str):
+                clean.append({"role": role, "content": content[:4000]})
+        return clean
 
 
 class ChatResponse(BaseModel):

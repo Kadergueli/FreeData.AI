@@ -8,11 +8,18 @@ except ImportError:
     pass
 
 
+ON_RENDER = bool(os.getenv("RENDER", "").strip())   # Render définit RENDER=true dans chaque service
+
+
 def _parse_trusted_proxy_hops(raw: str) -> int | None:
-    """Valide TRUSTED_PROXY_HOPS : entier >= 0, sinon None (mode sécurisé par défaut)."""
+    """Valide TRUSTED_PROXY_HOPS : entier >= 0, sinon None (mode sécurisé par défaut).
+
+    Vide sur Render : 1 (le proxy de Render est toujours devant l'API). Sans cela, tous les visiteurs partageraient l'IP du
+    proxy et donc le même quota. Une valeur trop petite ne permet JAMAIS de falsifier l'IP : au pire les visiteurs se regroupent.
+    """
     val = (raw or "").strip()
     if not val:
-        return None
+        return 1 if ON_RENDER else None
     if val.isdigit():
         return int(val)
     return None
@@ -27,7 +34,12 @@ class Settings:
     # Clé d'ÉCRITURE (service_role) : uniquement pour scripts/update_predictions.py.
     supabase_service_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     supabase_db_url: str = os.getenv("SUPABASE_DB_URL", "").strip()
-    allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*").strip()
+    # Par défaut : uniquement le site officiel (plus de « * » si la variable est absente). « * » reste possible explicitement.
+    allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "https://freedata-ai.web.app,https://freedata-ai.firebaseapp.com").strip()
+    # Documentation interactive (/docs, /openapi.json) : active en local, désactivée sur Render sauf ENABLE_DOCS=1.
+    enable_docs: bool = os.getenv("ENABLE_DOCS", "0" if ON_RENDER else "1").strip().lower() in ("1", "true", "yes")
+    # Taille maximale d'une requête (octets) ; au-delà : 413.
+    max_body_bytes: int = int(os.getenv("MAX_BODY_BYTES", "65536"))
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "").strip()
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2").strip()
     llm_api_key: str = os.getenv("LLM_API_KEY", "").strip()

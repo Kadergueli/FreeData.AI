@@ -59,12 +59,14 @@ def test_other_series_unchanged_exactly():
     df = panel_with_gap()
     _, old = _original_module().run_forecasting_pipeline(df)
     _, new = run_forecasting_pipeline(df)
-    cols = ["province", "commodity_std", "forecast_t1", "forecast_month", "hist_mae", "ci_low_80", "ci_high_80"]
+    # Les prévisions PONCTUELLES des autres séries ne bougent pas. Les intervalles et hist_mae, eux, ont volontairement
+    # changé (calibration conforme hors-échantillon) : ils ne sont plus comparés à l'ancienne version.
+    cols = ["province", "commodity_std", "forecast_t1", "forecast_month"]
     k = ["province", "commodity_std"]
     kept = new[new.forecast_quality == "standard"][cols]
     merged = kept.merge(old[cols], on=k, suffixes=("_n", "_o"))
     assert len(merged) == len(kept) > 0
-    for c in ("forecast_t1", "hist_mae", "ci_low_80", "ci_high_80"):
+    for c in ("forecast_t1",):
         assert np.allclose(merged[c + "_n"], merged[c + "_o"])
     assert (merged["forecast_month_n"] == merged["forecast_month_o"]).all()
 
@@ -73,7 +75,8 @@ def test_reduced_interval_is_wider_and_series_unique():
     _, new = run_forecasting_pipeline(panel_with_gap())
     assert not new.duplicated(["source", "province", "market_name", "commodity_std"]).any()
     r = new[new.forecast_quality == "reduced"].iloc[0]
-    assert (r["ci_high_80"] - r["forecast_t1"]) == pytest.approx(1.28 * 1.5 * r["hist_mae"], rel=0.01)
+    assert r["interval_status"] in ("wide_reduced", "insufficient_history")    # intervalle élargi ×1,5 (calibration conforme)
+    assert r["ci_high_80"] - r["forecast_t1"] > 0 and r["forecast_t1"] - r["ci_low_80"] >= 0
 
 
 def test_series_with_too_few_observations_get_no_forecast():
@@ -89,7 +92,8 @@ def test_no_gap_data_gives_identical_output():
     assert (new["forecast_quality"] == "standard").all()
     a = old.sort_values(["province", "commodity_std"]).reset_index(drop=True)
     b = new.sort_values(["province", "commodity_std"]).reset_index(drop=True)
-    assert np.allclose(a["forecast_t1"], b["forecast_t1"]) and np.allclose(a["ci_high_80"], b["ci_high_80"])
+    assert np.allclose(a["forecast_t1"], b["forecast_t1"])      # prévision ponctuelle identique ; les intervalles ont changé
+    assert (b["ci_high_80"] > b["forecast_t1"]).all()
 
 
 def test_agent_warns_on_reduced_quality_forecast():
