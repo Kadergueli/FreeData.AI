@@ -14,6 +14,7 @@ import requests
 from src.config import settings
 from src.business_engine import allocate_capital, build_professional_business_plan, format_business_plan_markdown
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
+from src.freshness import assess_dataset_freshness
 from src.season_study import StudyBook
 from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR
 
@@ -2691,7 +2692,16 @@ class FreeDataAIAgent(FormattersMixin):
             doc_context = "\n\n" + "\n\n".join(snippets)
 
         global_snapshot = self._build_global_snapshot()
-        verified_context = f"{structured_facts}\n\n{global_snapshot}".strip() if global_snapshot else structured_facts
+        freshness_note = ""
+        if not self.forecast_df.empty and "last_observed_month" in self.forecast_df.columns:
+            fr = assess_dataset_freshness(self.forecast_df, "last_observed_month", settings.max_staleness_months)
+            if fr.get("latest_observation_month"):
+                freshness_note = (
+                    f"FRAÎCHEUR DES DONNÉES : dernier mois observé {fr['latest_observation_month']} "
+                    f"(âge {fr['data_age_months']} mois, statut {fr['freshness_status']})."
+                )
+        verified_parts = [p for p in (structured_facts, freshness_note, global_snapshot) if p]
+        verified_context = "\n\n".join(verified_parts)
 
         system_prompt = (
             "Tu es FreeData.AI, l'assistant économique, agricole et financier spécialisé sur le Tchad.\n"
@@ -2726,7 +2736,12 @@ class FreeDataAIAgent(FormattersMixin):
             "ADAPTATION AU PROFIL (uniquement si le profil est clairement indiqué par la question) :\n"
             "- Commerçant / Agriculteur : prix au kg et conversion directe en sac de 100 kg, pistes concrètes d'achat/stockage/revente et marges brutes avant frais.\n"
             "- Étudiant / Chercheur : précision méthodologique, citation des sources, intervalles de confiance (IC 80%), volatilité (CV), erreur (MAE) et limites.\n"
-            "- ONG / Microfinance / Décideur : lecture risque crédit (Credit Passport, score/grade, LTV), alertes de tension/surchauffe et priorités opérationnelles.\n\n"
+            "- ONG / Microfinance / Décideur : lecture risque stabilité marché (Agricultural Market Risk & Stability Index, LTV indicatif sur garantie/collatéral, jamais une décision de crédit bancaire), alertes et priorités opérationnelles.\n\n"
+            "RÈGLES MÉTIER & RIGUEUR FINANCIÈRE (MISES À JOUR ACTIVES) :\n"
+            "- Allocation du capital : toujours 80 % BFR opérationnel / 8 % CAPEX équipement / 12 % réserve d'urgence (jamais 85/15).\n"
+            "- Rentabilité commerciale : distingue toujours la marge brute (hors transport) du résultat d'exploitation estimé, et signale les frais non inclus (taxes, stockage, financement, assurance).\n"
+            "- Données non mesurées : FreeData.AI suit les prix de marché ; n'invente jamais de volumes de demande ou de parts de marché.\n"
+            "- Fraîcheur & intervalles : avertis honnêtement si le statut de fraîcheur est 'aging' ou 'stale', ou si un intervalle est marqué 'insufficient_history' / 'wide_reduced'.\n\n"
             "COMPRÉHENSION DU CLIENT & RESPECT STRICT DE SES INSTRUCTIONS :\n"
             "- Lis attentivement l'objet [ÉTAT ET INSTRUCTIONS DU CLIENT] fourni ci-dessous.\n"
             "- Tu dois respecter à la lettre toutes les consignes et contraintes formulées par le client dans la conversation (ex: exclusion d'un type de produit, budget précis, coût de transport personnalisé, horizon de temps).\n"
@@ -2810,7 +2825,7 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
-            allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
+            allowed_context = f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
             elif len(candidate) > _MAX_LLM_REPLY_CHARS:

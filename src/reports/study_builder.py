@@ -53,8 +53,13 @@ def build_market_study_dossier(
     c_score = _clean_float(cp_rec.get("credit_score"))
 
     # 3. Anomalies & Saisonnalité réelles
-    anoms_info = provider.get_anomalies(province=orig, commodity=resolved_comm)
-    anomalies_list = (anoms_info.get("anomalies") or [])[:5]
+    anomalies_list: list[dict] = []
+    anom_df = getattr(provider, "anomalies", None)
+    if anom_df is not None and not anom_df.empty:
+        sub_a = anom_df[
+            (anom_df["province"] == orig) & (anom_df["commodity_std"] == resolved_comm)
+        ].head(5)
+        anomalies_list = sub_a.where(sub_a.notna(), None).to_dict(orient="records")
     study_book = getattr(provider, "studies", None)
     season_study = study_book.get(resolved_comm, orig) if study_book is not None else None
 
