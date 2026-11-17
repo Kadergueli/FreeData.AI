@@ -311,3 +311,18 @@ class TestChatPayloadRobustness:
         monkeypatch.setattr(ai_agent.FreeDataAIAgent, "answer_with_metadata", boom)
         resp = client.post("/api/v1/chat", json={"message": "prix du mil"})
         assert "gsk_SECRET" not in resp.text and "/home/app" not in resp.text
+
+
+def test_premium_key_never_accepts_admin_token(monkeypatch):
+    """Le jeton administrateur ne sert jamais de clé premium (il ne doit pas circuler côté client)."""
+    import dataclasses
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys="k" * 20, admin_token="a" * 20))
+    assert server._premium_key_ok("k" * 20) is True
+    assert server._premium_key_ok("a" * 20) is False
+
+
+def test_studies_disabled_when_only_admin_token_is_set(client, monkeypatch):
+    import dataclasses
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys="", admin_token="a" * 20))
+    r = client.get("/api/v1/studies/seasonality", params={"commodity": "Millet"}, headers={"X-Premium-Key": "a" * 20})
+    assert r.status_code == 503
