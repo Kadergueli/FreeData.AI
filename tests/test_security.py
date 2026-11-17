@@ -281,15 +281,16 @@ def test_chat_history_is_sanitized():
     assert req.history[1] == {"role": "user", "content": "ok"}
 
 
-def test_config_defaults_on_render_and_locally():
+def test_config_defaults_on_render_and_locally(tmp_path):
     import json, subprocess, sys
     code = ("import json;from src.config import settings as s;"
             "print(json.dumps([s.trusted_proxy_hops, s.enable_docs, s.allowed_origins]))")
     def run(env_extra):
         import os
         env = {k: v for k, v in os.environ.items() if k not in ("RENDER", "TRUSTED_PROXY_HOPS", "ENABLE_DOCS", "ALLOWED_ORIGINS")}
+        env["PYTHONPATH"] = str(ROOT)
         env.update(env_extra)
-        return json.loads(subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True).stdout)
+        return json.loads(subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, cwd=tmp_path, check=True).stdout)
     hops, docs, origins = run({"RENDER": "true"})
     assert hops == 1 and docs is False and "*" not in origins
     hops, docs, origins = run({})

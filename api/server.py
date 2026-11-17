@@ -14,7 +14,7 @@ import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -26,6 +26,7 @@ from src.credit_passport import INDEX_NAME, PASSPORT_METHODOLOGY, compute_credit
 from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import assess_dataset_freshness, filter_fresh
+from src.reports import build_market_study_dossier, render_market_study_pdf
 from src.anomalies import detect_anomalies, recent_anomalies
 from src.season_study import StudyBook, study_markdown, with_storage_cost
 
@@ -780,3 +781,71 @@ def seasonality_study(
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse(study_markdown(study), media_type="text/markdown; charset=utf-8")
     return study
+
+
+class MarketStudyRequest(BaseModel):
+    commodity: str = Field(..., min_length=2, max_length=60)
+    origin_province: str = Field(..., min_length=2, max_length=60)
+    dest_province: Optional[str] = Field(None, max_length=60)
+    capital_xaf: float = Field(..., gt=0, le=1_000_000_000_000)
+    transport_cost_per_kg: Optional[float] = Field(None, ge=0, le=50_000)
+    loss_rate_pct: float = Field(5.0, ge=0.0, le=50.0)
+    monthly_fixed_costs_xaf: float = Field(35_000.0, ge=0.0, le=100_000_000)
+    promoter_name: Optional[str] = Field(None, max_length=120)
+    user_instructions: list[str] = Field(default_factory=list)
+
+
+def _build_study_dossier_or_404(payload: MarketStudyRequest, state: dict) -> dict:
+    agent: FreeDataAIAgent = state["agent"]
+    try:
+        return build_market_study_dossier(
+            provider=agent.provider,
+            commodity=payload.commodity,
+            origin_province=payload.origin_province,
+            dest_province=payload.dest_province,
+            capital_xaf=payload.capital_xaf,
+            transport_cost_per_kg=payload.transport_cost_per_kg if payload.transport_cost_per_kg is not None else 25.0,
+            loss_rate_pct=payload.loss_rate_pct,
+            monthly_fixed_costs_xaf=payload.monthly_fixed_costs_xaf,
+            transport_is_user_provided=payload.transport_cost_per_kg is not None,
+            capital_is_user_provided=True,
+            promoter_name=payload.promoter_name,
+            user_instructions=payload.user_instructions,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/reports/market-study",
+    dependencies=[Depends(_chat_rate_limit_dependency)],
+)
+def generate_market_study_json(
+    payload: MarketStudyRequest,
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+):
+    """Génère le dossier structuré d'étude de marché PRO (100 % données réelles, zéro hallucination)."""
+    _require_premium_key(x_premium_key, "Rapports d'étude de marché PRO")
+    return _build_study_dossier_or_404(payload, state)
+
+
+@app.post(
+    "/api/v1/reports/market-study/pdf",
+    dependencies=[Depends(_chat_rate_limit_dependency)],
+)
+def generate_market_study_pdf(
+    payload: MarketStudyRequest,
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+):
+    """Génère et retourne le rapport PDF professionnel d'étude de marché PRO."""
+    _require_premium_key(x_premium_key, "Rapports d'étude de marché PDF PRO")
+    dossier = _build_study_dossier_or_404(payload, state)
+    pdf_bytes = render_market_study_pdf(dossier)
+    safe_slug = "".join(c if c.isalnum() else "_" for c in dossier["commodity"].lower()).strip("_") or "marche"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="freedata_etude_{safe_slug}.pdf"'},
+    )
