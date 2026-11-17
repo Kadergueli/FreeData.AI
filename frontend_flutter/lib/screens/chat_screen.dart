@@ -527,9 +527,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       .map((label) => Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: FDTheme.surfaceMuted,
+                              color: FDTheme.canvasSoft,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: FDTheme.border),
+                              border: Border.all(color: FDTheme.line),
                             ),
                             child: Text(
                               label,
