@@ -18,14 +18,19 @@ FreeData.td (collecte) -> public.table_public
 
 ## 1. Installation base de données (Supabase)
 
-Dans l'éditeur SQL, dans l'ordre :
+Dans l'éditeur SQL, exécuter les scripts dans l'ordre exact pour une installation neuve :
 
-| Situation | Fichiers |
-|---|---|
-| Installation neuve | `01_silver_v_clean_markets.sql`, `02_gold_ml_tables.sql`, `04_rls_policies.sql` |
-| Base Gold déjà créée | `03_gold_alert_columns.sql` puis `04_rls_policies.sql` |
+1. `sql/01_silver_v_clean_markets.sql` (vue Silver `v_clean_markets`)
+2. `sql/02_gold_ml_tables.sql` (`table_ml_forecasts`, `table_ml_credit_passport`)
+3. `sql/03_gold_alert_columns.sql` (`predicted_price`, `deviation_pct`)
+4. `sql/04_rls_policies.sql` (RLS lecture publique sur prévisions & indice de stabilité)
+5. `sql/05_gold_seasonality_studies.sql` (`table_ml_seasonality_studies`)
+6. `sql/06_gold_forecast_quality.sql` (`forecast_quality`)
+7. `sql/07_gold_anomalies.sql` (`table_ml_anomalies`)
+8. `sql/08_harden_grants.sql` *(optionnel — vérifier d'abord qu'aucune app tierce n'écrit en `anon`/`authenticated`)*
+9. `sql/09_lock_premium_tables_rls.sql` *(retire la lecture directe `anon`/`authenticated` sur les tables PRO ; requiert `SUPABASE_SERVICE_ROLE_KEY` sur l'API)*
 
-Ensuite, relancer `python scripts/update_predictions.py` pour remplir `predicted_price` et `deviation_pct` (sources des alertes). Tant que ce n'est pas fait, `/api/v1/health` indique `"alerts_source": "approximated"`.
+Ensuite, lancer le pipeline de publication : `python -m scripts.publish_pipeline` (ou `python scripts/update_predictions.py`). Tant que `predicted_price` / `deviation_pct` ne sont pas remplis, `/api/v1/health` indique `"alerts_source": "approximated"`.
 
 ## 2. Variables d'environnement
 
@@ -62,9 +67,9 @@ firebase deploy --only hosting
 
 ## Limites connues
 
-- Le score **Credit Passport** est un indicateur de volatilité des prix : ses poids et seuils ne sont pas calibrés sur des défauts de paiement. Il ne constitue pas une décision de crédit.
-- Les observations marquées `is_flagged_outlier` ne sont pas exclues de l'entraînement ni du score.
-- `hist_mae` et les intervalles à 80 % sont calculés sur les données d'entraînement (pas de validation hors échantillon).
+- L'indice **Agricultural Market Risk & Stability Index** (champ `credit_score` / `market_stability_index`) mesure uniquement la stabilité des prix de marché : ses poids et seuils ne sont **pas** calibrés sur des défauts de remboursement d'emprunteurs et ne constituent pas une décision de crédit bancaire.
+- Les intervalles à 80 % (`ci_low_80`, `ci_high_80`) utilisent une calibration conforme hors-échantillon (split chronologique 70/30) avec statut explicite (`interval_status` : `calibrated_80`, `wide_reduced` ou `insufficient_history`), mesurée à **78,9 %** globalement sur `freedatatd-markets-full.csv` (13 360 comparaisons *rolling-origin*), avec une sous-couverture résiduelle sur les séries très instables (`Fish (dry)` : 49,4 %).
+- La Bibliothèque Flutter stocke les conversations **localement** (`SharedPreferences`) : aucune synchronisation cloud multi-appareils ni mode hors-ligne complet pour les données API n'est actif.
 
 ## Études saisonnières avancées (offre premium)
 
@@ -92,17 +97,13 @@ python -m scripts.check_family_b --csv freedatatd-markets-full.csv   # contrôle
 python -m scripts.update_anomalies --apply                           # publie les 6 derniers mois
 ```
 
-Lecture : `GET /api/v1/anomalies?province=&commodity=&kind=&severity=` et dans le chat (« anomalies de prix du mil »).
+Lecture (offre PRO, en-tête `X-Premium-Key` requis) : `GET /api/v1/anomalies?province=&commodity=&kind=&severity=` et dans le chat (« anomalies de prix du mil »).
 Architecture des familles : `docs/families.md`.
 
 ## Sécurité de l'API
 
-- **Limites de requêtes** par IP et par catégorie (chat 20/min, données 120/min, administration 10/min) et un plafond **global** non
-  falsifiable (`GLOBAL_RATE_LIMIT_PER_MIN`). Réglez `TRUSTED_PROXY_HOPS` : sans lui, l'IP vient de la première entrée de
-  `X-Forwarded-For`, que le client peut choisir. Méthode : appelez `GET /api/v1/diag/client-ip` (en-tête `X-Admin-Token`) via l'adresse
-  publique, avec et sans `X-Forwarded-For: 1.2.3.4` ; `client_ip_used` doit rester votre vraie IP dans les deux cas.
-- **Premium** : uniquement les clés de `PREMIUM_API_KEYS`. Sans clé valide, le chat reste au niveau gratuit. Le jeton `ADMIN_TOKEN`
-  ne sert qu'à `/refresh` et au diagnostic.
+- **Limites de requêtes** par IP et par catégorie (chat 20/min, données 120/min, administration 10/min) et un plafond **global** non falsifiable (`GLOBAL_RATE_LIMIT_PER_MIN`). Sans `TRUSTED_PROXY_HOPS` (ou si le `peer` est hors `TRUSTED_PROXY_CIDRS`), l'API se replie sur l'IP directe (`peer`) et ignore `X-Forwarded-For`. En multi-instances, configurer `UPSTASH_REDIS_REST_URL` et `UPSTASH_REDIS_REST_TOKEN` (repli automatique sur la mémoire locale si indisponible).
+- **Premium** : uniquement les clés de `PREMIUM_API_KEYS`. Sans clé valide, `/api/v1/anomalies` et `/api/v1/studies/seasonality` renvoient `403` (ou `503` si non configuré), et le chat reste au niveau gratuit. Le jeton `ADMIN_TOKEN` ne sert qu'à `/api/v1/refresh` et `/api/v1/diag/client-ip`.
 - **Chat** : au plus `CHAT_MAX_CONCURRENCY` appels simultanés, sinon 503 (`Retry-After`).
-- **Intégration continue** : `.github/workflows/ci.yml` lance les tests et `pip-audit` à chaque push et pull request.
-- Durcissement des droits Supabase : `sql/08_harden_grants.sql` (à lire avant d'appliquer).
+- **Intégration continue & Publication** : `.github/workflows/ci.yml` exécute `python` (`pytest` + `pip-audit`), `flutter` (`format`, `analyze`, `test`, `build web`) et `integration` (`tests/test_api_contracts.py`). `.github/workflows/publish_pipeline.yml` orchestre `scripts/publish_pipeline.py` (12 étapes).
+- Durcissement des droits Supabase : `sql/08_harden_grants.sql` et `sql/09_lock_premium_tables_rls.sql` (à lire avant d'appliquer).

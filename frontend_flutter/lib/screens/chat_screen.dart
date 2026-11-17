@@ -492,21 +492,21 @@ class _ChatScreenState extends State<ChatScreen> {
         ? (stateMap['user_instructions'] as List).map((e) => e.toString()).toList()
         : <String>[];
 
-    final memoryChips = <String>[];
+    final memoryChips = <MapEntry<String, String>>[];
     if (kp['capital_xaf'] != null) {
       final cap = (kp['capital_xaf'] as num).round();
-      memoryChips.add('Capital : $cap XAF');
+      memoryChips.add(MapEntry('Capital : $cap XAF', 'Mon capital est maintenant de '));
     }
     if (kp['origin_province'] != null && kp['dest_province'] != null) {
-      memoryChips.add('${kp['origin_province']} → ${kp['dest_province']}');
+      memoryChips.add(MapEntry('${kp['origin_province']} → ${kp['dest_province']}', 'Change le trajet pour '));
     } else if (kp['origin_province'] != null) {
-      memoryChips.add('${kp['origin_province']}');
+      memoryChips.add(MapEntry('${kp['origin_province']}', 'Change la province pour '));
     }
     if (kp['transport_cost_per_kg'] != null) {
-      memoryChips.add('Fret : ${(kp['transport_cost_per_kg'] as num).round()} XAF/kg');
+      memoryChips.add(MapEntry('Fret : ${(kp['transport_cost_per_kg'] as num).round()} XAF/kg', 'Mon coût de transport est de  XAF/kg'));
     }
     if (instructions.isNotEmpty) {
-      memoryChips.add('Consigne active (${instructions.length})');
+      memoryChips.add(MapEntry('Consigne active (${instructions.length})', 'Ajoute une nouvelle consigne : '));
     }
 
     if (memoryChips.isEmpty && followUps.isEmpty) return const SizedBox.shrink();
@@ -524,16 +524,32 @@ class _ChatScreenState extends State<ChatScreen> {
                   spacing: 6,
                   runSpacing: 4,
                   children: memoryChips
-                      .map((label) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: FDTheme.canvasSoft,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: FDTheme.line),
-                            ),
-                            child: Text(
-                              label,
-                              style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
+                      .map((entry) => InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              _controller.text = entry.value;
+                              _controller.selection = TextSelection.fromPosition(
+                                TextPosition(offset: _controller.text.length),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: FDTheme.canvasSoft,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: FDTheme.line),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    entry.key,
+                                    style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.edit_outlined, size: 11, color: FDTheme.subtle),
+                                ],
+                              ),
                             ),
                           ))
                       .toList(),

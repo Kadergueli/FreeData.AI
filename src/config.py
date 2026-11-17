@@ -8,6 +8,16 @@ except ImportError:
     pass
 
 
+def _parse_trusted_proxy_hops(raw: str) -> int | None:
+    """Valide TRUSTED_PROXY_HOPS : entier >= 0, sinon None (mode sécurisé par défaut)."""
+    val = (raw or "").strip()
+    if not val:
+        return None
+    if val.isdigit():
+        return int(val)
+    return None
+
+
 @dataclass(frozen=True)
 class Settings:
     csv_path: str = os.getenv("FREEDATA_CSV_PATH", "freedatatd-markets-full.csv").strip()
@@ -50,9 +60,14 @@ class Settings:
     llm_routing: bool = os.getenv("LLM_ROUTING", "1").strip().lower() not in ("0", "false", "no")
     max_staleness_months: int = int(os.getenv("MAX_STALENESS_MONTHS", "3"))
     # Nombre de proxys de confiance devant l'API (Render, Cloudflare...). L'IP du client est alors la N-ième entrée en
-    # partant de la DROITE de X-Forwarded-For (la partie gauche est falsifiable). Vide = comportement historique
-    # (première entrée). Pour trouver la bonne valeur : GET /api/v1/diag/client-ip avec X-Admin-Token.
-    trusted_proxy_hops: int | None = (int(os.getenv("TRUSTED_PROXY_HOPS")) if os.getenv("TRUSTED_PROXY_HOPS", "").strip().isdigit() else None)
+    # partant de la DROITE de X-Forwarded-For (la partie gauche est falsifiable). Vide = repli sécurisé sur l'IP directe
+    # (peer), jamais sur l'en-tête client. Pour diagnostiquer : GET /api/v1/diag/client-ip avec X-Admin-Token.
+    trusted_proxy_hops: int | None = _parse_trusted_proxy_hops(os.getenv("TRUSTED_PROXY_HOPS", ""))
+    # Liste CIDR/IP optionnelle des proxys directs autorisés à transmettre X-Forwarded-For (séparés par des virgules).
+    trusted_proxy_cidrs: str = os.getenv("TRUSTED_PROXY_CIDRS", "").strip()
+    # Backend Redis REST optionnel (multi-instances) pour partager les compteurs de rate-limit.
+    rate_limit_redis_rest_url: str = os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
+    rate_limit_redis_rest_token: str = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
     # Plafonds indépendants de l'IP (non falsifiables) : requêtes/minute tous clients confondus, et appels chat simultanés.
     global_rate_limit_per_min: int = int(os.getenv("GLOBAL_RATE_LIMIT_PER_MIN", "600"))
     chat_max_concurrency: int = int(os.getenv("CHAT_MAX_CONCURRENCY", "8"))

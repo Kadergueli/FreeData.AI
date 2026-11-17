@@ -38,25 +38,41 @@ def _with(monkeypatch, **changes):
 
 # --- IP du client -------------------------------------------------------------------------------------------------
 
-def test_client_ip_legacy_when_hops_not_configured(monkeypatch):
-    _with(monkeypatch, trusted_proxy_hops=None)
-    assert server._client_ip(_req("1.1.1.1, 2.2.2.2")) == "1.1.1.1"
-    assert server._client_ip(_req(None)) == "10.0.0.9"
+def test_client_ip_falls_back_safely_when_hops_not_configured(monkeypatch):
+    _with(monkeypatch, trusted_proxy_hops=None, trusted_proxy_cidrs="")
+    assert server._client_ip(_req("1.1.1.1, 2.2.2.2", peer="10.0.0.9")) == "10.0.0.9"
+    assert server._client_ip(_req(None, peer="10.0.0.9")) == "10.0.0.9"
 
 
 def test_client_ip_ignores_values_the_client_can_forge(monkeypatch):
-    _with(monkeypatch, trusted_proxy_hops=1)
+    _with(monkeypatch, trusted_proxy_hops=1, trusted_proxy_cidrs="10.0.0.0/8")
     # le client a ajouté « 6.6.6.6 » à gauche ; notre proxy a ajouté l'IP réelle à droite
-    assert server._client_ip(_req("6.6.6.6, 203.0.113.7")) == "203.0.113.7"
-    _with(monkeypatch, trusted_proxy_hops=2)
-    assert server._client_ip(_req("6.6.6.6, 203.0.113.7, 172.16.0.1")) == "203.0.113.7"
-    assert server._client_ip(_req("203.0.113.7")) == "203.0.113.7"          # chaîne plus courte que prévu
+    assert server._client_ip(_req("6.6.6.6, 203.0.113.7", peer="10.0.0.9")) == "203.0.113.7"
+    _with(monkeypatch, trusted_proxy_hops=2, trusted_proxy_cidrs="10.0.0.0/8")
+    assert server._client_ip(_req("6.6.6.6, 203.0.113.7, 172.16.0.1", peer="10.0.0.9")) == "203.0.113.7"
+    assert server._client_ip(_req("203.0.113.7", peer="10.0.0.9")) == "203.0.113.7"
     _with(monkeypatch, trusted_proxy_hops=0)
-    assert server._client_ip(_req("6.6.6.6")) == "10.0.0.9"                  # aucun proxy de confiance : l'IP directe
+    assert server._client_ip(_req("6.6.6.6", peer="10.0.0.9")) == "10.0.0.9"
+
+
+def test_untrusted_peer_and_invalid_xff_fall_back_to_peer(monkeypatch):
+    _with(monkeypatch, trusted_proxy_hops=1, trusted_proxy_cidrs="10.0.0.0/8")
+    # Peer hors CIDR de confiance -> X-Forwarded-For ignoré
+    assert server._client_ip(_req("203.0.113.7", peer="198.51.100.4")) == "198.51.100.4"
+    # En-tête X-Forwarded-For invalide -> repli sur peer
+    assert server._client_ip(_req("not-an-ip, 999.999.999.999", peer="10.0.0.9")) == "10.0.0.9"
+
+
+def test_trusted_proxy_hops_validation():
+    from src.config import _parse_trusted_proxy_hops
+    assert _parse_trusted_proxy_hops("") is None
+    assert _parse_trusted_proxy_hops("-2") is None
+    assert _parse_trusted_proxy_hops("abc") is None
+    assert _parse_trusted_proxy_hops("1") == 1
 
 
 def test_spoofing_x_forwarded_for_cannot_evade_the_chat_limit(client, monkeypatch):
-    _with(monkeypatch, trusted_proxy_hops=1)
+    _with(monkeypatch, trusted_proxy_hops=1, trusted_proxy_cidrs="")
     statuses = []
     for i in range(22):
         r = client.post("/api/v1/chat", json={"message": "bonjour"},
@@ -65,12 +81,42 @@ def test_spoofing_x_forwarded_for_cannot_evade_the_chat_limit(client, monkeypatc
     assert statuses[:20] == [200] * 20 and statuses[20:] == [429, 429]
 
 
-def test_limit_is_evadable_only_in_legacy_mode(client, monkeypatch):
-    """Documente le comportement historique : sans TRUSTED_PROXY_HOPS, l'en-tête gauche choisit le compartiment."""
-    _with(monkeypatch, trusted_proxy_hops=None)
-    ok = [client.post("/api/v1/chat", json={"message": "bonjour"}, headers={"X-Forwarded-For": f"9.9.9.{i}"}).status_code
-          for i in range(25)]
-    assert set(ok) == {200}
+def test_missing_proxy_config_still_enforces_rate_limit(client, monkeypatch):
+    """Sans TRUSTED_PROXY_HOPS, le repli sur peer empêche tout contournement par X-Forwarded-For."""
+    _with(monkeypatch, trusted_proxy_hops=None, trusted_proxy_cidrs="")
+    statuses = [
+        client.post("/api/v1/chat", json={"message": "bonjour"}, headers={"X-Forwarded-For": f"9.9.9.{i}"}).status_code
+        for i in range(22)
+    ]
+    assert statuses[:20] == [200] * 20 and statuses[20:] == [429, 429]
+
+
+def test_shared_redis_backend_and_failure_fallback(client, monkeypatch):
+    from unittest.mock import MagicMock
+
+    _with(
+        monkeypatch,
+        trusted_proxy_hops=None,
+        rate_limit_redis_rest_url="https://redis.example.com",
+        rate_limit_redis_rest_token="tok",
+    )
+    # 1. Réponse Redis > limite -> 429 immédiat
+    ok_resp = MagicMock()
+    ok_resp.raise_for_status = lambda: None
+    ok_resp.json.return_value = [{"result": 1}, {"result": 1}]
+    over_resp = MagicMock()
+    over_resp.raise_for_status = lambda: None
+    over_resp.json.return_value = [{"result": 25}, {"result": 1}]
+
+    calls = iter([ok_resp, over_resp])
+    monkeypatch.setattr(server.requests, "post", lambda *a, **kw: next(calls))
+    assert client.post("/api/v1/chat", json={"message": "bonjour"}).status_code == 429
+
+    # 2. Panne Redis -> repli silencieux sur le compteur mémoire (ne contourne pas la limite)
+    server._RATE_LIMIT_BUCKET.clear()
+    monkeypatch.setattr(server.requests, "post", MagicMock(side_effect=RuntimeError("redis down")))
+    statuses = [client.post("/api/v1/chat", json={"message": "bonjour"}).status_code for _ in range(22)]
+    assert statuses[:20] == [200] * 20 and statuses[20:] == [429, 429]
 
 
 def test_global_cap_does_not_depend_on_the_ip(client, monkeypatch):

@@ -165,7 +165,7 @@ class _PassportScreenState extends State<PassportScreen> {
                         initialValue: _loanAmount,
                         isExpanded: true,
                         decoration: const InputDecoration(
-                          labelText: 'Montant',
+                          labelText: 'Valeur du stock / garantie',
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                         ),
@@ -322,7 +322,7 @@ class _PassportScreenState extends State<PassportScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Semantics(
-                                label: 'Score Credit Passport ${score.toStringAsFixed(0)} sur 100',
+                                label: 'Indice de stabilité marché ${score.toStringAsFixed(0)} sur 100 (pas une décision de crédit bancaire)',
                                 child: Container(
                                   width: 48,
                                   height: 48,

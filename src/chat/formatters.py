@@ -694,6 +694,7 @@ class FormattersMixin:
                 f"**{_fmt_signed_int(net_profit)} XAF** (**{_fmt_pct(net_margin)}**)."
             )
             qty_context = f" *(calibré pour {quantity_label})*" if (quantity_label and is_default_capital) else ""
+            cap_label_suffix = " *(hypothèse par défaut)*" if (is_default_capital and not qty_context) else ""
 
             lines = [
                 f"### 1. Diagnostic de l'opération — {comm_fr} ({orig} → {dest})",
@@ -704,7 +705,7 @@ class FormattersMixin:
                 "",
                 "| Poste financier & volume | Estimation |",
                 "| :--- | ---: |",
-                f"| Budget disponible{qty_context} | {_fmt_int(cap_val)} XAF |",
+                f"| Budget disponible{qty_context}{cap_label_suffix} | {_fmt_int(cap_val)} XAF |",
                 f"| Capital réellement engagé | {_fmt_int(data.get('actual_invested_xaf'))} XAF |",
                 f"| Volume acheté | {_fmt_int(data.get('purchasable_kg'))} kg ({data.get('purchasable_bags_100kg', 0):.2f} sacs de 100 kg) |",
                 f"| Volume revendable net (après {_fmt_num(loss_val)} % de pertes) | {_fmt_num(data.get('sellable_kg'))} kg |",
@@ -712,12 +713,14 @@ class FormattersMixin:
                 f"| **Seuil de rentabilité minimum** | **{_fmt_num(data.get('break_even_price_per_kg'))} XAF/kg** |",
                 f"| Prix de revente estimé ({dest}) | {_fmt_num(data.get('sell_price'))} XAF/kg |",
                 f"| Chiffre d'affaires brut | {_fmt_int(data.get('gross_revenue_xaf'))} XAF |",
-                f"| **Bénéfice net estimé** | **{_fmt_signed_int(net_profit)} XAF** |",
-                f"| **Marge nette estimée** | **{_fmt_pct(net_margin)}** |",
+                f"| Marge brute (hors transport) | {_fmt_signed_int(data.get('gross_margin_xaf'))} XAF |",
+                f"| **Résultat d'exploitation estimé** | **{_fmt_signed_int(net_profit)} XAF** |",
+                f"| **Rentabilité sur capital engagé (ROIC)** | **{_fmt_pct(net_margin)}** |",
                 "",
-                "### 3. Hypothèses & Points de Vigilance",
+                "### 3. Hypothèses & Frais exclus du calcul",
                 transport_note,
-                f"- Gardez au moins **10 à 15 %** de trésorerie libre hors stock pour les imprévus de route, taxes communales et sacherie.",
+                "- **Frais non inclus** (à déduire selon votre activité) : sacherie, manutention, taxes de marché, stockage, main-d'œuvre, financement et assurance.",
+                "- Gardez au moins **12 %** de liquidités d'urgence hors stock pour les imprévus.",
                 "- Vous pouvez ajuster votre capital ou vos frais réels de transport (ex. « avec transport 35 XAF/kg ») pour recalculer immédiatement.",
             ]
             return "\n".join(lines)
@@ -748,10 +751,12 @@ class FormattersMixin:
                 "",
                 "| Indicateur | Estimation dynamique |",
                 "| :--- | ---: |",
-                f"| Budget stock recommandé (85 %) | **{_fmt_int(focus_plan['stock_budget_xaf'])} XAF** |",
-                f"| Trésorerie de sécurité (15 %) | **{_fmt_int(focus_plan['cash_reserve_xaf'])} XAF** |",
+                f"| Capital total disponible | **{_fmt_int(cap_val)} XAF** |",
+                f"| BFR opérationnel / achat de stock (80 %) | **{_fmt_int(focus_plan['stock_budget_xaf'])} XAF** |",
+                f"| Budget CAPEX équipement alloué (8 %) | **{_fmt_int(focus_plan.get('capex_budget_xaf', round(cap_val * 0.08)))} XAF** *(utilisé seulement si requis)* |",
+                f"| Réserve de liquidités d'urgence (12 %) | **{_fmt_int(focus_plan['cash_reserve_xaf'])} XAF** |",
                 f"| Prix médian observé/prévu ({f_scope}) | **{_fmt_num(focus_plan['unit_price_xaf'])} XAF/kg** ({_fmt_int(focus_plan['bag_100kg_price_xaf'])} XAF / sac 100 kg) |",
-                f"| Volume achetable (sur 85 % du budget) | **{_fmt_int(focus_plan['purchasable_kg'])} kg** ({focus_plan['purchasable_bags_100kg']:.1f} sacs de 100 kg) |",
+                f"| Volume achetable (sur les 80 % BFR) | **{_fmt_int(focus_plan['purchasable_kg'])} kg** ({focus_plan['purchasable_bags_100kg']:.1f} sacs de 100 kg) |",
             ])
             if focus_plan.get("credit_score") is not None:
                 lines.append(
@@ -771,7 +776,7 @@ class FormattersMixin:
                 "",
                 f"Pour lancer une activité agricole avec un capital de **{_fmt_int(cap_val)} XAF** tout en limitant le risque de perte, "
                 f"privilégiez les denrées accessibles (prix unitaire inférieur ou égal à **450 XAF/kg**) affichant une bonne stabilité "
-                f"historique et un profil Credit Passport solide, tout en conservant **15 %** de trésorerie de sécurité ({_fmt_int(cap_val * 0.15)} XAF).",
+                f"historique et un profil Credit Passport solide, tout en conservant **12 %** de réserve de liquidités d'urgence ({_fmt_int(round(cap_val * 0.12))} XAF) et **8 %** de budget équipement ({_fmt_int(round(cap_val * 0.08))} XAF).",
                 "",
             ])
 
@@ -1054,8 +1059,9 @@ class FormattersMixin:
             if fp.get("unit_price_xaf"):
                 title = f"Plan d’investissement — {fp.get('commodity_fr', '')} ({fp.get('scope', '')})"
                 items.append(
-                    f"Budget stock (85 %) : {_fmt_int(fp.get('stock_budget_xaf'))} XAF · "
-                    f"Réserve (15 %) : {_fmt_int(fp.get('cash_reserve_xaf'))} XAF"
+                    f"BFR achat (80 %) : {_fmt_int(fp.get('stock_budget_xaf'))} XAF · "
+                    f"CAPEX (8 %) : {_fmt_int(fp.get('capex_budget_xaf'))} XAF · "
+                    f"Réserve (12 %) : {_fmt_int(fp.get('cash_reserve_xaf'))} XAF"
                 )
                 items.append(
                     f"Volume achetable : {_fmt_int(fp.get('purchasable_kg'))} kg "

@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 
@@ -18,23 +20,24 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
     min_ym, max_ym = kg_df["year_month"].min(), kg_df["year_month"].max()
     all_months = pd.period_range(min_ym, max_ym + 1, freq="M")
 
-    series_meta = kg_df[["source", "province", "market_name", "commodity_std"]].drop_duplicates()
+    keys = ["source", "province", "market_name", "commodity_std"]
+    series_meta = kg_df[keys].drop_duplicates()
     series_meta["key"] = 1
     grid = pd.merge(series_meta, pd.DataFrame({"year_month": all_months, "key": 1}), on="key").drop("key", axis=1)
 
     panel = pd.merge(
         grid,
-        kg_df[["source", "province", "market_name", "commodity_std", "year_month", "value"]],
-        on=["source", "province", "market_name", "commodity_std", "year_month"],
+        kg_df[keys + ["year_month", "value"]],
+        on=keys + ["year_month"],
         how="left",
-    ).sort_values(["source", "province", "market_name", "commodity_std", "year_month"]).reset_index(drop=True)
+    ).sort_values(keys + ["year_month"]).reset_index(drop=True)
 
-    grp = panel.groupby(["source", "province", "market_name", "commodity_std"])["value"]
+    grp = panel.groupby(keys, sort=False)["value"]
     panel["lag_1"], panel["lag_2"], panel["lag_3"] = grp.shift(1), grp.shift(2), grp.shift(3)
     panel["value_ffill2"] = grp.ffill(limit=2)
-    grp_ff = panel.groupby(["source", "province", "market_name", "commodity_std"])["value_ffill2"]
-    panel["roll_mean_3"] = grp_ff.shift(1).rolling(3, min_periods=1).mean()
-    panel["roll_std_3"] = grp_ff.shift(1).rolling(3, min_periods=2).std().fillna(0)
+    grp_ff = panel.groupby(keys, sort=False)["value_ffill2"]
+    panel["roll_mean_3"] = grp_ff.transform(lambda s: s.shift(1).rolling(3, min_periods=1).mean())
+    panel["roll_std_3"] = grp_ff.transform(lambda s: s.shift(1).rolling(3, min_periods=2).std()).fillna(0.0)
 
     panel["ret_1m"] = np.log(panel["lag_1"] / panel["lag_2"]).fillna(0.0)
     panel["ret_2m"] = np.log(panel["lag_2"] / panel["lag_3"]).fillna(0.0)
@@ -50,7 +53,7 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
     dummy_columns = X_cat_df.columns.tolist()
 
     X_train = np.column_stack([np.ones(len(train_full)), train_full[num_cols].values, X_cat_df.values])
-    weights = fit_ridge_numpy(X_train, y_train_logret, alpha=50.0)
+    weights = fit_ridge_numpy(X_train, y_train_logret, alpha=50.0) if len(train_full) > 0 else np.zeros(X_train.shape[1])
 
     pred_logret_hist = np.clip(X_train @ weights, -0.5, 0.5)
     pred_mr_hist = train_full["lag_1"].values * np.exp(pred_logret_hist)
@@ -105,13 +108,102 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
     latest["last_observed_month"] = latest["year_month"].astype(str)
     latest["forecast_month"] = (latest["year_month"] + 1).astype(str)
 
-    err_stats = train_full.groupby(["province", "commodity_std"])["residual_xaf"].apply(lambda s: np.mean(np.abs(s))).reset_index()
-    err_stats.rename(columns={"residual_xaf": "hist_mae"}, inplace=True)
-    latest = pd.merge(latest, err_stats, on=["province", "commodity_std"], how="left")
-    latest["hist_mae"] = np.round(latest["hist_mae"].fillna(25.0), 2)
-    # Intervalle plus large (x1.5) quand la prévision n'a pas pu utiliser le mois précédent.
-    width = 1.28 * latest["hist_mae"] * np.where(latest["forecast_quality"] == "reduced", 1.5, 1.0)
-    latest["ci_low_80"] = np.round(np.clip(latest["forecast_t1"] - width, 10.0, None), 2)
-    latest["ci_high_80"] = np.round(latest["forecast_t1"] + width, 2)
+    # Calibration conforme hors-échantillon (split chronologique 70/30 sur train_full) :
+    # on évite d'utiliser le MAE in-sample qui sous-estime l'erreur future sur les séries volatiles.
+    oos_residuals = pd.DataFrame(columns=["province", "commodity_std", "abs_err"])
+    unique_ym = sorted(train_full["year_month"].unique())
+    if len(unique_ym) >= 6:
+        split_idx = max(3, int(len(unique_ym) * 0.7))
+        if split_idx < len(unique_ym):
+            split_ym = unique_ym[split_idx - 1]
+            tr_cal = train_full[train_full["year_month"] <= split_ym]
+            va_cal = train_full[train_full["year_month"] > split_ym]
+            if len(tr_cal) >= 10 and len(va_cal) >= 5:
+                X_tr_cal_cat = pd.get_dummies(tr_cal[cat_cols], dtype=float)
+                cal_cols = X_tr_cal_cat.columns.tolist()
+                X_tr_cal = np.column_stack([np.ones(len(tr_cal)), tr_cal[num_cols].values, X_tr_cal_cat.values])
+                y_tr_cal = np.log(tr_cal["value"].values / tr_cal["lag_1"].values)
+                w_cal = fit_ridge_numpy(X_tr_cal, y_tr_cal, alpha=50.0)
+
+                X_va_cal_cat = pd.get_dummies(va_cal[cat_cols], dtype=float).reindex(columns=cal_cols, fill_value=0.0)
+                X_va_cal = np.column_stack([np.ones(len(va_cal)), va_cal[num_cols].values, X_va_cal_cat.values])
+                pred_va_logret = np.clip(X_va_cal @ w_cal, -0.5, 0.5)
+                pred_va_mr = va_cal["lag_1"].values * np.exp(pred_va_logret)
+                roll3_va = va_cal["roll_mean_3"].fillna(va_cal["lag_1"]).values
+                pred_va = np.round(0.65 * roll3_va + 0.35 * pred_va_mr, 2)
+                oos_residuals = pd.DataFrame({
+                    "province": va_cal["province"].values,
+                    "commodity_std": va_cal["commodity_std"].values,
+                    "abs_err": np.abs(va_cal["value"].values - pred_va),
+                })
+
+    def _conformal_q80(errs: np.ndarray) -> float:
+        n = len(errs)
+        level = min(1.0, np.ceil((n + 1) * 0.80) / n)
+        return float(np.quantile(errs, level))
+
+    min_cal_n = 20
+    pc_q80: dict[tuple[str, str], float] = {}
+    pc_mae: dict[tuple[str, str], float] = {}
+    c_q80: dict[str, float] = {}
+    c_mae: dict[str, float] = {}
+    global_q80: Optional[float] = None
+    global_mae: Optional[float] = None
+
+    if not oos_residuals.empty:
+        for (p, c), g in oos_residuals.groupby(["province", "commodity_std"]):
+            if len(g) >= min_cal_n:
+                arr = g["abs_err"].to_numpy(float)
+                pc_q80[(str(p), str(c))] = _conformal_q80(arr)
+                pc_mae[(str(p), str(c))] = float(np.mean(arr))
+        for c, g in oos_residuals.groupby("commodity_std"):
+            if len(g) >= min_cal_n:
+                arr = g["abs_err"].to_numpy(float)
+                c_q80[str(c)] = _conformal_q80(arr)
+                c_mae[str(c)] = float(np.mean(arr))
+        if len(oos_residuals) >= min_cal_n:
+            arr_all = oos_residuals["abs_err"].to_numpy(float)
+            global_q80 = _conformal_q80(arr_all)
+            global_mae = float(np.mean(arr_all))
+
+    # Repli sur les résidus historiques si l'échantillon hors-échantillon est insuffisant
+    in_mae = (
+        train_full.groupby(["province", "commodity_std"])["residual_xaf"]
+        .apply(lambda s: float(np.mean(np.abs(s))))
+        .to_dict()
+        if not train_full.empty
+        else {}
+    )
+
+    widths: list[float] = []
+    hist_maes: list[float] = []
+    statuses: list[str] = []
+    for _, row in latest.iterrows():
+        key_pc = (str(row["province"]), str(row["commodity_std"]))
+        comm_k = str(row["commodity_std"])
+        qual = str(row.get("forecast_quality", "standard"))
+        if key_pc in pc_q80:
+            q_val, mae_val, st = pc_q80[key_pc], pc_mae[key_pc], "calibrated_80"
+        elif comm_k in c_q80:
+            q_val, mae_val, st = c_q80[comm_k], c_mae[comm_k], "calibrated_80"
+        elif global_q80 is not None and global_mae is not None:
+            q_val, mae_val, st = global_q80, global_mae, "calibrated_80"
+        else:
+            mae_val = in_mae.get(key_pc, 25.0)
+            q_val = 1.60 * mae_val
+            st = "insufficient_history"
+        if qual == "reduced":
+            q_val *= 1.5
+            if st == "calibrated_80":
+                st = "wide_reduced"
+        widths.append(q_val)
+        hist_maes.append(round(mae_val, 2))
+        statuses.append(st)
+
+    width_arr = np.asarray(widths, dtype=float)
+    latest["hist_mae"] = hist_maes
+    latest["interval_status"] = statuses
+    latest["ci_low_80"] = np.round(np.clip(latest["forecast_t1"] - width_arr, 10.0, None), 2)
+    latest["ci_high_80"] = np.round(latest["forecast_t1"] + width_arr, 2)
 
     return train_full, latest

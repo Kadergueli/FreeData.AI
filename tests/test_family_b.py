@@ -166,19 +166,22 @@ def test_chat_without_anomaly_table_does_not_invent(gold_tables):
     assert r["intent"] == "anomalies" and "aucune anomalie" in r["reply"].lower()
 
 
-def test_anomalies_endpoint_filters(gold_tables):
+def test_anomalies_endpoint_filters(gold_tables, monkeypatch):
+    from dataclasses import replace
     from fastapi.testclient import TestClient
     from api import server
     fc, cp = gold_tables
+    monkeypatch.setattr(server, "settings", replace(server.settings, premium_api_keys="pro-secret"))
     server.STATE.clear()
     server.STATE.update(server.build_state_from_gold(fc, cp, anomaly_rows=_anomaly_rows()))
     c = TestClient(server.app)
-    all_ = c.get("/api/v1/anomalies").json()
+    hdr = {"X-Premium-Key": "pro-secret"}
+    all_ = c.get("/api/v1/anomalies", headers=hdr).json()
     assert all_["count"] == 4
-    strong = c.get("/api/v1/anomalies", params={"severity": "forte"}).json()
+    strong = c.get("/api/v1/anomalies", params={"severity": "forte"}, headers=hdr).json()
     assert strong["count"] == 2 and all(i["severity"] == "forte" for i in strong["items"])
-    assert c.get("/api/v1/anomalies", params={"kind": "stale"}).json()["count"] == 1
-    assert c.get("/api/v1/anomalies", params={"kind": "nimporte"}).status_code == 422
+    assert c.get("/api/v1/anomalies", params={"kind": "stale"}, headers=hdr).json()["count"] == 1
+    assert c.get("/api/v1/anomalies", params={"kind": "nimporte"}, headers=hdr).status_code == 422
     server.STATE.clear()
 
 

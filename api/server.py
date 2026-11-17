@@ -1,4 +1,5 @@
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -7,6 +8,7 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Literal, Optional
 import requests
 import pandas as pd
@@ -19,10 +21,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.config import settings
 from src.data_loader import load_clean_markets
 from src.forecasting import run_forecasting_pipeline
-from src.credit_passport import compute_credit_passport
+from src.credit_passport import INDEX_NAME, PASSPORT_METHODOLOGY, compute_credit_passport, compute_recommended_max_loan
 from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
-from src.freshness import filter_fresh
+from src.freshness import assess_dataset_freshness, filter_fresh
 from src.anomalies import detect_anomalies, recent_anomalies
 from src.season_study import StudyBook, study_markdown, with_storage_cost
 
@@ -38,28 +40,88 @@ _CHAT_SLOTS = threading.BoundedSemaphore(max(1, settings.chat_max_concurrency))
 _CHAT_WAIT_S = 3.0  # attente maximale d'un créneau chat avant de répondre 503
 
 
+def _valid_ip(value: str) -> Optional[str]:
+    try:
+        return str(ipaddress.ip_address(value.strip()))
+    except ValueError:
+        return None
+
+
+def _peer_is_trusted_proxy(peer: str) -> bool:
+    cidrs_raw = getattr(settings, "trusted_proxy_cidrs", "") or ""
+    if not cidrs_raw.strip():
+        return True
+    peer_ip = _valid_ip(peer)
+    if peer_ip is None:
+        return False
+    addr = ipaddress.ip_address(peer_ip)
+    for part in cidrs_raw.split(","):
+        c = part.strip()
+        if not c:
+            continue
+        try:
+            if addr in ipaddress.ip_network(c, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _client_ip(request: Request) -> str:
-    """IP du client. Derrière un proxy, seules les entrées ajoutées par NOS proxys sont fiables (la droite de la liste)."""
+    """IP du client. Ne fait confiance à X-Forwarded-For que si le proxy est explicitement configuré et validé."""
     peer = request.client.host if request.client else "unknown"
+    hops = settings.trusted_proxy_hops
+    if hops is None or hops <= 0 or not _peer_is_trusted_proxy(peer):
+        return peer
     forwarded = (request.headers.get("x-forwarded-for") or "").strip() if hasattr(request, "headers") else ""
     chain = [part.strip() for part in forwarded.split(",") if part.strip()]
     if not chain:
         return peer
-    hops = settings.trusted_proxy_hops
-    if hops is None:                    # non configuré : comportement historique (première entrée, falsifiable)
-        return chain[0]
-    if hops <= 0:
-        return peer
-    return chain[-hops] if len(chain) >= hops else chain[0]
+    candidate = chain[-hops] if len(chain) >= hops else chain[0]
+    return _valid_ip(candidate) or peer
 
 
-def _hit(bucket_key: str, limit: int, now: float, detail: str) -> None:
+def _hit_memory(bucket_key: str, limit: int, now: float, detail: str) -> None:
     window = [ts for ts in _RATE_LIMIT_BUCKET.get(bucket_key, ()) if now - ts < 60.0]
     if len(window) >= limit:
         _RATE_LIMIT_BUCKET[bucket_key] = window
         raise HTTPException(status_code=429, detail=detail, headers={"Retry-After": "30"})
     window.append(now)
     _RATE_LIMIT_BUCKET[bucket_key] = window
+
+
+def _hit_shared_redis(bucket_key: str, limit: int, now: float, detail: str) -> bool:
+    """Tente un comptage partagé via Redis REST. Retourne True si traité, False si non configuré ou en erreur."""
+    url = (getattr(settings, "rate_limit_redis_rest_url", "") or "").strip().rstrip("/")
+    token = (getattr(settings, "rate_limit_redis_rest_token", "") or "").strip()
+    if not url or not token:
+        return False
+    window_id = int(now // 60)
+    redis_key = f"freedata:rl:{bucket_key}:{window_id}"
+    try:
+        resp = requests.post(
+            f"{url}/pipeline",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=[["INCR", redis_key], ["EXPIRE", redis_key, 70]],
+            timeout=1.5,
+        )
+        resp.raise_for_status()
+        results = resp.json()
+        count = int(results[0]["result"])
+        if count > limit:
+            raise HTTPException(status_code=429, detail=detail, headers={"Retry-After": "30"})
+        return True
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Shared rate-limit backend unavailable, falling back to in-memory: %s", exc)
+        return False
+
+
+def _hit(bucket_key: str, limit: int, now: float, detail: str) -> None:
+    if _hit_shared_redis(bucket_key, limit, now, detail):
+        return
+    _hit_memory(bucket_key, limit, now, detail)
 
 
 def check_rate_limit(request: Request, max_per_minute: int = 20, scope: str = "chat"):
@@ -91,13 +153,14 @@ def _admin_rate_limit_dependency(request: Request):
     check_rate_limit(request, 10, "admin")
 
 
-def _fetch_gold_table(table_name: str) -> pd.DataFrame:
+def _fetch_gold_table(table_name: str, privileged: bool = False) -> pd.DataFrame:
     """Lit une table Gold pré-calculée via l'API HTTPS Supabase (ultra-léger en RAM)."""
     base = settings.supabase_url.rstrip("/")
     endpoint = f"{base}/rest/v1/{table_name}"
+    key = settings.write_key if privileged else settings.read_key
     headers = {
-        "apikey": settings.read_key,
-        "Authorization": f"Bearer {settings.read_key}",
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
         "Accept": "application/json",
     }
     rows = []
@@ -125,8 +188,33 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
                     studies: StudyBook | None = None, track_record: dict | None = None,
                     anomalies: pd.DataFrame | None = None) -> dict:
     """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
+    now_utc = datetime.now(timezone.utc)
+    pub_dt = now_utc
+    if not forecast_df.empty and "generated_at" in forecast_df.columns:
+        parsed_pub = pd.to_datetime(forecast_df["generated_at"], utc=True, errors="coerce").dropna()
+        if not parsed_pub.empty:
+            pub_dt = parsed_pub.max().to_pydatetime()
+
     hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
     forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
+    freshness = {
+        "forecasts": assess_dataset_freshness(
+            forecast_df,
+            "last_observed_month",
+            settings.max_staleness_months,
+            now_utc=now_utc,
+            last_successful_computation_at=now_utc,
+            last_publication_at=pub_dt,
+        ),
+        "historical": assess_dataset_freshness(
+            hist_df,
+            "year_month",
+            settings.max_staleness_months,
+            now_utc=now_utc,
+            last_successful_computation_at=now_utc,
+            last_publication_at=pub_dt,
+        ),
+    }
     return {
         "hist_df": hist_df,
         "forecast_df": forecast_df,
@@ -139,6 +227,7 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
         "mode": mode,
         "alerts_source": alerts_source,
         "stale_excluded": stale_excluded,
+        "freshness": freshness,
     }
 
 
@@ -249,12 +338,12 @@ def build_state() -> dict:
                 "Tables Gold vides : exécuter scripts/update_predictions.py avant de démarrer l'API."
             )
         try:
-            study_rows = _fetch_gold_table("table_ml_seasonality_studies").to_dict(orient="records")
+            study_rows = _fetch_gold_table("table_ml_seasonality_studies", privileged=True).to_dict(orient="records")
         except Exception as exc:  # table absente (sql/05 non appliqué) : le reste de l'API fonctionne
             logger.warning("Études saisonnières indisponibles (table_ml_seasonality_studies) : %s", exc)
             study_rows = []
         try:
-            anomaly_rows = _fetch_gold_table("table_ml_anomalies").to_dict(orient="records")
+            anomaly_rows = _fetch_gold_table("table_ml_anomalies", privileged=True).to_dict(orient="records")
         except Exception as exc:  # table absente (sql/07 non appliqué)
             logger.warning("Anomalies indisponibles (table_ml_anomalies) : %s", exc)
             anomaly_rows = []
@@ -348,6 +437,14 @@ class ChatResponse(BaseModel):
 @app.get("/api/v1/health")
 def health_check():
     snapshot = dict(STATE)
+    freshness = snapshot.get("freshness") or {}
+    fc_fresh = freshness.get("forecasts") or {
+        "latest_observation_month": None,
+        "last_successful_computation_at": None,
+        "last_publication_at": None,
+        "data_age_months": None,
+        "freshness_status": "unavailable",
+    }
     return {
         "status": "ok" if "agent" in snapshot else "degraded",
         "backend": settings.data_backend,
@@ -357,6 +454,12 @@ def health_check():
         "stale_series_excluded": snapshot.get("stale_excluded", 0),
         "series_count": len(snapshot.get("forecast_df", [])),
         "passports_count": len(snapshot.get("passport_df", [])),
+        "latest_observation_month": fc_fresh.get("latest_observation_month"),
+        "last_successful_computation_at": fc_fresh.get("last_successful_computation_at"),
+        "last_publication_at": fc_fresh.get("last_publication_at"),
+        "data_age_months": fc_fresh.get("data_age_months"),
+        "freshness_status": fc_fresh.get("freshness_status", "unavailable"),
+        "data_freshness": freshness,
     }
 
 
@@ -509,10 +612,12 @@ def get_forecasts(
     cols = [
         "source", "province", "market_name", "commodity_std",
         "last_observed_month", "value", "forecast_month",
-        "forecast_t1", "ci_low_80", "ci_high_80", "hist_mae", "forecast_quality",
+        "forecast_t1", "ci_low_80", "ci_high_80", "hist_mae", "forecast_quality", "interval_status",
     ]
     if "forecast_quality" not in df.columns:  # Gold ancien (sql/06 pas encore appliqué)
         df["forecast_quality"] = "standard"
+    if "interval_status" not in df.columns:
+        df["interval_status"] = "uncalibrated"
     out = df[cols].rename(columns={"value": "last_observed_price"}).head(limit)
     return {"count": len(out), "items": out.to_dict(orient="records")}
 
@@ -542,6 +647,16 @@ def get_alerts(
     }
 
 
+def _require_premium_key(x_premium_key: Optional[str], feature_label: str) -> None:
+    if not settings.premium_keys:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{feature_label} indisponible : offre partenaire non activée.",
+        )
+    if not _premium_key_ok(x_premium_key):
+        raise HTTPException(status_code=403, detail="Clé premium invalide.")
+
+
 @app.get("/api/v1/anomalies", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_anomalies(
     province: Optional[str] = Query(None),
@@ -550,8 +665,10 @@ def get_anomalies(
     severity: Optional[str] = Query(None, pattern="^(forte|modérée)$"),
     limit: int = Query(100, ge=1, le=1000),
     state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
 ):
-    """Signaux à vérifier (jamais un verdict) : sauts, divergences entre marchés, séries figées ou arrêtées."""
+    """Signaux à vérifier (offre premium) : sauts, divergences entre marchés, séries figées ou arrêtées."""
+    _require_premium_key(x_premium_key, "Analyse d'anomalies")
     df = state.get("anomalies")
     if df is None or df.empty:
         return {"count": 0, "items": []}
@@ -573,7 +690,8 @@ def get_anomalies(
 def get_credit_passport(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
-    loan_amount: int = Query(1_000_000, ge=10_000, le=1_000_000_000_000),
+    collateral_value_xaf: Optional[int] = Query(None, ge=0, le=1_000_000_000_000),
+    loan_amount: Optional[int] = Query(None, ge=0, le=1_000_000_000_000),
     state: dict = Depends(get_state),
 ):
     df = state["passport_df"].copy()
@@ -582,8 +700,18 @@ def get_credit_passport(
     if commodity:
         df = df[df["commodity_std"].str.lower() == commodity.strip().lower()]
     df = df.sort_values("credit_score", ascending=False)
-    df["recommended_max_loan_xaf"] = (df["ltv_ratio"] * loan_amount).astype(int)
+    effective_collateral = (
+        collateral_value_xaf
+        if collateral_value_xaf is not None
+        else (loan_amount if loan_amount is not None else 1_000_000)
+    )
+    df["recommended_max_loan_xaf"] = [
+        compute_recommended_max_loan(effective_collateral, float(r)) for r in df["ltv_ratio"]
+    ]
     return {
+        "index_name": INDEX_NAME,
+        "collateral_value_xaf": effective_collateral,
+        "methodology": PASSPORT_METHODOLOGY,
         "count": len(df),
         "disclaimer": CREDIT_PASSPORT_DISCLAIMER,
         "items": df.to_dict(orient="records"),
@@ -603,10 +731,7 @@ def seasonality_study(
     x_premium_key: Optional[str] = Header(default=None),
 ):
     """Étude saisonnière avancée (offre premium) : calendrier, comparaison de provinces, stratégie de stockage rejouée."""
-    if not settings.premium_keys:
-        raise HTTPException(status_code=503, detail="Études avancées désactivées : PREMIUM_API_KEYS non configuré.")
-    if not _premium_key_ok(x_premium_key):
-        raise HTTPException(status_code=403, detail="Clé premium invalide.")
+    _require_premium_key(x_premium_key, "Études avancées")
     book: StudyBook | None = state.get("studies")
     fc = state["forecast_df"]
     by_lower = {str(c).lower(): str(c) for c in fc["commodity_std"].dropna().unique()}

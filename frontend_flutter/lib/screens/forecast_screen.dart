@@ -61,6 +61,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
   Map<String, dynamic> _trackRecords = const {};
   Map<String, dynamic>? _seasonality;
   bool _loading = true;
+  bool _showTechnicalDetails = false;
   String? _error;
 
   @override
@@ -460,6 +461,23 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         ),
                       ),
                     TextButton.icon(
+                      onPressed: () => setState(() => _showTechnicalDetails = !_showTechnicalDetails),
+                      icon: Icon(
+                        _showTechnicalDetails ? Icons.visibility_off_outlined : Icons.tune_rounded,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _showTechnicalDetails ? 'Vue simple' : 'Détails',
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: FDTheme.subtle,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    TextButton.icon(
                       onPressed: _copyForecastsCsv,
                       icon: const Icon(Icons.download_rounded, size: 16),
                       label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
@@ -482,6 +500,14 @@ class _ForecastScreenState extends State<ForecastScreen> {
                   final ciLow = parseNum(r['ci_low_80']);
                   final ciHigh = parseNum(r['ci_high_80']);
                   final quality = r['forecast_quality']?.toString() ?? 'standard';
+                  final intervalStatus = r['interval_status']?.toString() ?? '';
+                  final intervalLabel = intervalStatus == 'calibrated_80'
+                      ? 'Intervalle prévisionnel 80 % (calibré)'
+                      : (intervalStatus == 'wide_reduced'
+                          ? 'Intervalle élargi (historique lacunaire)'
+                          : (intervalStatus == 'insufficient_history'
+                              ? 'Fourchette indicative (historique court)'
+                              : 'Intervalle indicatif 80 %'));
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -545,16 +571,40 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Source : ${r['source'] ?? 'Non précisée'}  •  Dernière observation : ${r['last_observed_month'] ?? '—'}',
-                            style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
-                          ),
-                          if (ciLow != null && ciHigh != null) ...[
-                            const SizedBox(height: 3),
+                          if (_showTechnicalDetails) ...[
+                            const SizedBox(height: 10),
                             Text(
-                              'Intervalle indicatif 80 % : ${formatXaf(ciLow)} – ${formatXaf(ciHigh)} XAF/kg',
+                              'Source : ${r['source'] ?? 'Non précisée'}  •  Dernière observation : ${r['last_observed_month'] ?? '—'}',
                               style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
+                            ),
+                            if (ciLow != null && ciHigh != null) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                '$intervalLabel : ${formatXaf(ciLow)} – ${formatXaf(ciHigh)} XAF/kg',
+                                style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
+                              ),
+                            ],
+                          ],
+                          if (widget.onSelectPrompt != null) ...[
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
+                                  final mkt = r['market_name']?.toString() ?? (_selectedProvince ?? '');
+                                  widget.onSelectPrompt!(
+                                    'Explique la prévision et fais un business plan pour du $comm à $mkt.',
+                                  );
+                                },
+                                icon: const Icon(Icons.auto_awesome_outlined, size: 15),
+                                label: const Text('Analyser / Business Plan (IA)', style: TextStyle(fontSize: 12)),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: const Size(0, 30),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
                             ),
                           ],
                         ],
@@ -1108,9 +1158,50 @@ class _ForecastScreenState extends State<ForecastScreen> {
       }
     }
 
+    final lastPrices = _items
+        .whereType<Map>()
+        .map((r) => parseNum(r['last_observed_price'])?.toDouble())
+        .whereType<double>()
+        .toList()
+      ..sort();
+    final medianLast = lastPrices.isNotEmpty
+        ? (lastPrices.length.isOdd
+            ? lastPrices[lastPrices.length ~/ 2]
+            : (lastPrices[lastPrices.length ~/ 2 - 1] + lastPrices[lastPrices.length ~/ 2]) / 2.0)
+        : medianFc;
+    final trendPct = medianLast > 0 ? ((medianFc - medianLast) / medianLast) * 100.0 : 0.0;
+    final trendLabel = trendPct > 1.5
+        ? 'Hausse attendue (+${trendPct.toStringAsFixed(1)}%)'
+        : (trendPct < -1.5
+            ? 'Baisse attendue (${trendPct.toStringAsFixed(1)}%)'
+            : 'Prix stables (${trendPct >= 0 ? '+' : ''}${trendPct.toStringAsFixed(1)}%)');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        FDCard(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(
+                trendPct > 1.5
+                    ? Icons.trending_up_rounded
+                    : (trendPct < -1.5 ? Icons.trending_down_rounded : Icons.trending_flat_rounded),
+                color: trendPct > 1.5 ? FDTheme.danger : FDTheme.green,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Verdict rapide · ${commodityLabelFr(_selectedCommodity ?? 'Millet')} (${_selectedProvince ?? ''}) : '
+                  '$trendLabel · Sac 100 kg ≈ ${formatXaf(medianFc * 100)} XAF',
+                  style: const TextStyle(color: FDTheme.ink, fontSize: 13.5, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
         Wrap(
           spacing: 12,
           runSpacing: 12,

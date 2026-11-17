@@ -68,6 +68,17 @@ def test_stale_series_not_served(client):
     assert all(i["commodity_std"] != "Maize (white)" for i in items)
     health = client.get("/api/v1/health").json()
     assert health["stale_series_excluded"] == 1
+    for key in (
+        "latest_observation_month",
+        "last_successful_computation_at",
+        "last_publication_at",
+        "data_age_months",
+        "freshness_status",
+        "data_freshness",
+    ):
+        assert key in health
+    salamat_items = client.get("/api/v1/forecasts", params={"province": "Salamat"}).json()["items"]
+    assert salamat_items and "interval_status" in salamat_items[0]
 
 
 def test_legacy_gold_without_alert_columns_falls_back_and_says_so(gold_tables):

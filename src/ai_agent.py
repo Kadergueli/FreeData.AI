@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from src.config import settings
+from src.business_engine import allocate_capital, build_professional_business_plan, format_business_plan_markdown
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.season_study import StudyBook
 from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR
@@ -248,6 +249,9 @@ _PROFILE_RULES: list[tuple[str, re.Pattern[str]]] = [
 _INSTRUCTION_TRIGGER_RE = re.compile(
     r"\b(?:je\s+(?:ne\s+)?veux(?:\s+pas)?|evite[zr]?|privilegie[zr]?|uniquement|sans|"
     r"mon\s+objectif\s+est|prends?\s+en\s+compte)\b"
+)
+_BUSINESS_PLAN_RE = re.compile(
+    r"\b(?:business\s*plan|plan\s+d['’]?affaires?|dossier\s+(?:de\s+financement|bancaire|imf)|modele\s+financier)\b"
 )
 
 _PERISHABLE_COMMODITIES = {
@@ -1385,10 +1389,13 @@ class MarketDataProvider:
         capital_xaf: float = 500000.0,
         transport_cost_per_kg: float = 25.0,
         loss_rate_pct: float = 5.0,
+        other_operating_costs_xaf: float = 0.0,
+        capital_provenance: str = "default_assumption",
+        transport_provenance: str = "default_assumption",
     ) -> dict:
         """
         Simule un compte d'exploitation net réel entre deux provinces en intégrant
-        transport, pertes techniques, seuil de rentabilité et marge nette en FCFA.
+        achat, transport, pertes techniques, seuil de rentabilité, ROI et provenance des paramètres.
         """
         resolved_comm = self.resolve_commodity(commodity) or commodity
         if not self.forecast_df.empty and "commodity_std" in self.forecast_df.columns:
@@ -1405,10 +1412,30 @@ class MarketDataProvider:
         loss_pct = min(max(float(loss_rate_pct), 0.0), 99.9)
         comm_fr = self.fr_commodity(resolved_comm)
 
+        provenance = {
+            "capital_xaf": capital_provenance,
+            "transport_cost_per_kg": transport_provenance,
+            "loss_rate_pct": "estimated",
+            "buy_price": "retrieved_from_dataset",
+            "sell_price": "retrieved_from_dataset",
+            "unit_landed_cost": "calculated",
+            "purchasable_kg": "calculated",
+            "sellable_kg": "calculated",
+            "purchase_cost_xaf": "calculated",
+            "transport_cost_total_xaf": "calculated",
+            "gross_revenue_xaf": "calculated",
+            "gross_margin_xaf": "calculated",
+            "net_profit_xaf": "calculated",
+            "break_even_price_per_kg": "calculated",
+            "break_even_quantity_kg": "calculated",
+            "roi_pct": "calculated",
+        }
+
         buy_price = self._median_province_commodity_price(orig_prov, resolved_comm)
         sell_price = self._median_province_commodity_price(dest_prov, resolved_comm)
 
         if buy_price is None:
+            provenance["buy_price"] = "unavailable"
             return {
                 "status": "missing_origin_data",
                 "commodity": resolved_comm,
@@ -1417,13 +1444,15 @@ class MarketDataProvider:
                 "dest_province": dest_prov,
                 "buy_price": None,
                 "sell_price": round(sell_price, 1) if sell_price is not None else None,
+                "provenance": provenance,
             }
 
         unit_landed_cost = round(buy_price + transport, 1)
-        purchasable_kg = int(capital // unit_landed_cost) if unit_landed_cost > 0 else 0
+        purchasable_kg = int(capital // unit_landed_cost) if (capital > 0 and unit_landed_cost > 0) else 0
         loss_factor = max(1.0 - loss_pct / 100.0, 1e-6)
 
         if sell_price is None:
+            provenance["sell_price"] = "unavailable"
             break_even_missing = round(unit_landed_cost / loss_factor, 1)
             return {
                 "status": "missing_dest_data",
@@ -1437,6 +1466,7 @@ class MarketDataProvider:
                 "purchasable_kg": purchasable_kg,
                 "purchasable_bags_100kg": round(purchasable_kg / 100.0, 2),
                 "break_even_price_per_kg": break_even_missing,
+                "provenance": provenance,
                 "assumptions": {
                     "capital_xaf": capital,
                     "transport_cost_per_kg": transport,
@@ -1445,16 +1475,65 @@ class MarketDataProvider:
             }
 
         purchasable_bags_100kg = round(purchasable_kg / 100.0, 2)
+        total_purchase_cost_xaf = round(purchasable_kg * buy_price, 0)
+        transport_cost_xaf = round(purchasable_kg * transport, 0)
+        other_op_costs = round(max(float(other_operating_costs_xaf), 0.0), 0)
         actual_invested_xaf = round(purchasable_kg * unit_landed_cost, 0)
         sellable_kg = round(purchasable_kg * (1.0 - loss_pct / 100.0), 1)
-        break_even_price_per_kg = round(actual_invested_xaf / max(sellable_kg, 1.0), 1)
+        physical_loss_cost_xaf = round(max(0.0, purchasable_kg - sellable_kg) * sell_price, 0)
+        break_even_price_per_kg = round((actual_invested_xaf + other_op_costs) / max(sellable_kg, 1.0), 1)
         gross_revenue_xaf = round(sellable_kg * sell_price, 0)
-        net_profit_xaf = round(gross_revenue_xaf - actual_invested_xaf, 0)
-        net_margin_pct = round((net_profit_xaf / max(actual_invested_xaf, 1.0)) * 100.0, 1)
-        is_profitable = bool(net_profit_xaf > 0)
+        gross_margin_xaf = round(gross_revenue_xaf - total_purchase_cost_xaf, 0)
+        estimated_operating_profit_xaf = round(gross_revenue_xaf - actual_invested_xaf - other_op_costs, 0)
+        total_committed = actual_invested_xaf + other_op_costs
+        return_on_invested_capital_pct = (
+            round((estimated_operating_profit_xaf / max(total_committed, 1.0)) * 100.0, 1)
+            if total_committed > 0
+            else 0.0
+        )
+        break_even_quantity_kg = (
+            round(total_committed / max(sell_price * loss_factor, 1e-6), 1)
+            if sell_price > 0 and total_committed > 0
+            else None
+        )
+        is_profitable = bool(estimated_operating_profit_xaf > 0)
+
+        known_expenses = {
+            "total_purchase_cost_xaf": {
+                "amount_xaf": total_purchase_cost_xaf,
+                "source": "retrieved_from_dataset",
+            },
+        }
+        estimated_expenses = {
+            "physical_loss_cost_xaf": {
+                "amount_xaf": physical_loss_cost_xaf,
+                "source": "estimated",
+                "method": f"{loss_pct}% de pertes techniques estimées valorisées au prix de destination",
+            },
+        }
+        if transport_provenance == "user_provided":
+            known_expenses["transport_cost_xaf"] = {"amount_xaf": transport_cost_xaf, "source": "user_provided"}
+        else:
+            estimated_expenses["transport_cost_xaf"] = {
+                "amount_xaf": transport_cost_xaf,
+                "source": "default_assumption",
+                "method": f"Forfait indicatif de {transport} XAF/kg",
+            }
+        if other_op_costs > 0:
+            known_expenses["other_operating_costs_xaf"] = {"amount_xaf": other_op_costs, "source": "user_provided"}
+
+        missing_expenses = [
+            "sacherie / emballage",
+            "manutention (chargement / déchargement)",
+            "taxes de marché / patente communale",
+            "stockage / loyer de dépôt",
+            "main-d'œuvre",
+            "frais de financement / intérêts",
+            "assurance",
+        ]
 
         return {
-            "status": "ok",
+            "status": "ok" if purchasable_kg > 0 else "insufficient_capital",
             "commodity": resolved_comm,
             "commodity_fr": comm_fr,
             "origin_province": orig_prov,
@@ -1464,17 +1543,36 @@ class MarketDataProvider:
             "unit_landed_cost": unit_landed_cost,
             "purchasable_kg": purchasable_kg,
             "purchasable_bags_100kg": purchasable_bags_100kg,
+            "total_purchase_cost_xaf": total_purchase_cost_xaf,
+            "purchase_cost_xaf": total_purchase_cost_xaf,
+            "transport_cost_xaf": transport_cost_xaf,
+            "transport_cost_total_xaf": transport_cost_xaf,
+            "physical_loss_cost_xaf": physical_loss_cost_xaf,
+            "other_operating_costs_xaf": other_op_costs,
             "actual_invested_xaf": actual_invested_xaf,
             "sellable_kg": sellable_kg,
             "break_even_price_per_kg": break_even_price_per_kg,
+            "break_even_quantity_kg": break_even_quantity_kg,
             "gross_revenue_xaf": gross_revenue_xaf,
-            "net_profit_xaf": net_profit_xaf,
-            "net_margin_pct": net_margin_pct,
+            "gross_margin_xaf": gross_margin_xaf,
+            "operating_expenses_xaf": transport_cost_xaf + other_op_costs,
+            "estimated_operating_profit_xaf": estimated_operating_profit_xaf,
+            "net_profit_xaf": estimated_operating_profit_xaf,
+            "return_on_invested_capital_pct": return_on_invested_capital_pct,
+            "net_margin_pct": return_on_invested_capital_pct,
+            "roi_pct": return_on_invested_capital_pct,
             "is_profitable": is_profitable,
+            "provenance": provenance,
+            "expenses_breakdown": {
+                "known_expenses": known_expenses,
+                "estimated_expenses": estimated_expenses,
+                "missing_expenses": missing_expenses,
+            },
             "assumptions": {
                 "capital_xaf": capital,
                 "transport_cost_per_kg": transport,
                 "loss_rate_pct": loss_pct,
+                "other_operating_costs_xaf": other_op_costs,
             },
         }
 
@@ -1489,13 +1587,21 @@ class MarketDataProvider:
         Plan ciblé (si produit/province précisés), Top 3 filières 'Tremplin', 3 pièges à éviter et checklist en 4 étapes.
         """
         capital = max(float(capital_xaf), 0.0)
+        alloc = allocate_capital(capital) if capital > 0 else {
+            "total_capital_xaf": 0,
+            "working_capital_xaf": 0,
+            "capex_equipment_xaf": 0,
+            "safety_cash_reserve_xaf": 0,
+            "remaining_liquidity_xaf": 0,
+        }
         checklist = [
             {
                 "step": 1,
-                "title": "Calibrage du capital et réserve de trésorerie",
+                "title": "Calibrage du capital (80 % BFR / 8 % CAPEX / 12 % Réserve)",
                 "description": (
-                    f"N'engagez pas plus de 85 % du capital ({_fmt_int(capital * 0.85)} XAF) dans l'achat de stock "
-                    f"et gardez 15 % ({_fmt_int(capital * 0.15)} XAF) pour le fret, la sacherie et les frais de marché."
+                    f"Allouez 80 % ({_fmt_int(alloc['working_capital_xaf'])} XAF) au BFR (achat de stock, fret, sacherie), "
+                    f"8 % ({_fmt_int(alloc['capex_equipment_xaf'])} XAF) en budget CAPEX équipement (utilisé seulement si requis) "
+                    f"et gardez 12 % ({_fmt_int(alloc['safety_cash_reserve_xaf'])} XAF) en réserve de liquidités d'urgence."
                 ),
             },
             {
@@ -1656,8 +1762,9 @@ class MarketDataProvider:
                 price_source = prov_sub if not prov_sub.empty else fc_sub
                 if not price_source.empty:
                     unit_p = float(price_source["_p"].median())
-                    stock_budget = round(capital * 0.85, 0)
-                    cash_reserve = round(capital * 0.15, 0)
+                    stock_budget = float(alloc["working_capital_xaf"])
+                    capex_budget = float(alloc["capex_equipment_xaf"])
+                    cash_reserve = float(alloc["safety_cash_reserve_xaf"])
                     buy_kg = int(stock_budget // unit_p) if unit_p > 0 else 0
                     cp_comm = self._resolve_df_commodity(self.passport_df, target_comm) or target_comm
                     cp_match = self.passport_df[
@@ -1680,7 +1787,9 @@ class MarketDataProvider:
                         "unit_price_xaf": round(unit_p, 1),
                         "bag_100kg_price_xaf": round(unit_p * 100.0, 0),
                         "stock_budget_xaf": stock_budget,
+                        "capex_budget_xaf": capex_budget,
                         "cash_reserve_xaf": cash_reserve,
+                        "capital_allocation": alloc,
                         "purchasable_kg": buy_kg,
                         "purchasable_bags_100kg": round(buy_kg / 100.0, 1),
                         "credit_score": _clean_float(cp_row.get(score_col)) if cp_row is not None else None,
@@ -2335,6 +2444,10 @@ class FreeDataAIAgent(FormattersMixin):
                         buy_p = self.provider._median_province_commodity_price(orig_prov, cand_comm)
                         if buy_p is not None and (buy_p + transport_cost) > 0:
                             eff_cap = float(math.ceil(qty_kg * (buy_p + transport_cost)))
+                    cap_prov = "calculated" if (is_default_cap and qty_kg and qty_kg > 0) else (
+                        "default_assumption" if is_default_cap else "user_provided"
+                    )
+                    tr_prov = "default_assumption" if is_default_tr else "user_provided"
                     cand_res = self.provider.simulate_trade_pnl(
                         cand_comm,
                         orig_prov,
@@ -2342,6 +2455,8 @@ class FreeDataAIAgent(FormattersMixin):
                         capital_xaf=eff_cap,
                         transport_cost_per_kg=transport_cost,
                         loss_rate_pct=5.0,
+                        capital_provenance=cap_prov,
+                        transport_provenance=tr_prov,
                     )
                     if chosen_data is None:
                         chosen_data = cand_res
@@ -2374,6 +2489,11 @@ class FreeDataAIAgent(FormattersMixin):
                     is_default_capital=is_default_cap,
                     quantity_label=qty_label,
                 )
+            if entities.get("is_business_plan_request"):
+                bp = self._build_blueprint_for_entities(entities, raw_data=raw_data)
+                if bp:
+                    raw_data["business_plan_blueprint"] = bp
+                    facts = f"{format_business_plan_markdown(bp)}\n\n{facts}".strip()
         elif intent == "compare_sell":
             raw_data = self.provider.compare_sell_locations(comm, entities.get("provinces") or [])
             facts = self._format_compare_sell(raw_data)
@@ -2466,6 +2586,69 @@ class FreeDataAIAgent(FormattersMixin):
             logger.warning("LLM fallback triggered (Ollama): %s", exc)
         return structured_facts
 
+    def _build_blueprint_for_entities(
+        self, entities: dict, raw_data: Optional[dict] = None
+    ) -> Optional[dict]:
+        """Construit le modèle financier déterministe depuis `MarketDataProvider`."""
+        instructions = entities.get("user_instructions") or []
+        comm = entities.get("commodity")
+        orig = entities.get("origin_province") or entities.get("province")
+        dest = entities.get("destination_province")
+        if not comm and raw_data:
+            fp = raw_data.get("focus_plan") or {}
+            comm = fp.get("commodity_std")
+            if not comm and raw_data.get("tremplin_sectors"):
+                sec = raw_data["tremplin_sectors"][0]
+                comm = sec.get("commodity_std")
+                orig = orig or sec.get("province")
+        comm = comm or self.provider.default_commodity(orig)
+        if not comm:
+            return None
+        if not orig:
+            orig = self.provinces[0] if self.provinces else "N'Djamena"
+
+        buy_p = self.provider._median_province_commodity_price(orig, comm)
+        if buy_p is None and raw_data and isinstance(raw_data.get("buy_price_xaf"), (int, float)):
+            buy_p = float(raw_data["buy_price_xaf"])
+        if buy_p is None and not self.provider.forecast_df.empty:
+            fc_sub = self.provider.forecast_df[self.provider.forecast_df["commodity_std"] == comm]
+            if not fc_sub.empty:
+                ps = self.provider._resolve_price_series(fc_sub).dropna()
+                if not ps.empty:
+                    buy_p = float(ps.median())
+        if buy_p is None or buy_p <= 0:
+            return None
+
+        sell_p = self.provider._median_province_commodity_price(dest, comm) if dest else None
+        vol_cv = None
+        c_score = None
+        if not self.provider.passport_df.empty:
+            cp = self.provider.passport_df
+            cp_comm = self.provider._resolve_df_commodity(cp, comm) or comm
+            sub = cp[cp["commodity_std"] == cp_comm]
+            if orig and not sub[sub["province"] == orig].empty:
+                sub = sub[sub["province"] == orig]
+            if not sub.empty:
+                score_col = "score_global" if "score_global" in sub.columns else "credit_score"
+                row = sub.sort_values(score_col, ascending=False).iloc[0] if score_col in sub.columns else sub.iloc[0]
+                vol_cv = _clean_float(row.get("cv_pct"))
+                c_score = _clean_float(row.get(score_col))
+
+        return build_professional_business_plan(
+            commodity=comm,
+            commodity_fr=self._fr_commodity(comm),
+            origin_province=orig,
+            dest_province=dest,
+            buy_price_per_kg=float(buy_p),
+            sell_price_per_kg=float(sell_p) if sell_p is not None else None,
+            volatility_cv_pct=vol_cv,
+            credit_score=c_score,
+            capital_xaf=float(entities.get("capital_xaf") or 500000.0),
+            transport_cost_per_kg=float(entities.get("transport_cost_per_kg") or 25.0),
+            loss_rate_pct=5.0,
+            user_instructions=instructions,
+        )
+
     def _synthesize_with_llm(
         self,
         user_query: str,
@@ -2473,6 +2656,7 @@ class FreeDataAIAgent(FormattersMixin):
         chunks: list[dict],
         history: Optional[list[dict]] = None,
         client_state: Optional[dict] = None,
+        business_plan_blueprint: Optional[dict] = None,
     ) -> str:
         """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
@@ -2557,9 +2741,33 @@ class FreeDataAIAgent(FormattersMixin):
                 f"{json.dumps(client_state, ensure_ascii=False, indent=2)}\n"
                 "[/ÉTAT ET INSTRUCTIONS DU CLIENT]"
             )
+        blueprint_block = ""
+        if business_plan_blueprint:
+            system_prompt = (
+                "Tu es FreeData.AI Advisory, un cabinet de conseil en ingénierie financière et développement commercial au Tchad.\n"
+                "Rédige un BUSINESS PLAN PROFESSIONNEL, RIGOUREUX ET BANCABLE en utilisant EXCLUSIVEMENT les chiffres du modèle financier fourni dans [MODÈLE FINANCIER CALCULÉ] et les données de marché de [DONNÉES VÉRIFIÉES].\n\n"
+                "EXIGENCES DE PRÉSENTATION PROFESSIONNELLE :\n"
+                "- Utilise des tableaux Markdown clairs et bien alignés pour les chiffres financiers (Allocation du capital, Compte d'exploitation sur 6 mois, Stress-tests).\n"
+                "- Distingue explicitement par une note de bas de tableau :\n"
+                "  * Les données certifiées FreeData.AI (prix observés/prévus, volatilité CV %, score Credit Passport).\n"
+                "  * Les hypothèses d'exploitation standards (CAPEX 8 %, sacherie 5 XAF/kg, charges fixes mensuelles, fret) que l'entrepreneur devra ajuster selon ses devis locaux.\n"
+                "- Respecte impérativement toutes les instructions et contraintes exprimées par le client dans [ÉTAT ET INSTRUCTIONS DU CLIENT].\n\n"
+                "STRUCTURE OBLIGATOIRE DU DOCUMENT :\n"
+                "1. **Résumé Exécutif (Executive Summary)** : Concept, axe commercial, capital engagé, rentabilité attendue au Cycle 1 et ROI.\n"
+                "2. **Étude de Marché & Positionnement Commercial** : Analyse de l'offre et de la demande (prix origine vs destination, saisonnalité, cible client : demi-grossistes, détaillants, institutions).\n"
+                "3. **Plan d'Investissement (CAPEX) & Besoin en Fonds de Roulement (BFR)** : Tableau de répartition du capital (80 % BFR / 8 % Équipement / 12 % Trésorerie de sécurité).\n"
+                "4. **Compte d'Exploitation Prévisionnel (6 Mois) & Seuil de Rentabilité** : Tableau complet mois par mois + prix plancher (Point Mort).\n"
+                "5. **Analyse des Risques & Tests de Résistance (Stress Tests)** : Tableau d'impact en cas de baisse des prix (-10 %) ou hausse du fret (+25 %), plus mesures de mitigation terrain.\n"
+                "6. **Feuille de Route Opérationnelle (Semaines 1 à 4)** : Plan d'exécution concret avant le premier achat."
+            )
+            blueprint_block = (
+                "\n\n[MODÈLE FINANCIER CALCULÉ]\n"
+                f"{json.dumps(business_plan_blueprint, ensure_ascii=False, indent=2)}\n"
+                "[/MODÈLE FINANCIER CALCULÉ]"
+            )
         user_prompt = (
             f"Question utilisateur : {user_query}\n\n"
-            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{state_block}{doc_context}"
+            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{state_block}{blueprint_block}{doc_context}"
         )
 
         history_msgs: list[dict] = []
@@ -2594,7 +2802,7 @@ class FreeDataAIAgent(FormattersMixin):
                     "model": settings.llm_chat_model,
                     "messages": messages,
                     "temperature": 0.3,
-                    "max_tokens": 750,
+                    "max_tokens": 1500 if business_plan_blueprint else 750,
                 },
                 timeout=12,
             )
@@ -2602,7 +2810,7 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
-            allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}"
+            allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
             elif len(candidate) > _MAX_LLM_REPLY_CHARS:
@@ -2935,6 +3143,12 @@ class FreeDataAIAgent(FormattersMixin):
 
         client_state = extract_client_state(history, q, provider=self.provider)
         entities = self._apply_client_state_to_entities(entities, client_state)
+        hist_user_norm = _normalize_text(" ".join(
+            str(m.get("content") or "") for m in (history or []) if isinstance(m, dict) and m.get("role", "user") == "user"
+        ))
+        entities["is_business_plan_request"] = bool(
+            _BUSINESS_PLAN_RE.search(q_norm) or _BUSINESS_PLAN_RE.search(hist_user_norm)
+        )
 
         # Demande trop floue : on interroge l'utilisateur plutôt que d'afficher le Mil national.
         has_context = bool(
@@ -3011,8 +3225,14 @@ class FreeDataAIAgent(FormattersMixin):
         if tier == "premium" and settings.llm_api_key:
             causal = self._build_causal_context(entities)
             enriched_facts = f"{structured_facts}\n\n{causal}".strip() if causal else structured_facts
+            bp_blueprint = (meta.get("provider_data") or {}).get("business_plan_blueprint")
             final_reply = self._synthesize_with_llm(
-                q, enriched_facts, chunks, history=history, client_state=client_state
+                q,
+                enriched_facts,
+                chunks,
+                history=history,
+                client_state=client_state,
+                business_plan_blueprint=bp_blueprint,
             )
             if final_reply == enriched_facts:
                 final_reply = free_reply

@@ -542,11 +542,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 children: [
                                   const Row(
                                     children: [
-                                      Icon(Icons.cloud_sync_outlined, color: FDTheme.blue, size: 22),
+                                      Icon(Icons.storage_rounded, color: FDTheme.blue, size: 22),
                                       SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          'Synchronisation',
+                                          'Stockage local',
                                           style: TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink, fontSize: 17),
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -555,14 +555,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   const Text(
-                                    'Vos conversations restent persistées localement dans votre navigateur.',
+                                    'Vos conversations sont enregistrées uniquement sur cet appareil. '
+                                    'La synchronisation cloud multi-appareils est actuellement indisponible.',
                                     style: TextStyle(fontSize: 14, color: FDTheme.muted, height: 1.5),
                                   ),
                                   const SizedBox(height: 12),
-                                  FDBadge(
-                                    label: 'STOCKAGE LOCAL',
-                                    color: FDTheme.blue,
-                                    backgroundColor: FDTheme.blue.withValues(alpha: 0.10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: [
+                                      FDBadge(
+                                        label: 'STOCKÉ LOCALEMENT',
+                                        color: FDTheme.blue,
+                                        backgroundColor: FDTheme.blue.withValues(alpha: 0.10),
+                                      ),
+                                      FDBadge(
+                                        label: 'SYNCHRONISATION INDISPONIBLE',
+                                        color: FDTheme.muted,
+                                        backgroundColor: FDTheme.canvasSoft,
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
