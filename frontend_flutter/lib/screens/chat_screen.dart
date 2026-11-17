@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/fd_theme.dart';
 import '../core/models/chat_models.dart';
+import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/chat/chat_widgets.dart';
@@ -554,22 +555,40 @@ class _ChatScreenState extends State<ChatScreen> {
                           ))
                       .toList(),
                 ),
-              if (followUps.isNotEmpty) ...[
+              if (followUps.isNotEmpty ||
+                  (widget.apiService.hasPremiumKey &&
+                      kp['commodity'] != null &&
+                      kp['origin_province'] != null &&
+                      kp['capital_xaf'] != null)) ...[
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 8,
                   runSpacing: 6,
-                  children: followUps
-                      .map((prompt) => ActionChip(
-                            label: Text(
-                              prompt,
-                              style: const TextStyle(fontSize: 12.5, color: FDTheme.ink),
-                            ),
-                            backgroundColor: Colors.white,
-                            side: const BorderSide(color: FDTheme.borderStrong),
-                            onPressed: () => _sendMessage(prompt),
-                          ))
-                      .toList(),
+                  children: [
+                    if (widget.apiService.hasPremiumKey &&
+                        kp['commodity'] != null &&
+                        kp['origin_province'] != null &&
+                        kp['capital_xaf'] != null)
+                      ActionChip(
+                        avatar: const Icon(Icons.picture_as_pdf_outlined, size: 15, color: FDTheme.blue),
+                        label: const Text(
+                          'Télécharger Étude PDF (PRO)',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                        ),
+                        backgroundColor: FDTheme.blueSoft,
+                        side: const BorderSide(color: FDTheme.blue),
+                        onPressed: () => _exportMarketStudyPdf(kp, instructions),
+                      ),
+                    ...followUps.map((prompt) => ActionChip(
+                          label: Text(
+                            prompt,
+                            style: const TextStyle(fontSize: 12.5, color: FDTheme.ink),
+                          ),
+                          backgroundColor: Colors.white,
+                          side: const BorderSide(color: FDTheme.borderStrong),
+                          onPressed: () => _sendMessage(prompt),
+                        )),
+                  ],
                 ),
               ],
             ],
@@ -577,6 +596,38 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _exportMarketStudyPdf(Map<String, dynamic> kp, List<String> instructions) async {
+    final comm = kp['commodity']?.toString() ?? '';
+    final orig = kp['origin_province']?.toString() ?? '';
+    final cap = (kp['capital_xaf'] as num?)?.toDouble() ?? 0;
+    if (comm.isEmpty || orig.isEmpty || cap <= 0) return;
+
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text('Génération du dossier PDF PRO en cours...')));
+    try {
+      final bytes = await widget.apiService.downloadMarketStudyPdf(
+        commodity: comm,
+        originProvince: orig,
+        destProvince: kp['dest_province']?.toString(),
+        capitalXaf: cap,
+        transportCostPerKg: (kp['transport_cost_per_kg'] as num?)?.toDouble(),
+        userInstructions: instructions,
+      );
+      final slug = comm.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+      triggerPdfDownload(bytes, 'freedata_etude_$slug.pdf');
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('Étude PDF PRO téléchargée.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   Widget _buildInputBar() {

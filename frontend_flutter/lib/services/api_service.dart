@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class ApiHttpException implements Exception {
@@ -317,5 +318,38 @@ class ApiService {
       return data['items'] as List<dynamic>;
     }
     throw ApiHttpException(resp.statusCode, 'Erreur chargement Credit Passport (${resp.statusCode})');
+  }
+
+  Future<Uint8List> downloadMarketStudyPdf({
+    required String commodity,
+    required String originProvince,
+    String? destProvince,
+    required double capitalXaf,
+    double? transportCostPerKg,
+    List<String> userInstructions = const [],
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/reports/market-study/pdf');
+    final body = <String, dynamic>{
+      'commodity': commodity,
+      'origin_province': originProvince,
+      if (destProvince != null && destProvince.isNotEmpty) 'dest_province': destProvince,
+      'capital_xaf': capitalXaf,
+      if (transportCostPerKg != null) 'transport_cost_per_kg': transportCostPerKg,
+      'user_instructions': userInstructions,
+    };
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (hasPremiumKey) 'X-Premium-Key': activePremiumKey,
+    };
+    final resp = await _client
+        .post(uri, headers: headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 45));
+    if (resp.statusCode == 200) {
+      return resp.bodyBytes;
+    }
+    if (resp.statusCode == 403 || resp.statusCode == 503) {
+      throw ApiHttpException(resp.statusCode, 'Accès Partenaire PRO requis pour générer le PDF.');
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur génération PDF (${resp.statusCode})');
   }
 }
