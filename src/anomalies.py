@@ -181,6 +181,32 @@ def quality_issues(kg_df: pd.DataFrame) -> list[dict]:
     return out
 
 
+DIP_MIN_DROP = 0.30        # creux d'au moins 30 % sous le mois précédent...
+DIP_REBOUND = 0.85         # ...suivi d'un retour à au moins 85 % de ce niveau le mois d'après
+
+
+def dip_and_rebound(kg_df: pd.DataFrame, min_drop: float = DIP_MIN_DROP, rebound: float = DIP_REBOUND) -> pd.DataFrame:
+    """Relevés SUSPECTS à signaler (rapport de qualité) : prix en chute brutale puis revenu à la normale le mois suivant.
+
+    Ne modifie, n'exclut et ne corrige RIEN : sert seulement à relire les données à la source (ex. mois d'un même
+    fournisseur sous le niveau normal sur plusieurs séries). Colonnes : SERIES_KEYS, month, previous, dip, next, drop_pct.
+    """
+    df = _clean(kg_df)
+    rows = []
+    for key, g in df.groupby(SERIES_KEYS):
+        o, v = g["ordinal"].to_numpy(), g["value"].to_numpy(float)
+        for i in range(1, len(v) - 1):
+            if o[i] - o[i - 1] != 1 or o[i + 1] - o[i] != 1:
+                continue
+            if v[i] <= v[i - 1] * (1 - min_drop) and v[i + 1] >= v[i - 1] * rebound:
+                key_t = key if isinstance(key, tuple) else (key,)
+                rows.append({**dict(zip(SERIES_KEYS, key_t)),
+                             "month": f"{(o[i] - 1) // 12}-{(o[i] - 1) % 12 + 1:02d}",
+                             "previous": v[i - 1], "dip": v[i], "next": v[i + 1],
+                             "drop_pct": (v[i] / v[i - 1] - 1) * 100})
+    return pd.DataFrame(rows, columns=SERIES_KEYS + ["month", "previous", "dip", "next", "drop_pct"])
+
+
 # ----------------------------------------------------------------------------
 # Assemblage
 # ----------------------------------------------------------------------------

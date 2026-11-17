@@ -11,11 +11,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from src.anomalies import detect_anomalies, evaluate_detection, recent_anomalies
+from src.anomalies import detect_anomalies, dip_and_rebound, evaluate_detection, recent_anomalies
 from src.data_loader import load_clean_markets
 
 
-def report(anom, ev) -> str:
+def report(anom, ev, dips=None) -> str:
     rec = recent_anomalies(anom, 3)
     lines = ["# Famille B — Détection d'anomalies", "",
              f"- Anomalies sur tout l'historique : **{len(anom)}** ({anom['kind'].value_counts().to_dict() if len(anom) else {}})",
@@ -36,6 +36,13 @@ def report(anom, ev) -> str:
         lines += ["", "## Épisodes régionaux (plusieurs marchés d'une province à la fois : événement ou problème de données ?)", ""]
         for r in reg.head(15).itertuples():
             lines.append(f"- {r.month} — {r.commodity_std} ({r.province} : {r.market_name}) : {r.change_pct:+.0f} %")
+    if dips is not None and len(dips):
+        lines += ["", "## Relevés suspects à relire à la source (chute brutale puis retour à la normale le mois suivant)", "",
+                  "Signalés seulement : rien n'est exclu ni corrigé. Beaucoup de séries au même mois = souvent un problème de collecte.", "",
+                  "| Mois | Séries concernées | Chute moyenne |", "| :--- | ---: | ---: |"]
+        for m, g in dips.groupby("month"):
+            if len(g) >= 3:
+                lines.append(f"| {m} | {len(g)} | {g['drop_pct'].mean():.0f} % |")
     lines += ["", "## Dernières anomalies fortes", ""]
     top = rec[(rec["severity"] == "forte") & (rec["kind"] != "regional")].head(15)
     for r in top.itertuples():
@@ -56,11 +63,12 @@ def main(argv=None) -> int:
     print("[1/2] Détection et validation par chocs injectés (quelques dizaines de secondes)...", flush=True)
     anom = detect_anomalies(kg)
     ev = evaluate_detection(kg)
+    dips = dip_and_rebound(kg)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "anomalies_family_b.md").write_text(report(anom, ev), encoding="utf-8")
+    (out / "anomalies_family_b.md").write_text(report(anom, ev, dips), encoding="utf-8")
     print("[2/2] Terminé.\n")
-    print(report(anom, ev))
+    print(report(anom, ev, dips))
     print(f"Fichier écrit : {out / 'anomalies_family_b.md'} (rien envoyé à Supabase).")
     return 0
 

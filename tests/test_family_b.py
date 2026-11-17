@@ -250,3 +250,18 @@ def test_real_spike_after_flat_period_is_still_flagged():
     df = set_value(panel(n_months=30, n_markets=8, noise=0.012), "Marche2", "2026-05", 1.8)
     det = detect_anomalies(df, group_regional=False)
     assert "2026-05" in set(det[det["market_name"] == "Marche2"]["month"])
+
+
+def test_dip_and_rebound_flags_only_a_drop_that_recovers():
+    import pandas as pd
+    from src.anomalies import dip_and_rebound, SERIES_KEYS
+
+    def series(vals, name):
+        d = {k: "x" for k in SERIES_KEYS}
+        d["commodity_std"] = name
+        return [{**d, "year_month": pd.Timestamp(2026, 1 + i, 1), "value": v} for i, v in enumerate(vals)]
+
+    df = pd.DataFrame(series([200, 205, 120, 210, 212], "dip") + series([200, 120, 118, 119, 120], "real_drop"))
+    out = dip_and_rebound(df)
+    assert list(out["commodity_std"]) == ["dip"]
+    assert out.iloc[0]["month"] == "2026-03"
