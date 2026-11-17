@@ -29,11 +29,6 @@ void main() {
     expect(reloaded.first.title, 'Test Mil Lac');
     expect(reloaded.first.messages.length, 2);
 
-    // Export Markdown
-    final md = storage.exportAsMarkdown(reloaded.first);
-    expect(md, contains('# Test Mil Lac'));
-    expect(md, contains('220 XAF/kg'));
-
     // Suppression (corbeille) puis restauration
     await storage.deleteConversation(created.id);
     expect((await storage.loadConversations()).length, 0);

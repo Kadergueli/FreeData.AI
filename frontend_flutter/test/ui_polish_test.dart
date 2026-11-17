@@ -258,6 +258,8 @@ void main() {
     expect(find.text('1 320 XAF/kg'), findsWidgets);
     expect(find.text('132 000 XAF'), findsWidgets);
     expect(find.text('Copier CSV'), findsOneWidget);
+    await tester.tap(find.text('Détails'));
+    await tester.pumpAndSettle();
     expect(find.text('Intervalle indicatif 80 % : 233 – 311 XAF/kg'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

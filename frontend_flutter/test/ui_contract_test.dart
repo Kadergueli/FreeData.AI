@@ -107,7 +107,7 @@ void main() {
     expect(find.text('Bibliothèque'), findsOneWidget);
     expect(find.text('Aucune conversation enregistrée'), findsOneWidget);
     expect(find.text('Analyses'), findsOneWidget);
-    expect(find.text('Synchronisation'), findsOneWidget);
+    expect(find.text('Stockage local'), findsOneWidget);
   });
 
   testWidgets('LibraryScreen reads saved conversations from local storage', (tester) async {
