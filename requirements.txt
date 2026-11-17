@@ -1,7 +1,9 @@
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.7.0
-pandas>=2.2.0
-numpy>=1.26.0
-requests>=2.31.0
-python-dotenv>=1.0.0
+# Bornes hautes : une nouvelle version majeure ne s'installe jamais toute seule sur Render.
+# Versions testées (novembre 2026) : fastapi 0.163, pydantic 2.13, pandas 3.0, numpy 2.5, requests 2.34.
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.30.0,<1
+pydantic>=2.7.0,<3
+pandas>=2.2.0,<4
+numpy>=1.26.0,<3
+requests>=2.31.0,<3
+python-dotenv>=1.0.0,<2

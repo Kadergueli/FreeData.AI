@@ -232,11 +232,17 @@ class TestChatRateLimit:
 
             return Resp()
 
+        # Le niveau premium exige une clé valide : sans clé configurée, sans clé fournie ou avec une mauvaise, repli
+        # gratuit (aucun appel LLM payant), même si le client déclare tier="premium".
+        question = {"message": "Quel est le prix du mil au Salamat ?", "tier": "premium"}
+        for configured in ("", "k" * 20):
+            monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, premium_api_keys=configured))
+            for headers in ({}, {"X-Premium-Key": "x" * 20}):
+                assert client.post("/api/v1/chat", json=question, headers=headers).status_code == 200
+        assert llm_urls == []
+        # Avec la bonne clé : niveau premium accepté et transmis au module d'analyse avancée.
         monkeypatch.setattr(ai_agent.requests, "post", fake_premium_post)
-        prem = client.post(
-            "/api/v1/chat",
-            json={"message": "Quel est le prix du mil au Salamat ?", "tier": "premium"},
-        )
+        prem = client.post("/api/v1/chat", json=question, headers={"X-Premium-Key": "k" * 20})
         assert prem.status_code == 200
         assert len(llm_urls) == 1
         assert "Synthèse premium Salamat" in prem.json()["reply"]

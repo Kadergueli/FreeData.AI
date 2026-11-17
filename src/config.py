@@ -29,7 +29,8 @@ class Settings:
     # Jeton exigé (en-tête X-Admin-Token) par POST /api/v1/refresh. Vide = endpoint désactivé.
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
     # Clés des clients premium (séparées par des virgules), envoyées dans l'en-tête X-Premium-Key.
-    # Vide = offre premium non authentifiée (chat : comportement historique ; études avancées : désactivées).
+    # Vide = offre premium DÉSACTIVÉE (chat : repli sur le niveau gratuit ; études avancées : 503).
+    # Jamais ADMIN_TOKEN ni une clé générique : le jeton administrateur ne doit pas circuler côté client.
     premium_api_keys: str = (
         os.getenv("PREMIUM_API_KEYS")
         or os.getenv("PREMIUM_API_KEY")
@@ -38,8 +39,6 @@ class Settings:
         or os.getenv("PREMIUM_KEY")
         or os.getenv("PREMIUM_KEYS")
         or os.getenv("X_PREMIUM_KEY")
-        or os.getenv("FREEDATA_API_KEY")
-        or os.getenv("ADMIN_TOKEN")
         or ""
     ).strip()
     # Une série dont le dernier relevé a plus de N mois de retard sur le relevé le plus
@@ -50,6 +49,15 @@ class Settings:
     # Le LLM (tier premium) choisit l'analyse à lancer parmi une liste fermée ; 0 = règles seules.
     llm_routing: bool = os.getenv("LLM_ROUTING", "1").strip().lower() not in ("0", "false", "no")
     max_staleness_months: int = int(os.getenv("MAX_STALENESS_MONTHS", "3"))
+    # Nombre de proxys de confiance devant l'API (Render, Cloudflare...). L'IP du client est alors la N-ième entrée en
+    # partant de la DROITE de X-Forwarded-For (la partie gauche est falsifiable). Vide = comportement historique
+    # (première entrée). Pour trouver la bonne valeur : GET /api/v1/diag/client-ip avec X-Admin-Token.
+    trusted_proxy_hops: int | None = (int(os.getenv("TRUSTED_PROXY_HOPS")) if os.getenv("TRUSTED_PROXY_HOPS", "").strip().isdigit() else None)
+    # Plafonds indépendants de l'IP (non falsifiables) : requêtes/minute tous clients confondus, et appels chat simultanés.
+    global_rate_limit_per_min: int = int(os.getenv("GLOBAL_RATE_LIMIT_PER_MIN", "600"))
+    chat_max_concurrency: int = int(os.getenv("CHAT_MAX_CONCURRENCY", "8"))
+    # Autorise les origines http://localhost:* (développement). À mettre à 0 en production.
+    allow_localhost_cors: bool = os.getenv("ALLOW_LOCALHOST_CORS", "1").strip().lower() not in ("0", "false", "no")
 
     @property
     def premium_keys(self) -> tuple:

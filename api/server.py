@@ -34,34 +34,45 @@ STATE: dict = {}
 _REFRESH_LOCK = threading.Lock()
 _RATE_LIMIT_BUCKET: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_LOCK = threading.Lock()
+_CHAT_SLOTS = threading.BoundedSemaphore(max(1, settings.chat_max_concurrency))
+_CHAT_WAIT_S = 3.0  # attente maximale d'un créneau chat avant de répondre 503
 
 
-def check_rate_limit(request: Request, max_per_minute: int = 20):
-    """Limite à `max_per_minute` requêtes par minute et par IP sur l'endpoint chat."""
+def _client_ip(request: Request) -> str:
+    """IP du client. Derrière un proxy, seules les entrées ajoutées par NOS proxys sont fiables (la droite de la liste)."""
+    peer = request.client.host if request.client else "unknown"
     forwarded = (request.headers.get("x-forwarded-for") or "").strip() if hasattr(request, "headers") else ""
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
-    else:
-        client_ip = request.client.host if request.client else "unknown"
+    chain = [part.strip() for part in forwarded.split(",") if part.strip()]
+    if not chain:
+        return peer
+    hops = settings.trusted_proxy_hops
+    if hops is None:                    # non configuré : comportement historique (première entrée, falsifiable)
+        return chain[0]
+    if hops <= 0:
+        return peer
+    return chain[-hops] if len(chain) >= hops else chain[0]
+
+
+def _hit(bucket_key: str, limit: int, now: float, detail: str) -> None:
+    window = [ts for ts in _RATE_LIMIT_BUCKET.get(bucket_key, ()) if now - ts < 60.0]
+    if len(window) >= limit:
+        _RATE_LIMIT_BUCKET[bucket_key] = window
+        raise HTTPException(status_code=429, detail=detail, headers={"Retry-After": "30"})
+    window.append(now)
+    _RATE_LIMIT_BUCKET[bucket_key] = window
+
+
+def check_rate_limit(request: Request, max_per_minute: int = 20, scope: str = "chat"):
+    """`max_per_minute` requêtes par minute et par IP et par catégorie, plus un plafond global indépendant de l'IP."""
+    client_ip = _client_ip(request)
     now = time.time()
     with _RATE_LIMIT_LOCK:
-        window = [ts for ts in _RATE_LIMIT_BUCKET.get(client_ip, ()) if now - ts < 60.0]
-        if len(window) >= max_per_minute:
-            _RATE_LIMIT_BUCKET[client_ip] = window
-            raise HTTPException(
-                status_code=429,
-                detail="Trop de requêtes. Réessayez dans une minute.",
-            )
-        window.append(now)
-        _RATE_LIMIT_BUCKET[client_ip] = window
+        _hit("*global*", settings.global_rate_limit_per_min, now, "Service très sollicité. Réessayez dans un instant.")
+        _hit(f"{scope}:{client_ip}", max_per_minute, now, "Trop de requêtes. Réessayez dans une minute.")
         if len(_RATE_LIMIT_BUCKET) > 1000:
-            stale_ips = [
-                ip
-                for ip, timestamps in _RATE_LIMIT_BUCKET.items()
-                if not timestamps or now - timestamps[-1] >= 60.0
-            ]
-            for ip in stale_ips:
-                _RATE_LIMIT_BUCKET.pop(ip, None)
+            stale = [k for k, ts in _RATE_LIMIT_BUCKET.items() if k != "*global*" and (not ts or now - ts[-1] >= 60.0)]
+            for k in stale:
+                _RATE_LIMIT_BUCKET.pop(k, None)
 
 
 enforce_rate_limit = check_rate_limit
@@ -69,7 +80,15 @@ enforce_rate_limit = check_rate_limit
 
 def _chat_rate_limit_dependency(request: Request):
     # Encapsule check_rate_limit sans paramètre scalaire pour éviter l'exposition en query param.
-    check_rate_limit(request)
+    check_rate_limit(request, 20, "chat")
+
+
+def _data_rate_limit_dependency(request: Request):
+    check_rate_limit(request, 120, "data")
+
+
+def _admin_rate_limit_dependency(request: Request):
+    check_rate_limit(request, 10, "admin")
 
 
 def _fetch_gold_table(table_name: str) -> pd.DataFrame:
@@ -257,6 +276,10 @@ async def lifespan(app: FastAPI):
             "L'API lit Supabase avec la clé service_role (SUPABASE_KEY absente). "
             "Utiliser une clé publique (anon) en lecture seule : voir sql/04_rls_policies.sql."
         )
+    logger.info("Premium : %d clé(s) configurée(s)%s ; proxys de confiance : %s ; chat simultané max : %d.",
+                len(settings.premium_keys), "" if settings.premium_keys else " (offre premium DÉSACTIVÉE)",
+                settings.trusted_proxy_hops if settings.trusted_proxy_hops is not None else "non défini (IP falsifiable)",
+                settings.chat_max_concurrency)
     try:
         refresh_engines()
     except Exception:
@@ -275,7 +298,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?" if settings.allow_localhost_cors else None,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -335,7 +358,7 @@ def health_check():
     }
 
 
-@app.post("/api/v1/refresh")
+@app.post("/api/v1/refresh", dependencies=[Depends(_admin_rate_limit_dependency)])
 def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
     """Recharge la mémoire de l'API après une mise à jour mensuelle des tables Gold. Protégé par jeton."""
     if not settings.admin_token:
@@ -350,7 +373,22 @@ def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
     return {"status": "reloaded", "engine_mode": STATE.get("mode")}
 
 
-@app.get("/api/v1/metadata")
+@app.get("/api/v1/diag/client-ip", dependencies=[Depends(_admin_rate_limit_dependency)])
+def diag_client_ip(request: Request, x_admin_token: Optional[str] = Header(default=None)):
+    """Aide au réglage de TRUSTED_PROXY_HOPS : montre la chaîne X-Forwarded-For vue par l'API et l'IP retenue."""
+    if not settings.admin_token:
+        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
+    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
+        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    return {
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "peer": request.client.host if request.client else None,
+        "trusted_proxy_hops": settings.trusted_proxy_hops,
+        "client_ip_used": _client_ip(request),
+    }
+
+
+@app.get("/api/v1/metadata", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_metadata(state: dict = Depends(get_state)):
     fc = state["forecast_df"]
     cp = state.get("passport_df")
@@ -440,14 +478,21 @@ def chat_endpoint(
 ):
     agent: FreeDataAIAgent = state["agent"]
     tier = payload.tier
-    # Dès que des clés premium sont configurées, le tier « premium » (LLM payant) n'est plus une simple déclaration.
-    if tier == "premium" and settings.premium_keys and not _premium_key_ok(x_premium_key):
+    # Le niveau « premium » (LLM payant) exige une clé valide : sans clé configurée ou fournie, repli sur le gratuit.
+    if tier == "premium" and not _premium_key_ok(x_premium_key):
         tier = "free"
-    result = agent.answer(payload.message, history=payload.history[-8:], tier=tier)
+    # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
+    if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
+        raise HTTPException(status_code=503, detail="Assistant très sollicité. Réessayez dans un instant.",
+                            headers={"Retry-After": "5"})
+    try:
+        result = agent.answer(payload.message, history=payload.history[-8:], tier=tier)
+    finally:
+        _CHAT_SLOTS.release()
     return ChatResponse(**result)
 
 
-@app.get("/api/v1/forecasts")
+@app.get("/api/v1/forecasts", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_forecasts(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
@@ -470,7 +515,7 @@ def get_forecasts(
     return {"count": len(out), "items": out.to_dict(orient="records")}
 
 
-@app.get("/api/v1/alerts")
+@app.get("/api/v1/alerts", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_alerts(
     threshold_pct: float = Query(15.0, ge=0.0, le=500.0),
     province: Optional[str] = Query(None),
@@ -495,7 +540,7 @@ def get_alerts(
     }
 
 
-@app.get("/api/v1/anomalies")
+@app.get("/api/v1/anomalies", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_anomalies(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
@@ -522,11 +567,11 @@ def get_anomalies(
     return {"count": len(out), "items": out.to_dict(orient="records")}
 
 
-@app.get("/api/v1/credit-passport")
+@app.get("/api/v1/credit-passport", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_credit_passport(
     province: Optional[str] = Query(None),
     commodity: Optional[str] = Query(None),
-    loan_amount: int = Query(1_000_000, ge=10000),
+    loan_amount: int = Query(1_000_000, ge=10_000, le=1_000_000_000_000),
     state: dict = Depends(get_state),
 ):
     df = state["passport_df"].copy()

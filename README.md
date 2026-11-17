@@ -94,3 +94,15 @@ python -m scripts.update_anomalies --apply                           # publie le
 
 Lecture : `GET /api/v1/anomalies?province=&commodity=&kind=&severity=` et dans le chat (« anomalies de prix du mil »).
 Architecture des familles : `docs/families.md`.
+
+## Sécurité de l'API
+
+- **Limites de requêtes** par IP et par catégorie (chat 20/min, données 120/min, administration 10/min) et un plafond **global** non
+  falsifiable (`GLOBAL_RATE_LIMIT_PER_MIN`). Réglez `TRUSTED_PROXY_HOPS` : sans lui, l'IP vient de la première entrée de
+  `X-Forwarded-For`, que le client peut choisir. Méthode : appelez `GET /api/v1/diag/client-ip` (en-tête `X-Admin-Token`) via l'adresse
+  publique, avec et sans `X-Forwarded-For: 1.2.3.4` ; `client_ip_used` doit rester votre vraie IP dans les deux cas.
+- **Premium** : uniquement les clés de `PREMIUM_API_KEYS`. Sans clé valide, le chat reste au niveau gratuit. Le jeton `ADMIN_TOKEN`
+  ne sert qu'à `/refresh` et au diagnostic.
+- **Chat** : au plus `CHAT_MAX_CONCURRENCY` appels simultanés, sinon 503 (`Retry-After`).
+- **Intégration continue** : `.github/workflows/ci.yml` lance les tests et `pip-audit` à chaque push et pull request.
+- Durcissement des droits Supabase : `sql/08_harden_grants.sql` (à lire avant d'appliquer).

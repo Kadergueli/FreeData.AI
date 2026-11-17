@@ -44,6 +44,17 @@ def push(rows: list[dict]) -> None:
         requests.post(endpoint, headers=headers, json=rows[i:i + 200], timeout=60).raise_for_status()
 
 
+def purge_stale(run_ts: str) -> None:
+    """Supprime les lignes que ce run n'a pas réécrites (anomalies ou études disparues).
+
+    À n'appeler qu'APRÈS le succès de tous les envois du run, et jamais pour un run vide.
+    """
+    key = settings.write_key
+    endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/{TABLE}"
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    requests.delete(endpoint, headers=headers, params={"generated_at": f"lt.{run_ts}"}, timeout=60).raise_for_status()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--csv", default=None)
@@ -62,6 +73,11 @@ def main(argv=None) -> int:
             raise SystemExit("--apply exige DATA_BACKEND=supabase_rest.")
         push(rows)
         print(f"Écrit dans {TABLE}.")
+        if rows:   # un run vide (chargement raté ?) ne doit jamais vider la table
+            purge_stale(rows[0]["generated_at"])
+            print("Anciennes lignes supprimées.")
+        else:
+            print("Aucune ligne : table laissée telle quelle (pas de purge).")
     else:
         Path(args.out).write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
         print(f"Mode lecture seule : {args.out} écrit, rien envoyé (ajouter --apply pour publier).")
