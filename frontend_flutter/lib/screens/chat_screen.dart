@@ -276,6 +276,8 @@ class _ChatScreenState extends State<ChatScreen> {
           'summary': raw['summary'] ?? raw['analysis'],
           'table': raw['table'] ?? raw['data'] ?? raw['results'],
           'chart': raw['chart'] ?? raw['chart_data'],
+          if (raw['client_state'] is Map) 'client_state': raw['client_state'],
+          if (raw['follow_ups'] is List) 'follow_ups': raw['follow_ups'],
           if (raw['disclaimer'] != null) 'disclaimer': raw['disclaimer'].toString(),
           'error': false,
         },
@@ -358,6 +360,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? _buildEmptyState()
                 : _buildConversationState(messages),
           ),
+          _buildDynamicContextStrip(messages),
           _buildInputBar(),
         ],
       ),
@@ -464,6 +467,97 @@ class _ChatScreenState extends State<ChatScreen> {
               );
             }
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDynamicContextStrip(List<ChatMessage> messages) {
+    if (messages.isEmpty || _loading) return const SizedBox.shrink();
+    final lastAssistant = messages.lastWhere(
+      (m) => m.role == 'assistant' && m.metadata['error'] != true,
+      orElse: () => ChatMessage.assistant(text: ''),
+    );
+    final rawFollowUps = lastAssistant.metadata['follow_ups'];
+    final followUps = rawFollowUps is List
+        ? rawFollowUps.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).take(3).toList()
+        : <String>[];
+    final stateMap = lastAssistant.metadata['client_state'] is Map
+        ? Map<String, dynamic>.from(lastAssistant.metadata['client_state'] as Map)
+        : const <String, dynamic>{};
+    final kp = stateMap['known_params'] is Map
+        ? Map<String, dynamic>.from(stateMap['known_params'] as Map)
+        : const <String, dynamic>{};
+    final instructions = stateMap['user_instructions'] is List
+        ? (stateMap['user_instructions'] as List).map((e) => e.toString()).toList()
+        : <String>[];
+
+    final memoryChips = <String>[];
+    if (kp['capital_xaf'] != null) {
+      final cap = (kp['capital_xaf'] as num).round();
+      memoryChips.add('Capital : $cap XAF');
+    }
+    if (kp['origin_province'] != null && kp['dest_province'] != null) {
+      memoryChips.add('${kp['origin_province']} → ${kp['dest_province']}');
+    } else if (kp['origin_province'] != null) {
+      memoryChips.add('${kp['origin_province']}');
+    }
+    if (kp['transport_cost_per_kg'] != null) {
+      memoryChips.add('Fret : ${(kp['transport_cost_per_kg'] as num).round()} XAF/kg');
+    }
+    if (instructions.isNotEmpty) {
+      memoryChips.add('Consigne active (${instructions.length})');
+    }
+
+    if (memoryChips.isEmpty && followUps.isEmpty) return const SizedBox.shrink();
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (memoryChips.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: memoryChips
+                      .map((label) => Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: FDTheme.surfaceMuted,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: FDTheme.border),
+                            ),
+                            child: Text(
+                              label,
+                              style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
+                            ),
+                          ))
+                      .toList(),
+                ),
+              if (followUps.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: followUps
+                      .map((prompt) => ActionChip(
+                            label: Text(
+                              prompt,
+                              style: const TextStyle(fontSize: 12.5, color: FDTheme.ink),
+                            ),
+                            backgroundColor: Colors.white,
+                            side: const BorderSide(color: FDTheme.borderStrong),
+                            onPressed: () => _sendMessage(prompt),
+                          ))
+                      .toList(),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

@@ -237,6 +237,169 @@ def extract_business_params(text: str) -> dict:
     }
 
 
+_PROFILE_RULES: list[tuple[str, re.Pattern[str]]] = [
+    ("institution_financiere", re.compile(r"\b(?:microfinance|banque|credit|pret|financement|imf|dossier\s+de\s+credit|ltv|institution\s+financiere|etablissement\s+financier)\b")),
+    ("ong", re.compile(r"\b(?:ong|humanitaire|pam|wfp|fao|fews|securite\s+alimentaire|aide\s+alimentaire|bailleur|crise\s+alimentaire|urgence\s+alimentaire)\b")),
+    ("chercheur", re.compile(r"\b(?:chercheur|etudiant|memoire|these|universite|article\s+scientifique|recherche|methodologie|mae|mape|rmse|intervalle\s+de\s+confiance|ecart[-\s]?type|coefficient\s+de\s+variation)\b")),
+    ("debutant", re.compile(r"\b(?:debutant|debuter|commencer|me\s+lancer|se\s+lancer|lancer\s+un\s+business|monter\s+un\s+business|premier\s+commerce|novice|je\s+demarre)\b")),
+    ("commercant", re.compile(r"\b(?:commercant|negociant|grossiste|detaillant|revendre|acheter|vendre|stock|stocker|fret|camion|marge|benefice|sac|sacs|tonne|tonnes|transport)\b")),
+]
+
+_INSTRUCTION_TRIGGER_RE = re.compile(
+    r"\b(?:je\s+(?:ne\s+)?veux(?:\s+pas)?|evite[zr]?|privilegie[zr]?|uniquement|sans|"
+    r"mon\s+objectif\s+est|prends?\s+en\s+compte)\b"
+)
+
+_PERISHABLE_COMMODITIES = {
+    "Tomatoes (dried)", "Tomatoes", "Onions", "Sweet potatoes", "Okra (dry)", "Cassava (cossette)",
+}
+
+
+def _commodity_allowed_by_instructions(commodity_std: Optional[str], instructions: list[str]) -> bool:
+    """Filtre les produits exclus par les consignes mémorisées (ex. sans périssables, sans riz)."""
+    if not commodity_std or not instructions:
+        return True
+    inst_norm = _normalize_text(" ".join(instructions))
+    if re.search(r"\b(?:sans|evite\w*|pas\s+de|exclus?\w*)\s+(?:les?\s+|des?\s+)?(?:produits?\s+)?perissables?\b", inst_norm):
+        if commodity_std in _PERISHABLE_COMMODITIES:
+            return False
+    comm_fr = _normalize_text(MarketDataProvider.fr_commodity(commodity_std))
+    for tok in {comm_fr, *comm_fr.split()}:
+        if len(tok) >= 3 and re.search(rf"\b(?:sans|evite\w*|pas\s+de|exclus?\w*)\s+(?:le\s+|la\s+|les\s+|du\s+|de\s+)?{re.escape(tok)}\b", inst_norm):
+            return False
+    if re.search(r"\buniquement\s+(?:les?\s+|des?\s+)?cereales?\b", inst_norm):
+        if commodity_std not in {"Millet", "Sorghum (red)", "Sorghum (Berbere)", "Maize (white)", "Rice (local)", "Rice (imported)", "Rice (Milled)"}:
+            return False
+    return True
+
+
+_DEFAULT_RESOLVER_PROVIDER: Optional["MarketDataProvider"] = None
+
+
+def _resolve_provinces_and_commodity(text: str, provider: Optional["MarketDataProvider"] = None) -> tuple[list[str], Optional[str]]:
+    global _DEFAULT_RESOLVER_PROVIDER
+    if provider is None:
+        if _DEFAULT_RESOLVER_PROVIDER is None:
+            _DEFAULT_RESOLVER_PROVIDER = MarketDataProvider(pd.DataFrame(), pd.DataFrame())
+        provider = _DEFAULT_RESOLVER_PROVIDER
+    details = provider.resolve_location_details(text)
+    comm, _ = provider.resolve_commodities(text)
+    return [p for _, p in details], comm
+
+
+def extract_client_state(
+    history: Optional[list[dict]] = None,
+    current_message: str = "",
+    provider: Optional["MarketDataProvider"] = None,
+) -> dict:
+    """Reconstruit l'état cumulé du client (profil, paramètres connus, consignes, champs manquants)."""
+    turns: list[dict] = []
+    for item in (history or []):
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role", "user")
+        content = str(item.get("content") or "").strip()
+        if not content or (role == "user" and _SECURITY_INJECTION_RE.search(_normalize_text(content))):
+            continue
+        turns.append({"role": role, "content": content})
+    if current_message.strip():
+        turns.append({"role": "user", "content": current_message.strip()})
+
+    user_turns = [t["content"] for t in turns if t["role"] == "user"]
+    full_user_norm = _normalize_text(" ".join(user_turns))
+
+    user_profile = "general"
+    for profile, pattern in _PROFILE_RULES:
+        if pattern.search(full_user_norm):
+            user_profile = profile
+            break
+
+    known_commodity: Optional[str] = None
+    provs_ordered: list[str] = []
+    capital_xaf: Optional[float] = None
+    transport_cost_per_kg: Optional[float] = None
+    quantity_kg: Optional[float] = None
+    user_instructions: list[str] = []
+    seen_inst_norm: set[str] = set()
+
+    for idx, turn in enumerate(turns):
+        if turn["role"] != "user":
+            continue
+        raw = turn["content"]
+        cleaned = _strip_list_prefixes(raw)
+        q_norm = _normalize_text(cleaned)
+
+        turn_provs, turn_comm = _resolve_provinces_and_commodity(cleaned, provider=provider)
+        if turn_comm:
+            known_commodity = turn_comm
+        for p in turn_provs:
+            if p not in provs_ordered:
+                provs_ordered.append(p)
+
+        biz = _extract_business_params_with_meta(q_norm)
+        if not biz["is_default_capital"]:
+            capital_xaf = biz["capital_xaf"]
+        else:
+            prev_assistant = next(
+                (turns[j]["content"] for j in range(idx - 1, -1, -1) if turns[j]["role"] == "assistant"),
+                "",
+            )
+            if "capital de depart" in _normalize_text(prev_assistant):
+                masked_cap = _NON_CAPITAL_FRAG_RE.sub(" ", q_norm)
+                m_plain = re.search(r"\b(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d{4,})\b", masked_cap)
+                if m_plain:
+                    cap_val = _parse_fr_number(m_plain.group(1))
+                    if cap_val is not None and cap_val >= 1000.0:
+                        capital_xaf = float(cap_val)
+
+        if not biz["is_default_transport"]:
+            transport_cost_per_kg = biz["transport_cost_per_kg"]
+        if biz["quantity_kg"] is not None:
+            quantity_kg = biz["quantity_kg"]
+
+        for clause in re.split(r"[.!?\n;]+", raw):
+            clause_clean = clause.strip(" -•\t")
+            if not clause_clean:
+                continue
+            clause_norm = _normalize_text(clause_clean)
+            if _INSTRUCTION_TRIGGER_RE.search(clause_norm) and clause_norm not in seen_inst_norm:
+                seen_inst_norm.add(clause_norm)
+                user_instructions.append(clause_clean[:200])
+
+    origin_province = provs_ordered[0] if provs_ordered else None
+    dest_province = provs_ordered[1] if len(provs_ordered) >= 2 else None
+    known_params = {
+        "commodity": known_commodity,
+        "origin_province": origin_province,
+        "dest_province": dest_province,
+        "capital_xaf": capital_xaf,
+        "transport_cost_per_kg": transport_cost_per_kg,
+        "quantity_kg": quantity_kg,
+    }
+
+    is_biz_goal = bool(
+        _BEGINNER_BUSINESS_RE.search(full_user_norm)
+        or _PROFIT_SIM_RE.search(full_user_norm)
+        or _BIZ_TRIGGER_RE.search(full_user_norm)
+        or (origin_province and dest_province)
+    )
+    is_credit_goal = bool(_CREDIT_RE.search(full_user_norm))
+    if is_biz_goal:
+        check_fields = ["capital_xaf", "commodity", "origin_province", "dest_province"]
+    elif is_credit_goal:
+        check_fields = ["commodity", "origin_province", "capital_xaf"]
+    else:
+        check_fields = ["commodity", "origin_province"]
+    missing_fields = [f for f in check_fields if known_params.get(f) is None]
+
+    return {
+        "user_profile": user_profile,
+        "known_params": known_params,
+        "user_instructions": user_instructions,
+        "missing_fields": missing_fields,
+    }
+
+
 class MarketDataProvider:
     """
     Couche pure d'accès aux données (Tables Gold + recherche vectorielle RAG).
@@ -1544,6 +1707,52 @@ class MarketDataProvider:
             "checklist": checklist,
         }
 
+    def prepare_business_plan_context(
+        self,
+        capital_xaf: float = 500000.0,
+        province: Optional[str] = None,
+        commodity: Optional[str] = None,
+        origin_province: Optional[str] = None,
+        dest_province: Optional[str] = None,
+        transport_cost_per_kg: Optional[float] = None,
+        user_instructions: Optional[list[str]] = None,
+    ) -> dict:
+        """Prépare le contexte business plan / trajet en appliquant les contraintes client mémorisées."""
+        instructions = user_instructions or []
+        eff_transport = float(transport_cost_per_kg) if transport_cost_per_kg is not None else 25.0
+        if origin_province and dest_province and origin_province != dest_province:
+            cand_comm = commodity or "Millet"
+            if not _commodity_allowed_by_instructions(cand_comm, instructions):
+                cand_comm = "Millet" if _commodity_allowed_by_instructions("Millet", instructions) else cand_comm
+            res = self.simulate_trade_pnl(
+                cand_comm,
+                origin_province,
+                dest_province,
+                capital_xaf=capital_xaf,
+                transport_cost_per_kg=eff_transport,
+                loss_rate_pct=5.0,
+            )
+            res["mode"] = "trade_pnl"
+            res["applied_instructions"] = instructions
+            return res
+
+        eff_comm = commodity if (commodity and _commodity_allowed_by_instructions(commodity, instructions)) else None
+        guide = self.get_beginner_market_guide(
+            capital_xaf=capital_xaf,
+            province=province or origin_province,
+            commodity=eff_comm,
+        )
+        if instructions and guide.get("tremplin_sectors"):
+            filtered = [
+                sec for sec in guide["tremplin_sectors"]
+                if _commodity_allowed_by_instructions(sec.get("commodity_std"), instructions)
+            ]
+            if filtered:
+                guide["tremplin_sectors"] = filtered
+        guide["mode"] = "beginner_guide"
+        guide["applied_instructions"] = instructions
+        return guide
+
     _RAG_CHECK_TTL_SECONDS = 600.0
     _rag_check: dict = {"ts": 0.0, "value": True}
 
@@ -2114,8 +2323,11 @@ class FreeDataAIAgent(FormattersMixin):
             qty_kg = entities.get("volume_kg")
             qty_label = entities.get("volume_label")
 
+            user_instructions = entities.get("user_instructions") or []
             if orig_prov and dest_prov and orig_prov != dest_prov:
-                candidates = entities.get("commodities") or [comm or "Millet"]
+                raw_candidates = entities.get("commodities") or [comm or "Millet"]
+                filtered_candidates = [c for c in raw_candidates if _commodity_allowed_by_instructions(c, user_instructions)]
+                candidates = filtered_candidates or raw_candidates
                 chosen_data = None
                 for cand_comm in candidates:
                     eff_cap = capital_xaf
@@ -2148,10 +2360,12 @@ class FreeDataAIAgent(FormattersMixin):
                     quantity_label=qty_label,
                 )
             else:
-                raw_data = self.provider.get_beginner_market_guide(
+                raw_data = self.provider.prepare_business_plan_context(
                     capital_xaf=capital_xaf,
                     province=prov,
                     commodity=comm,
+                    transport_cost_per_kg=None if is_default_tr else transport_cost,
+                    user_instructions=user_instructions,
                 )
                 facts = self._format_business_simulator(
                     raw_data,
@@ -2258,6 +2472,7 @@ class FreeDataAIAgent(FormattersMixin):
         structured_facts: str,
         chunks: list[dict],
         history: Optional[list[dict]] = None,
+        client_state: Optional[dict] = None,
     ) -> str:
         """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
@@ -2327,11 +2542,24 @@ class FreeDataAIAgent(FormattersMixin):
             "ADAPTATION AU PROFIL (uniquement si le profil est clairement indiqué par la question) :\n"
             "- Commerçant / Agriculteur : prix au kg et conversion directe en sac de 100 kg, pistes concrètes d'achat/stockage/revente et marges brutes avant frais.\n"
             "- Étudiant / Chercheur : précision méthodologique, citation des sources, intervalles de confiance (IC 80%), volatilité (CV), erreur (MAE) et limites.\n"
-            "- ONG / Microfinance / Décideur : lecture risque crédit (Credit Passport, score/grade, LTV), alertes de tension/surchauffe et priorités opérationnelles."
+            "- ONG / Microfinance / Décideur : lecture risque crédit (Credit Passport, score/grade, LTV), alertes de tension/surchauffe et priorités opérationnelles.\n\n"
+            "COMPRÉHENSION DU CLIENT & RESPECT STRICT DE SES INSTRUCTIONS :\n"
+            "- Lis attentivement l'objet [ÉTAT ET INSTRUCTIONS DU CLIENT] fourni ci-dessous.\n"
+            "- Tu dois respecter à la lettre toutes les consignes et contraintes formulées par le client dans la conversation (ex: exclusion d'un type de produit, budget précis, coût de transport personnalisé, horizon de temps).\n"
+            "- Reformule brièvement en début de réponse ce que tu as compris de sa situation et de ses contraintes pour lui montrer qu'il est écouté.\n"
+            "- Adapte ton registre de langage au client : concret, direct et orienté marge/trésorerie pour un commerçant ; rigoureux et sourcé pour un chercheur ou une ONG.\n"
+            "- Si une information essentielle manque encore pour affiner le calcul (ex: prix de vente visé à destination ou coût réel du transport), pose 1 à 2 questions ciblées à la fin de ta réponse."
         )
+        state_block = ""
+        if client_state:
+            state_block = (
+                "\n\n[ÉTAT ET INSTRUCTIONS DU CLIENT]\n"
+                f"{json.dumps(client_state, ensure_ascii=False, indent=2)}\n"
+                "[/ÉTAT ET INSTRUCTIONS DU CLIENT]"
+            )
         user_prompt = (
             f"Question utilisateur : {user_query}\n\n"
-            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{doc_context}"
+            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{state_block}{doc_context}"
         )
 
         history_msgs: list[dict] = []
@@ -2374,7 +2602,7 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
-            allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}"
+            allowed_context = f"{structured_facts}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}"
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
             elif len(candidate) > _MAX_LLM_REPLY_CHARS:
@@ -2425,6 +2653,166 @@ class FreeDataAIAgent(FormattersMixin):
                      + "Dites-moi lequel vous intéresse.")
         return {"reply": reply, "intent": "clarification", "entities": {**entities, "unknown_product": cand},
                 "sources": [], "chart": None}
+
+    @staticmethod
+    def _apply_client_state_to_entities(entities: dict, client_state: dict) -> dict:
+        """Enrichit `entities` avec les paramètres et consignes cumulés dans `client_state`."""
+        kp = client_state.get("known_params") or {}
+        out = {
+            **entities,
+            "user_profile": client_state.get("user_profile", "general"),
+            "user_instructions": list(client_state.get("user_instructions") or []),
+            "missing_fields": list(client_state.get("missing_fields") or []),
+        }
+        if kp.get("capital_xaf") is not None and out.get("is_default_capital", True):
+            out["capital_xaf"] = float(kp["capital_xaf"])
+            out["is_default_capital"] = False
+        if kp.get("transport_cost_per_kg") is not None and out.get("is_default_transport", True):
+            out["transport_cost_per_kg"] = float(kp["transport_cost_per_kg"])
+            out["is_default_transport"] = False
+        if kp.get("quantity_kg") is not None and out.get("volume_kg") is None:
+            qty = float(kp["quantity_kg"])
+            out["volume_kg"] = qty
+            out["volume_label"] = out.get("volume_label") or f"{_fmt_int(qty)} kg"
+        if kp.get("commodity") and not out.get("commodity"):
+            out["commodity"] = kp["commodity"]
+            out["commodities"] = [kp["commodity"]]
+        if kp.get("origin_province") and kp.get("dest_province") and not (
+            out.get("origin_province") and out.get("destination_province")
+        ):
+            out["origin_province"] = kp["origin_province"]
+            out["destination_province"] = kp["dest_province"]
+            out["province"] = out.get("province") or kp["origin_province"]
+            out["provinces"] = [kp["origin_province"], kp["dest_province"]]
+        return out
+
+    def _ask_consultative_business_response(self, entities: dict, client_state: dict) -> dict:
+        """Qualification consultative : bref aperçu réel du marché + 3 questions numérotées directes."""
+        kp = client_state.get("known_params") or {}
+        instructions = client_state.get("user_instructions") or []
+        guide = self.provider.prepare_business_plan_context(
+            capital_xaf=0.0,
+            province=kp.get("origin_province") or entities.get("province"),
+            commodity=kp.get("commodity") or entities.get("commodity"),
+            user_instructions=instructions,
+        )
+        sectors = (guide.get("tremplin_sectors") or [])[:3]
+        preview_lines: list[str] = []
+        for s in sectors:
+            c_fr = s.get("commodity_fr") or self._fr_commodity(str(s.get("commodity_std", "")))
+            prov = s.get("province") or ""
+            score = s.get("credit_score")
+            score_txt = f" (stabilité {score:.0f}/100)" if score is not None else ""
+            preview_lines.append(f"- **{c_fr}** à **{prov}**{score_txt}")
+        preview_block = (
+            "Aperçu rapide des filières les plus stables observées actuellement :\n"
+            + "\n".join(preview_lines)
+            + "\n\n"
+            if preview_lines
+            else ""
+        )
+        reply = (
+            "**Avec plaisir, construisons votre projet pas à pas.**\n\n"
+            f"{preview_block}"
+            "Pour adapter l'analyse à votre réalité, précisez-moi simplement :\n"
+            "1. Quel est votre capital de départ approximatif (en FCFA) ?\n"
+            "2. Dans quelle ville ou province souhaitez-vous acheter ou vendre ?\n"
+            "3. Avez-vous déjà une préférence de produit (céréales, produits importés, tissus, etc.) ou une contrainte particulière ?"
+        )
+        return {
+            "reply": reply,
+            "intent": "needs_capital",
+            "entities": entities,
+            "sources": [],
+            "chart": None,
+            "client_state": client_state,
+            "follow_ups": self._build_dynamic_follow_ups(client_state, entities, intent="needs_capital"),
+        }
+
+    def _build_dynamic_follow_ups(
+        self, client_state: dict, entities: dict, intent: Optional[str] = None
+    ) -> list[str]:
+        """Génère jusqu'à 3 suggestions de suivi 100 % dynamiques depuis l'état client et les données."""
+        kp = client_state.get("known_params") or {}
+        missing = client_state.get("missing_fields") or []
+        eff_intent = intent or entities.get("intent") or "forecast"
+        comm = entities.get("commodity") or kp.get("commodity")
+        comm_fr = self._fr_commodity(comm).lower() if comm else None
+        prov = entities.get("province") or kp.get("origin_province")
+        suggestions: list[str] = []
+
+        if eff_intent in ("needs_capital", "business_simulator"):
+            if "dest_province" in missing and comm:
+                try:
+                    comp = self.provider.compare_sell_locations(comm, [prov] if prov else [])
+                    best = next(
+                        (r.get("province") for r in (comp.get("rankings") or []) if r.get("province") and r.get("province") != prov),
+                        None,
+                    )
+                    if best:
+                        suggestions.append(f"Simuler la vente de {comm_fr} vers {best}")
+                except Exception:
+                    pass
+            if kp.get("transport_cost_per_kg") is None and kp.get("origin_province") and kp.get("dest_province"):
+                suggestions.append("Ajuster avec mon coût de transport réel")
+            if eff_intent == "needs_capital" and comm_fr:
+                suggestions.append(f"Voir les marchés les moins chers pour le {comm_fr}")
+            elif eff_intent == "needs_capital":
+                try:
+                    provs = self.provider.provinces[:2]
+                    if provs:
+                        suggestions.append(f"Quels produits suivre à {provs[0]} ?")
+                except Exception:
+                    pass
+        elif comm_fr:
+            if eff_intent != "timing":
+                suggestions.append(f"Saisonnalité du {comm_fr}" + (f" à {prov}" if prov else ""))
+            if eff_intent != "anomalies":
+                suggestions.append(f"Anomalies récentes sur le {comm_fr}")
+            if eff_intent != "credit_passport":
+                suggestions.append(f"Risque crédit pour le {comm_fr}" + (f" à {prov}" if prov else ""))
+        elif prov:
+            try:
+                summary = self.provider.get_location_commodities_summary(prov) or []
+                for row in summary[:2]:
+                    c_name = row.get("commodity_fr")
+                    if c_name:
+                        suggestions.append(f"Prix et prévision du {str(c_name).lower()} à {prov}")
+            except Exception:
+                pass
+
+        return list(dict.fromkeys(s for s in suggestions if s))[:3]
+
+    def _build_causal_context(self, entities: dict) -> str:
+        """Construit des repères comparatifs dynamiques (médiane nationale vs province, alertes) pour le LLM."""
+        comm = entities.get("commodity")
+        prov = entities.get("province")
+        if not comm or self.provider.forecast_df.empty:
+            return ""
+        try:
+            agg = self.provider._agg_province_commodity_forecasts(commodity=comm)
+            if agg.empty:
+                return ""
+            nat_med = float(agg["forecast_t1"].median())
+            lines = [f"REPÈRES COMPARATIFS DYNAMIQUES ({self._fr_commodity(comm)}) :"]
+            lines.append(f"- Médiane nationale prévue : {_fmt_int(nat_med)} XAF/kg")
+            if prov:
+                sub = agg[agg["province"] == prov]
+                if not sub.empty:
+                    p_val = float(sub["forecast_t1"].iloc[0])
+                    if nat_med > 0:
+                        diff_pct = ((p_val / nat_med) - 1.0) * 100.0
+                        lines.append(f"- Écart {prov} vs médiane nationale : {diff_pct:+.1f}% ({_fmt_int(p_val)} XAF/kg)")
+            if len(agg) >= 2:
+                low_row = agg.sort_values("forecast_t1").iloc[0]
+                high_row = agg.sort_values("forecast_t1").iloc[-1]
+                lines.append(
+                    f"- Fourchette nationale : {low_row['province']} ({_fmt_int(low_row['forecast_t1'])} XAF/kg) "
+                    f"à {high_row['province']} ({_fmt_int(high_row['forecast_t1'])} XAF/kg)"
+                )
+            return "\n".join(lines)
+        except Exception:
+            return ""
 
     def answer(
         self,
@@ -2500,6 +2888,9 @@ class FreeDataAIAgent(FormattersMixin):
         if history:
             entities = self._extract_entities(q, history=history)
 
+        client_state = extract_client_state(history, q, provider=self.provider)
+        entities = self._apply_client_state_to_entities(entities, client_state)
+
         # Demande trop floue : on interroge l'utilisateur plutôt que d'afficher le Mil national.
         has_context = bool(
             entities.get("province") or entities.get("commodity") or entities.get("volume_kg")
@@ -2510,14 +2901,23 @@ class FreeDataAIAgent(FormattersMixin):
                 entities, self._converse_with_llm(q, history, "demande vague ou hors sujet") if chat_mode else None
             )
 
-        # Le capital est une donnée de l'utilisateur : on ne le suppose jamais (guide débutant sans budget).
+        # Dialogue consultatif : qualifier avant de prescrire si capital absent ou < 2 paramètres connus sans budget/trajet.
+        kp = client_state.get("known_params") or {}
+        known_count = sum(
+            1
+            for k in ("capital_xaf", "commodity", "origin_province", "dest_province", "quantity_kg", "transport_cost_per_kg")
+            if kp.get(k) is not None
+        )
         if (
             entities.get("intent") == "business_simulator"
-            and entities.get("is_default_capital", True)
-            and not entities.get("volume_kg")
-            and not (entities.get("origin_province") and entities.get("destination_province"))
+            and (
+                (entities.get("is_default_capital", True)
+                 and not entities.get("volume_kg")
+                 and not (entities.get("origin_province") and entities.get("destination_province")))
+                or (known_count < 2 and entities.get("is_default_capital", True))
+            )
         ):
-            return self._ask_capital_response(entities)
+            return self._ask_consultative_business_response(entities, client_state)
 
         # Tier premium : le LLM choisit l'analyse dans une liste fermée (jamais de calcul libre).
         # Les intentions riches en paramètres (trajet, simulateur) restent celles des règles.
@@ -2564,8 +2964,12 @@ class FreeDataAIAgent(FormattersMixin):
         free_reply = self._format_free_reply(structured_facts, intent, chunks, entities)
 
         if tier == "premium" and settings.llm_api_key:
-            final_reply = self._synthesize_with_llm(q, structured_facts, chunks, history=history)
-            if final_reply == structured_facts:
+            causal = self._build_causal_context(entities)
+            enriched_facts = f"{structured_facts}\n\n{causal}".strip() if causal else structured_facts
+            final_reply = self._synthesize_with_llm(
+                q, enriched_facts, chunks, history=history, client_state=client_state
+            )
+            if final_reply == enriched_facts:
                 final_reply = free_reply
             elif intent == "credit_passport" and CREDIT_PASSPORT_DISCLAIMER not in final_reply:
                 final_reply = f"{final_reply}\n\n_{CREDIT_PASSPORT_DISCLAIMER}_"
@@ -2579,6 +2983,8 @@ class FreeDataAIAgent(FormattersMixin):
             "sources": sources,
             "chart": self._extract_chart_data(intent, meta["provider_data"]),
             "summary": self._extract_summary_data(intent, meta["provider_data"]),
+            "client_state": client_state,
+            "follow_ups": self._build_dynamic_follow_ups(client_state, entities, intent=intent),
         }
 
     def answer_with_metadata(
