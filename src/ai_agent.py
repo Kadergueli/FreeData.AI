@@ -2687,37 +2687,82 @@ class FreeDataAIAgent(FormattersMixin):
         return out
 
     def _ask_consultative_business_response(self, entities: dict, client_state: dict) -> dict:
-        """Qualification consultative : bref aperçu réel du marché + 3 questions numérotées directes."""
+        """Qualification consultative : bref aperçu réel ciblé + 3 questions numérotées directes."""
         kp = client_state.get("known_params") or {}
         instructions = client_state.get("user_instructions") or []
-        guide = self.provider.prepare_business_plan_context(
-            capital_xaf=0.0,
-            province=kp.get("origin_province") or entities.get("province"),
-            commodity=kp.get("commodity") or entities.get("commodity"),
-            user_instructions=instructions,
-        )
-        sectors = (guide.get("tremplin_sectors") or [])[:3]
+        req_comms = [
+            c for c in (entities.get("commodities") or ([kp["commodity"]] if kp.get("commodity") else []))
+            if c and _commodity_allowed_by_instructions(c, instructions)
+        ]
+        req_prov = kp.get("origin_province") or entities.get("province")
+
         preview_lines: list[str] = []
-        for s in sectors:
-            c_fr = s.get("commodity_fr") or self._fr_commodity(str(s.get("commodity_std", "")))
-            prov = s.get("province") or ""
-            score = s.get("credit_score")
-            score_txt = f" (stabilité {score:.0f}/100)" if score is not None else ""
-            preview_lines.append(f"- **{c_fr}** à **{prov}**{score_txt}")
+        if req_comms and not self.provider.passport_df.empty:
+            score_col = "score_global" if "score_global" in self.provider.passport_df.columns else "credit_score"
+            cp = self.provider.passport_df.copy()
+            if score_col in cp.columns:
+                cp["_sc"] = pd.to_numeric(cp[score_col], errors="coerce")
+                for comm_std in req_comms[:3]:
+                    resolved = self.provider._resolve_df_commodity(cp, comm_std) or comm_std
+                    sub = cp[cp["commodity_std"] == resolved]
+                    if req_prov and not sub[sub["province"] == req_prov].empty:
+                        sub = sub[sub["province"] == req_prov]
+                    if not sub.empty:
+                        best = sub.sort_values("_sc", ascending=False).iloc[0]
+                        c_fr = self._fr_commodity(str(best["commodity_std"]))
+                        prov = str(best["province"])
+                        sc = best.get("_sc")
+                        sc_txt = f" (stabilité {float(sc):.0f}/100)" if pd.notna(sc) else ""
+                        preview_lines.append(f"- **{c_fr}** à **{prov}**{sc_txt}")
+        if not preview_lines:
+            guide = self.provider.prepare_business_plan_context(
+                capital_xaf=0.0,
+                province=req_prov,
+                commodity=req_comms[0] if req_comms else None,
+                user_instructions=instructions,
+            )
+            for s in (guide.get("tremplin_sectors") or [])[:3]:
+                c_fr = s.get("commodity_fr") or self._fr_commodity(str(s.get("commodity_std", "")))
+                prov = s.get("province") or ""
+                score = s.get("credit_score")
+                score_txt = f" (stabilité {score:.0f}/100)" if score is not None else ""
+                preview_lines.append(f"- **{c_fr}** à **{prov}**{score_txt}")
+
+        noted_parts: list[str] = []
+        if req_comms:
+            comm_names = ", ".join(dict.fromkeys(self._fr_commodity(c).lower() for c in req_comms))
+            noted_parts.append(f"sur **{comm_names}**")
+        if req_prov:
+            noted_parts.append(f"à **{req_prov}**")
+        intro_suffix = f" ({' '.join(noted_parts)})" if noted_parts else ""
+
+        preview_header = (
+            "Aperçu rapide sur vos produits ciblés :"
+            if req_comms
+            else "Aperçu rapide des filières les plus stables observées actuellement :"
+        )
         preview_block = (
-            "Aperçu rapide des filières les plus stables observées actuellement :\n"
-            + "\n".join(preview_lines)
-            + "\n\n"
+            f"{preview_header}\n" + "\n".join(preview_lines) + "\n\n"
             if preview_lines
             else ""
         )
+        q2 = (
+            f"2. Dans quelle ville ou province souhaitez-vous revendre depuis **{req_prov}** ?"
+            if req_prov
+            else "2. Dans quelle ville ou province souhaitez-vous acheter ou vendre ?"
+        )
+        q3 = (
+            "3. Avez-vous des contraintes particulières (délai de rotation, coût de transport, stockage) ?"
+            if req_comms
+            else "3. Avez-vous déjà une préférence de produit (mil, sorgho, riz, maïs, niébé…) ou une contrainte particulière ?"
+        )
         reply = (
-            "**Avec plaisir, construisons votre projet pas à pas.**\n\n"
+            f"**Avec plaisir, construisons votre projet pas à pas{intro_suffix}.**\n\n"
             f"{preview_block}"
             "Pour adapter l'analyse à votre réalité, précisez-moi simplement :\n"
             "1. Quel est votre capital de départ approximatif (en FCFA) ?\n"
-            "2. Dans quelle ville ou province souhaitez-vous acheter ou vendre ?\n"
-            "3. Avez-vous déjà une préférence de produit (céréales, produits importés, tissus, etc.) ou une contrainte particulière ?"
+            f"{q2}\n"
+            f"{q3}"
         )
         return {
             "reply": reply,

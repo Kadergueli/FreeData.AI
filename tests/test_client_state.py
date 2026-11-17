@@ -75,6 +75,16 @@ def test_consultative_dialogue_qualifies_then_applies_constraints():
     assert "1 000 000" in r2["reply"]
 
 
+def test_consultative_dialogue_respects_already_mentioned_products():
+    agent = _sample_agent()
+    r = agent.answer("je veux un business plan sur le marche des produit suivant le mil et le riz", history=[], tier="free")
+    assert r["intent"] == "needs_capital"
+    assert "mil" in r["reply"].lower()
+    assert "manioc" not in r["reply"].lower()
+    assert "tissus" not in r["reply"].lower()
+    assert "préférence de produit" not in r["reply"].lower()
+
+
 def test_synthesize_with_llm_includes_client_state(monkeypatch):
     from dataclasses import replace
 
