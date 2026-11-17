@@ -247,7 +247,11 @@ class ApiService {
       if (severity != null && severity.isNotEmpty) 'severity': severity,
     };
     final uri = Uri.parse('$baseUrl/api/v1/anomalies').replace(queryParameters: params);
-    final resp = await _getWithRetry(uri);
+    // L'API réserve ce radar à l'offre premium : la clé doit être envoyée (comme pour les études saisonnières).
+    final resp = await _getWithRetry(
+      uri,
+      headers: hasPremiumKey ? {'X-Premium-Key': activePremiumKey} : null,
+    );
     if (resp.statusCode == 200) {
       final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       return data['items'] as List<dynamic>;
