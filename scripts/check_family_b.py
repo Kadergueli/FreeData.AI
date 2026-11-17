@@ -15,6 +15,12 @@ from src.anomalies import detect_anomalies, dip_and_rebound, evaluate_detection,
 from src.data_loader import load_clean_markets
 
 
+def _top(g, col: str, n: int) -> str:
+    """Valeurs les plus fréquentes d'une colonne, avec leur nombre : « WFP 120, FEWS NET 34 »."""
+    counts = g[col].astype(str).value_counts().head(n)
+    return ", ".join(f"{k} {v}" for k, v in counts.items())
+
+
 def report(anom, ev, dips=None) -> str:
     rec = recent_anomalies(anom, 3)
     lines = ["# Famille B — Détection d'anomalies", "",
@@ -39,10 +45,15 @@ def report(anom, ev, dips=None) -> str:
     if dips is not None and len(dips):
         lines += ["", "## Relevés suspects à relire à la source (chute brutale puis retour à la normale le mois suivant)", "",
                   "Signalés seulement : rien n'est exclu ni corrigé. Beaucoup de séries au même mois = souvent un problème de collecte.", "",
-                  "| Mois | Séries concernées | Chute moyenne |", "| :--- | ---: | ---: |"]
+                  "| Mois | Séries | Chute moyenne | Sources | Provinces (top 3) | Produits (top 3) |",
+                  "| :--- | ---: | ---: | :--- | :--- | :--- |"]
         for m, g in dips.groupby("month"):
             if len(g) >= 3:
-                lines.append(f"| {m} | {len(g)} | {g['drop_pct'].mean():.0f} % |")
+                lines.append(f"| {m} | {len(g)} | {g['drop_pct'].mean():.0f} % | {_top(g, 'source', 3)} | "
+                             f"{_top(g, 'province', 3)} | {_top(g, 'commodity_std', 3)} |")
+        lines.append("")
+        lines.append("Lecture : une seule source dominante = probable problème de collecte chez elle ; plusieurs sources et "
+                     "provinces en même temps = plutôt un vrai événement de marché (ou un défaut d'unité commun).")
     lines += ["", "## Dernières anomalies fortes", ""]
     top = rec[(rec["severity"] == "forte") & (rec["kind"] != "regional")].head(15)
     for r in top.itertuples():

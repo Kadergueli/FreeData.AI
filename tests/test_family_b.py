@@ -268,3 +268,15 @@ def test_dip_and_rebound_flags_only_a_drop_that_recovers():
     out = dip_and_rebound(df)
     assert list(out["commodity_std"]) == ["dip"]
     assert out.iloc[0]["month"] == "2026-03"
+
+
+def test_dip_report_breaks_down_by_source_province_product():
+    import pandas as pd
+    from scripts.check_family_b import report
+
+    d = pd.DataFrame([{"source": "WFP", "province": "Tandjile", "market_name": "m", "commodity_std": "Millet",
+                       "month": "2025-01", "previous": 10, "dip": 5, "next": 10, "drop_pct": -50}] * 3)
+    anom = pd.DataFrame(columns=["kind", "severity", "month", "commodity_std", "province", "market_name", "change_pct"])
+    ev = {"alert_rate_pct": 1.0, "detection": {0.15: {"injected": 1, "detected": 1, "rate": 1.0}}, "points": {}}
+    txt = report(anom, ev, d)
+    assert "| 2025-01 | 3 | -50 % | WFP 3 | Tandjile 3 | Millet 3 |" in txt
