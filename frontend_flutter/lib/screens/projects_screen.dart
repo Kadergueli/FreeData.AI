@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
+import '../core/theme/app_theme.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 
@@ -116,6 +117,86 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     if (ok == true) {
       await widget.apiService.deleteProject(proj['project_id'].toString());
       _load();
+    }
+  }
+
+  Future<void> _generateStudyDialog(Map<String, dynamic> proj) async {
+    String commodity = 'Millet';
+    String origin = 'Lac';
+    String dest = "N'Djamena";
+    final capCtrl = TextEditingController(text: '2000000');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Nouvelle étude PDF — ${proj['name']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              initialValue: commodity,
+              decoration: const InputDecoration(labelText: 'Produit'),
+              items: const [
+                DropdownMenuItem(value: 'Millet', child: Text('Mil')),
+                DropdownMenuItem(value: 'Sorghum (red)', child: Text('Sorgho rouge')),
+                DropdownMenuItem(value: 'Maize (white)', child: Text('Maïs blanc')),
+                DropdownMenuItem(value: 'Rice (imported)', child: Text('Riz importé')),
+              ],
+              onChanged: (v) => commodity = v ?? 'Millet',
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              initialValue: origin,
+              decoration: const InputDecoration(labelText: 'Province d\'origine'),
+              onChanged: (v) => origin = v,
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              initialValue: dest,
+              decoration: const InputDecoration(labelText: 'Province de destination'),
+              onChanged: (v) => dest = v,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: capCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Capital (XAF)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final cap = double.tryParse(capCtrl.text.trim()) ?? 2000000;
+    try {
+      final created = await widget.apiService.createProjectStudy(
+        proj['project_id'].toString(),
+        commodity: commodity,
+        originProvince: origin.trim().isEmpty ? 'Lac' : origin.trim(),
+        destProvince: dest.trim(),
+        capitalXaf: cap,
+      );
+      await _load();
+      if (!mounted) return;
+      final studyId = created['study_id']?.toString() ?? '';
+      final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Étude enregistrée dans le projet (v$vNum).')),
+      );
+      if (studyId.isNotEmpty) {
+        final bytes = await widget.apiService.downloadStudyVersionPdf(
+          proj['project_id'].toString(),
+          studyId,
+          vNum,
+        );
+        triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -250,15 +331,23 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       itemBuilder: (_, i) {
                         final p = _projects[i];
                         final isArchived = p['status'] == 'archived';
-                        return Card(
+                        return FDCard(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           child: ListTile(
-                            title: Text(p['name']?.toString() ?? 'Projet', style: const TextStyle(fontWeight: FontWeight.w600)),
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(p['name']?.toString() ?? 'Projet', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
                             subtitle: Text(
                               'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
+                              style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
                             ),
                             trailing: Wrap(
                               spacing: 4,
                               children: [
+                                IconButton(
+                                  icon: const Icon(Icons.picture_as_pdf_outlined, color: FDTheme.green),
+                                  tooltip: 'Générer & sauvegarder PDF',
+                                  onPressed: () => _generateStudyDialog(p),
+                                ),
                                 IconButton(
                                   icon: const Icon(Icons.play_arrow_rounded, color: FDTheme.blue),
                                   tooltip: 'Reprendre',

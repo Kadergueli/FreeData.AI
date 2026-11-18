@@ -6,6 +6,7 @@ import 'services/conversation_storage.dart';
 import 'screens/chat_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
+import 'screens/admin_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/docs_screen.dart';
 import 'screens/forecast_screen.dart';
@@ -26,7 +27,18 @@ class FreeDataAIApp extends StatelessWidget {
       title: 'FreeData.AI',
       debugShowCheckedModeBanner: false,
       theme: FDTheme.light(),
-      home: const MainShell(),
+      onGenerateRoute: (settings) {
+        if (settings.name == '/admin') {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => AdminScreen(apiService: ApiService()),
+          );
+        }
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (_) => const MainShell(),
+        );
+      },
     );
   }
 }

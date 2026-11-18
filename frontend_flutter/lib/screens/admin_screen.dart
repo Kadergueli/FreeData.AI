@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
+import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 
 class AdminScreen extends StatefulWidget {
@@ -14,22 +15,33 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> {
   final _tokenCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
   Map<String, dynamic>? _overview;
+  List<Map<String, dynamic>> _users = const [];
+  List<Map<String, dynamic>> _tickets = const [];
+  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support
   bool _loading = false;
   String? _error;
 
-  Future<void> _loadOverview() async {
-    final tok = _tokenCtrl.text.trim();
-    if (tok.isEmpty) return;
+  String get _token => _tokenCtrl.text.trim();
+
+  Future<void> _loadAll() async {
+    if (_token.isEmpty) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await widget.apiService.getAdminOverview(tok);
+      final results = await Future.wait([
+        widget.apiService.getAdminOverview(_token),
+        widget.apiService.getAdminUsers(_token, search: _searchCtrl.text),
+        widget.apiService.getAdminSupportTickets(_token),
+      ]);
       if (!mounted) return;
       setState(() {
-        _overview = data;
+        _overview = results[0] as Map<String, dynamic>;
+        _users = results[1] as List<Map<String, dynamic>>;
+        _tickets = results[2] as List<Map<String, dynamic>>;
         _loading = false;
       });
     } catch (e) {
@@ -41,10 +53,97 @@ class _AdminScreenState extends State<AdminScreen> {
     }
   }
 
+  Future<void> _runAction(Future<void> Function() action, String okMsg) async {
+    try {
+      await action();
+      await _loadAll();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  Future<void> _showActivatePlanDialog({String? prefillUserId}) async {
+    final userCtrl = TextEditingController(text: prefillUserId ?? '');
+    String planId = 'premium';
+    final daysCtrl = TextEditingController(text: '30');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Activer / Modifier un abonnement'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: userCtrl,
+              decoration: const InputDecoration(labelText: 'Identifiant utilisateur (user_id)'),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: planId,
+              decoration: const InputDecoration(labelText: 'Plan'),
+              items: const [
+                DropdownMenuItem(value: 'free', child: Text('Gratuit (free)')),
+                DropdownMenuItem(value: 'trial', child: Text('Essai PRO (trial)')),
+                DropdownMenuItem(value: 'premium', child: Text('Partenaire PRO (premium)')),
+              ],
+              onChanged: (v) => planId = v ?? 'premium',
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: daysCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Durée (jours)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Appliquer')),
+        ],
+      ),
+    );
+    if (ok == true && userCtrl.text.trim().isNotEmpty) {
+      final days = int.tryParse(daysCtrl.text.trim()) ?? 30;
+      await _runAction(
+        () => widget.apiService.activateAdminSubscription(
+          _token,
+          targetUserId: userCtrl.text.trim(),
+          planId: planId,
+          periodDays: days,
+        ),
+        'Abonnement mis à jour ($planId).',
+      );
+    }
+  }
+
   @override
   void dispose() {
     _tokenCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Widget _kpiPill(String label, String value, {Color color = AppColors.ink}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.canvas,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+          const SizedBox(height: 2),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -54,65 +153,259 @@ class _AdminScreenState extends State<AdminScreen> {
     final usersSum = _overview?['users_summary'] as Map? ?? {};
     final datasets = (_overview?['datasets'] as List? ?? []).cast<Map>();
     final audits = (_overview?['recent_audit_logs'] as List? ?? []).cast<Map>();
+    final modelFlags = (_overview?['model_flags'] as Map? ?? {});
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Console Administration FreeData.AI')),
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Console Administration FreeData.AI', style: TextStyle(fontWeight: FontWeight.w700))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _tokenCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Jeton Administrateur (X-Admin-Token)',
-                    border: OutlineInputBorder(),
+          FDCard(
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _tokenCtrl,
+                    obscureText: true,
+                    onSubmitted: (_) => _loadAll(),
+                    decoration: const InputDecoration(
+                      labelText: 'Jeton Administrateur (X-Admin-Token)',
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(onPressed: _loading ? null : _loadOverview, child: const Text('Charger')),
-            ],
+                const SizedBox(width: 10),
+                FDPrimaryButton(
+                  label: 'Charger',
+                  icon: Icons.lock_open_rounded,
+                  onPressed: _loading ? null : _loadAll,
+                ),
+              ],
+            ),
           ),
           if (_loading) ...[const SizedBox(height: 16), const Center(child: CircularProgressIndicator())],
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: FDTheme.danger)),
+            FDCard(child: Text(_error!, style: const TextStyle(color: AppColors.danger))),
           ],
           if (_overview != null) ...[
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                title: Text('Santé API : ${health['status']} (v${health['version']})', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('Requêtes : ${metrics['total_requests']} · Erreurs 5xx : ${metrics['error_5xx']} · Latence moy : ${metrics['avg_latency_ms']} ms'),
-              ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Système & IA'),
+                  selected: _tab == 0,
+                  onSelected: (_) => setState(() => _tab = 0),
+                ),
+                ChoiceChip(
+                  label: Text('Utilisateurs (${_users.length})'),
+                  selected: _tab == 1,
+                  onSelected: (_) => setState(() => _tab = 1),
+                ),
+                ChoiceChip(
+                  label: Text('Tickets Support (${_tickets.length})'),
+                  selected: _tab == 2,
+                  onSelected: (_) => setState(() => _tab = 2),
+                ),
+              ],
             ),
-            Card(
-              child: ListTile(
-                title: Text('Utilisateurs : ${usersSum['total_known_users'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('Par plan : ${usersSum['by_plan']}'),
+            const SizedBox(height: 14),
+            if (_tab == 0) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Santé & Opérations', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _kpiPill('Statut API', '${health['status']} (v${health['version']})', color: AppColors.green),
+                        _kpiPill('Requêtes', '${metrics['total_requests'] ?? 0}', color: AppColors.blue),
+                        _kpiPill('Erreurs 5xx', '${metrics['error_5xx'] ?? 0}', color: (metrics['error_5xx'] ?? 0) == 0 ? AppColors.green : AppColors.danger),
+                        _kpiPill('Latence moy.', '${metrics['avg_latency_ms'] ?? 0} ms'),
+                        _kpiPill('Utilisateurs', '${usersSum['total_known_users'] ?? 0}'),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FDSecondaryButton(
+                          label: 'Rafraîchir données Gold',
+                          icon: Icons.refresh_rounded,
+                          onPressed: () => _runAction(() => widget.apiService.refreshAdminData(_token), 'Données Gold rechargées.'),
+                        ),
+                        FDSecondaryButton(
+                          label: 'Sauvegarde SQLite',
+                          icon: Icons.backup_outlined,
+                          onPressed: () => _runAction(() => widget.apiService.triggerAdminBackup(_token), 'Sauvegarde exécutée.'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            const Text('Jeux de données & Licences', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ...datasets.map((d) => ListTile(
-                  dense: true,
-                  title: Text(d['dataset_id'].toString()),
-                  subtitle: Text('${d['license_category']} · Statut : ${d['publication_status']}'),
-                )),
-            const SizedBox(height: 12),
-            const Text('Journal d’audit récent', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ...audits.take(10).map((a) => ListTile(
-                  dense: true,
-                  title: Text('${a['action']} (${a['resource_id']})'),
-                  subtitle: Text('${a['actor']} [${a['actor_role']}] · ${a['created_at']}'),
-                )),
+              if (modelFlags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Profils Modèles IA', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      const SizedBox(height: 6),
+                      ...modelFlags.entries.map((e) {
+                        final enabled = e.value == true;
+                        return SwitchListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          value: enabled,
+                          onChanged: (v) => _runAction(
+                            () => widget.apiService.toggleAdminModel(_token, e.key, v),
+                            'Profil ${e.key} ${v ? 'activé' : 'désactivé'}.',
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Jeux de données & Licences', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const SizedBox(height: 6),
+                    ...datasets.map((d) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(d['dataset_id'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('${d['license_category']} · Statut : ${d['publication_status']}'),
+                        )),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Journal d’audit récent', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const SizedBox(height: 6),
+                    if (audits.isEmpty)
+                      const Text('Aucune action enregistrée.', style: TextStyle(color: AppColors.muted))
+                    else
+                      ...audits.take(10).map((a) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${a['action']} (${a['resource_id']})'),
+                            subtitle: Text('${a['actor']} [${a['actor_role']}] · ${a['created_at']}'),
+                          )),
+                  ],
+                ),
+              ),
+            ],
+            if (_tab == 1) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _searchCtrl,
+                            onSubmitted: (_) => _loadAll(),
+                            decoration: const InputDecoration(labelText: 'Rechercher un utilisateur'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FDSecondaryButton(label: 'Filtrer', icon: Icons.search_rounded, onPressed: _loadAll),
+                        const SizedBox(width: 8),
+                        FDPrimaryButton(
+                          label: 'Activer plan',
+                          icon: Icons.workspace_premium_outlined,
+                          onPressed: () => _showActivatePlanDialog(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (_users.isEmpty)
+                      const Text('Aucun utilisateur enregistré pour le moment.', style: TextStyle(color: AppColors.muted))
+                    else
+                      ..._users.map((u) {
+                        final uid = u['user_id'].toString();
+                        final status = u['status']?.toString() ?? 'active';
+                        final suspended = status == 'suspended';
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(uid, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('Plan : ${u['plan_id']} · Statut : $status · Rôle : ${u['role']}'),
+                          trailing: Wrap(
+                            spacing: 6,
+                            children: [
+                              TextButton(
+                                onPressed: () => _showActivatePlanDialog(prefillUserId: uid),
+                                child: const Text('Plan'),
+                              ),
+                              TextButton(
+                                onPressed: () => _runAction(
+                                  () => widget.apiService.setAdminUserStatus(_token, uid, suspended ? 'active' : 'suspended'),
+                                  suspended ? 'Utilisateur réactivé.' : 'Utilisateur suspendu.',
+                                ),
+                                child: Text(suspended ? 'Réactiver' : 'Suspendre', style: TextStyle(color: suspended ? AppColors.green : AppColors.danger)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            ],
+            if (_tab == 2) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Tickets Support Utilisateurs', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const SizedBox(height: 8),
+                    if (_tickets.isEmpty)
+                      const Text('Aucun ticket support.', style: TextStyle(color: AppColors.muted))
+                    else
+                      ..._tickets.map((t) {
+                        final tid = t['ticket_id'].toString();
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('${t['subject']} (${t['category']})', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('De : ${t['owner_id']} · Statut : ${t['status']} · Priorité : ${t['priority']}\n${t['description']}'),
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (s) => _runAction(
+                              () => widget.apiService.updateAdminTicketStatus(_token, tid, s),
+                              'Ticket passé à $s.',
+                            ),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'in_progress', child: Text('En cours')),
+                              PopupMenuItem(value: 'resolved', child: Text('Résolu')),
+                              PopupMenuItem(value: 'closed', child: Text('Fermé')),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            ],
           ],
         ],
       ),
     );
   }
 }
-

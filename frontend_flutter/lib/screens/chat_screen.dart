@@ -395,9 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? _buildEmptyState()
                 : _buildConversationState(messages),
           ),
-          _buildDynamicContextStrip(messages),
-          _buildDomainSelectorStrip(),
-          _buildInputBar(),
+          _buildInputBar(messages),
         ],
       ),
     );
@@ -508,131 +506,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildDynamicContextStrip(List<ChatMessage> messages) {
-    if (messages.isEmpty || _loading) return const SizedBox.shrink();
-    final lastAssistant = messages.lastWhere(
-      (m) => m.role == 'assistant' && m.metadata['error'] != true,
-      orElse: () => ChatMessage.assistant(text: ''),
-    );
-    final rawFollowUps = lastAssistant.metadata['follow_ups'];
-    final followUps = rawFollowUps is List
-        ? rawFollowUps.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).take(3).toList()
-        : <String>[];
-    final stateMap = lastAssistant.metadata['client_state'] is Map
-        ? Map<String, dynamic>.from(lastAssistant.metadata['client_state'] as Map)
-        : const <String, dynamic>{};
-    final kp = stateMap['known_params'] is Map
-        ? Map<String, dynamic>.from(stateMap['known_params'] as Map)
-        : const <String, dynamic>{};
-    final instructions = stateMap['user_instructions'] is List
-        ? (stateMap['user_instructions'] as List).map((e) => e.toString()).toList()
-        : <String>[];
-
-    final memoryChips = <MapEntry<String, String>>[];
-    if (kp['capital_xaf'] != null) {
-      final cap = (kp['capital_xaf'] as num).round();
-      memoryChips.add(MapEntry('Capital : $cap XAF', 'Mon capital est maintenant de '));
-    }
-    if (kp['origin_province'] != null && kp['dest_province'] != null) {
-      memoryChips.add(MapEntry('${kp['origin_province']} → ${kp['dest_province']}', 'Change le trajet pour '));
-    } else if (kp['origin_province'] != null) {
-      memoryChips.add(MapEntry('${kp['origin_province']}', 'Change la province pour '));
-    }
-    if (kp['transport_cost_per_kg'] != null) {
-      memoryChips.add(MapEntry('Fret : ${(kp['transport_cost_per_kg'] as num).round()} XAF/kg', 'Mon coût de transport est de  XAF/kg'));
-    }
-    if (instructions.isNotEmpty) {
-      memoryChips.add(MapEntry('Consigne active (${instructions.length})', 'Ajoute une nouvelle consigne : '));
-    }
-
-    if (memoryChips.isEmpty && followUps.isEmpty) return const SizedBox.shrink();
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (memoryChips.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: memoryChips
-                      .map((entry) => InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              _controller.text = entry.value;
-                              _controller.selection = TextSelection.fromPosition(
-                                TextPosition(offset: _controller.text.length),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: FDTheme.canvasSoft,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: FDTheme.line),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    entry.key,
-                                    style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.edit_outlined, size: 11, color: FDTheme.subtle),
-                                ],
-                              ),
-                            ),
-                          ))
-                      .toList(),
-                ),
-              if (followUps.isNotEmpty ||
-                  (widget.apiService.hasPremiumKey &&
-                      kp['commodity'] != null &&
-                      kp['origin_province'] != null &&
-                      kp['capital_xaf'] != null)) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    if (widget.apiService.hasPremiumKey &&
-                        kp['commodity'] != null &&
-                        kp['origin_province'] != null &&
-                        kp['capital_xaf'] != null)
-                      ActionChip(
-                        avatar: const Icon(Icons.picture_as_pdf_outlined, size: 15, color: FDTheme.blue),
-                        label: const Text(
-                          'Télécharger Étude PDF (PRO)',
-                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.blue),
-                        ),
-                        backgroundColor: FDTheme.blueSoft,
-                        side: const BorderSide(color: FDTheme.blue),
-                        onPressed: () => _exportMarketStudyPdf(kp, instructions),
-                      ),
-                    ...followUps.map((prompt) => ActionChip(
-                          label: Text(
-                            prompt,
-                            style: const TextStyle(fontSize: 12.5, color: FDTheme.ink),
-                          ),
-                          backgroundColor: Colors.white,
-                          side: const BorderSide(color: FDTheme.borderStrong),
-                          onPressed: () => _sendMessage(prompt),
-                        )),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _exportMarketStudyPdf(Map<String, dynamic> kp, List<String> instructions) async {
     final comm = kp['commodity']?.toString() ?? '';
     final orig = kp['origin_province']?.toString() ?? '';
@@ -667,34 +540,38 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Widget _buildDomainSelectorStrip() {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
-        child: SizedBox(
-          height: 36,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _domainChoices.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 6),
-            itemBuilder: (_, i) {
-              final item = _domainChoices[i];
-              final selected = _selectedDomain == item['id'];
-              return ChoiceChip(
-                label: Text(item['label']!, style: const TextStyle(fontSize: 12)),
-                selected: selected,
-                visualDensity: VisualDensity.compact,
-                onSelected: (_) => setState(() => _selectedDomain = item['id']),
-              );
-            },
-          ),
-        ),
-      ),
-    );
+  String _selectedDomainLabel() {
+    for (final item in _domainChoices) {
+      if (item['id'] == _selectedDomain) return item['label'] ?? 'Auto';
+    }
+    return 'Auto';
   }
 
-  Widget _buildInputBar() {
+  Widget _buildInputBar(List<ChatMessage> messages) {
+    final lastAssistant = messages.isNotEmpty && !_loading
+        ? messages.lastWhere(
+            (m) => m.role == 'assistant' && m.metadata['error'] != true,
+            orElse: () => ChatMessage.assistant(text: ''),
+          )
+        : null;
+    final rawFollowUps = lastAssistant?.metadata['follow_ups'];
+    final followUps = rawFollowUps is List
+        ? rawFollowUps.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).take(3).toList()
+        : <String>[];
+    final stateMap = lastAssistant?.metadata['client_state'] is Map
+        ? Map<String, dynamic>.from(lastAssistant!.metadata['client_state'] as Map)
+        : const <String, dynamic>{};
+    final kp = stateMap['known_params'] is Map
+        ? Map<String, dynamic>.from(stateMap['known_params'] as Map)
+        : const <String, dynamic>{};
+    final instructions = stateMap['user_instructions'] is List
+        ? (stateMap['user_instructions'] as List).map((e) => e.toString()).toList()
+        : <String>[];
+    final canExportPdf = widget.apiService.hasPremiumKey &&
+        kp['commodity'] != null &&
+        kp['origin_province'] != null &&
+        kp['capital_xaf'] != null;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Center(
@@ -702,67 +579,178 @@ class _ChatScreenState extends State<ChatScreen> {
           constraints: const BoxConstraints(maxWidth: 820),
           child: Container(
             decoration: BoxDecoration(
-              color: FDTheme.canvas,
+              color: FDTheme.surface,
               border: Border.all(color: FDTheme.borderStrong, width: 1),
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x140F172A),
+                  blurRadius: 16,
+                  offset: Offset(0, 4),
+                ),
+              ],
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            padding: const EdgeInsets.fromLTRB(16, 8, 10, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    minLines: 1,
-                    maxLines: 4,
-                    textInputAction: TextInputAction.send,
-                    inputFormatters: [
-                      LengthLimitingTextInputFormatter(4000),
-                    ],
-                    style: const TextStyle(
-                      color: FDTheme.ink,
-                      fontSize: 16,
-                      height: 1.45,
+                TextField(
+                  controller: _controller,
+                  minLines: 1,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.send,
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(4000),
+                  ],
+                  style: const TextStyle(
+                    color: FDTheme.ink,
+                    fontSize: 15.5,
+                    height: 1.45,
+                  ),
+                  onSubmitted: (_) {
+                    if (!_loading) _sendMessage(_controller.text);
+                  },
+                  decoration: const InputDecoration(
+                    hintText: 'Posez une question, analysez un marché ou rédigez un projet...',
+                    hintStyle: TextStyle(
+                      color: FDTheme.subtle,
+                      fontSize: 15,
                     ),
-                    onSubmitted: (_) {
-                      if (!_loading) _sendMessage(_controller.text);
-                    },
-                    decoration: const InputDecoration(
-                      hintText: 'Interroger un marché, un produit ou un risque...',
-                      hintStyle: TextStyle(
-                        color: FDTheme.subtle,
-                        fontSize: 15.5,
+                    filled: false,
+                    hoverColor: Colors.transparent,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    // Sélecteur de domaine compact (style ChatGPT / Claude)
+                    PopupMenuButton<String?>(
+                      tooltip: 'Choisir le domaine IA',
+                      onSelected: (val) => setState(() => _selectedDomain = val),
+                      itemBuilder: (_) => _domainChoices
+                          .map((d) => PopupMenuItem<String?>(
+                                value: d['id'],
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _selectedDomain == d['id'] ? Icons.check_rounded : Icons.circle_outlined,
+                                      size: 16,
+                                      color: _selectedDomain == d['id'] ? FDTheme.blue : FDTheme.subtle,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(d['label'] ?? 'Auto'),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: FDTheme.canvasSoft,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.auto_awesome_outlined, size: 14, color: FDTheme.blue),
+                            const SizedBox(width: 5),
+                            Text(
+                              _selectedDomainLabel(),
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.ink),
+                            ),
+                            const SizedBox(width: 2),
+                            const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: FDTheme.muted),
+                          ],
+                        ),
                       ),
-                      filled: false,
-                      hoverColor: Colors.transparent,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      errorBorder: InputBorder.none,
-                      focusedErrorBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    if (followUps.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      PopupMenuButton<String>(
+                        tooltip: 'Suggestions de suite',
+                        onSelected: _sendMessage,
+                        itemBuilder: (_) => followUps
+                            .map((p) => PopupMenuItem<String>(
+                                  value: p,
+                                  child: Text(p, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                ))
+                            .toList(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: FDTheme.canvasSoft,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.lightbulb_outline_rounded, size: 14, color: FDTheme.muted),
+                              SizedBox(width: 4),
+                              Text('Suite', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.ink)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (canExportPdf) ...[
+                      const SizedBox(width: 6),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: () => _exportMarketStudyPdf(kp, instructions),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: FDTheme.blueSoft,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.picture_as_pdf_outlined, size: 14, color: FDTheme.blue),
+                              SizedBox(width: 4),
+                              Text('PDF PRO', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: FDTheme.blue)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Envoyer le message',
+                      onPressed: _loading ? null : () => _sendMessage(_controller.text),
+                      icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                      style: IconButton.styleFrom(
+                        backgroundColor: FDTheme.blue,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: FDTheme.line,
+                        disabledForegroundColor: FDTheme.subtle,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(8),
+                        minimumSize: const Size(36, 36),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_selectedDomain != null &&
+                    _selectedDomain != 'agriculture' &&
+                    _selectedDomain != 'chad_intelligence') ...[
+                  const SizedBox(height: 4),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Données terrain vérifiées : marchés agricoles du Tchad · Autres domaines : analyse sur vos hypothèses.',
+                      style: TextStyle(fontSize: 10.5, color: FDTheme.subtle),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: IconButton(
-                    tooltip: 'Envoyer le message',
-                    onPressed: _loading ? null : () => _sendMessage(_controller.text),
-                    icon: const Icon(Icons.arrow_upward_rounded, size: 22),
-                    style: IconButton.styleFrom(
-                      backgroundColor: FDTheme.blue,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: FDTheme.line,
-                      disabledForegroundColor: FDTheme.subtle,
-                      shape: const CircleBorder(),
-                      padding: const EdgeInsets.all(10),
-                    ),
-                  ),
-                ),
+                ],
               ],
             ),
           ),

@@ -398,6 +398,27 @@ class _PassportScreenState extends State<PassportScreen> {
                               _MetricBadge(text: '$obsMonths mois'),
                             ],
                           ),
+                          const SizedBox(height: 6),
+                          ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            childrenPadding: const EdgeInsets.only(bottom: 4),
+                            dense: true,
+                            title: const Text(
+                              'Détails du calcul',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                            ),
+                            children: [
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Score marché : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
+                                  '(volatilité CV = $cvLabel %, baisse max = $drawdownLabel %, ratio LTV indicatif = $maxLoanLabel). '
+                                  'Indicateur de stabilité des prix uniquement (non calibré sur défauts bancaires).',
+                                  style: const TextStyle(fontSize: 12, height: 1.45, color: FDTheme.muted),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),

@@ -183,6 +183,7 @@ class ApiService {
     });
     final headers = <String, String>{
       'Content-Type': 'application/json',
+      'X-User-Id': _userId,
       if (hasPremiumKey) 'X-Premium-Key': activePremiumKey,
     };
 
@@ -401,6 +402,7 @@ class ApiService {
     };
     final headers = <String, String>{
       'Content-Type': 'application/json',
+      'X-User-Id': _userId,
       if (hasPremiumKey) 'X-Premium-Key': activePremiumKey,
     };
     final resp = await _client
@@ -505,6 +507,34 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> createProjectStudy(
+    String projectId, {
+    required String commodity,
+    required String originProvince,
+    String? destProvince,
+    required double capitalXaf,
+    String? promoterName,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'commodity': commodity,
+            'origin_province': originProvince,
+            if (destProvince != null && destProvince.trim().isNotEmpty) 'dest_province': destProvince.trim(),
+            'capital_xaf': capitalXaf,
+            if (promoterName != null && promoterName.trim().isNotEmpty) 'promoter_name': promoterName.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 45));
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur génération étude projet (${resp.statusCode})');
+  }
+
   Future<List<Map<String, dynamic>>> listStudyVersions(String projectId, String studyId) async {
     final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies/$studyId/versions');
     final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
@@ -568,6 +598,34 @@ class ApiService {
     throw ApiHttpException(resp.statusCode, 'Erreur comparaison régionale (${resp.statusCode})');
   }
 
+  Future<Map<String, dynamic>> getAnalyticsTrends({String? commodity, String? province, int limit = 24}) async {
+    final q = <String, String>{
+      if (commodity != null && commodity.isNotEmpty) 'commodity': commodity,
+      if (province != null && province.isNotEmpty) 'province': province,
+      'limit': '$limit',
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/analytics/trends').replace(queryParameters: q);
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur tendances historiques (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getForecastBenchmark({
+    required String commodity,
+    required String province,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/analytics/forecast-benchmark').replace(
+      queryParameters: {'commodity': commodity.trim(), 'province': province.trim()},
+    );
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur benchmark modèle (${resp.statusCode})');
+  }
+
   Future<Map<String, dynamic>> getBillingPlans() async {
     final uri = Uri.parse('$baseUrl/api/v1/billing/plans');
     final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
@@ -608,6 +666,112 @@ class ApiService {
         .timeout(const Duration(seconds: 20));
     if (resp.statusCode != 200) {
       throw ApiHttpException(resp.statusCode, 'Erreur mise à jour statut (${resp.statusCode})');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAdminUsers(String adminToken, {String search = ''}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/users').replace(
+      queryParameters: {
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+        'limit': '100',
+      },
+    );
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final list = decoded['users'] as List? ?? [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement utilisateurs (${resp.statusCode})');
+  }
+
+  Future<void> activateAdminSubscription(
+    String adminToken, {
+    required String targetUserId,
+    required String planId,
+    int periodDays = 30,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/billing/admin/activate');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {'X-Admin-Token': adminToken.trim(), 'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'target_user_id': targetUserId.trim(),
+            'plan_id': planId,
+            'status': 'active',
+            'period_days': periodDays,
+            'reason': 'Admin console activation',
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur activation plan (${resp.statusCode})');
+    }
+  }
+
+  Future<void> toggleAdminModel(String adminToken, String profileId, bool enabled) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/models/$profileId');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {'X-Admin-Token': adminToken.trim(), 'Content-Type': 'application/json'},
+          body: jsonEncode({'enabled': enabled, 'reason': 'Admin console toggle'}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur bascule modèle (${resp.statusCode})');
+    }
+  }
+
+  Future<Map<String, dynamic>> triggerAdminBackup(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/backup');
+    final resp = await _client
+        .post(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 30));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur sauvegarde (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> refreshAdminData(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/refresh');
+    final resp = await _client
+        .post(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 30));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur rafraîchissement (${resp.statusCode})');
+  }
+
+  Future<List<Map<String, dynamic>>> getAdminSupportTickets(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/support/tickets?limit=50');
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final list = decoded['tickets'] as List? ?? [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement tickets (${resp.statusCode})');
+  }
+
+  Future<void> updateAdminTicketStatus(String adminToken, String ticketId, String status) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/support/tickets/$ticketId');
+    final resp = await _client
+        .patch(
+          uri,
+          headers: {'X-Admin-Token': adminToken.trim(), 'Content-Type': 'application/json'},
+          body: jsonEncode({'status': status}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur mise à jour ticket (${resp.statusCode})');
     }
   }
 

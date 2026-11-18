@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/design_system/fd_design_system.dart';
+import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -66,54 +68,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Préférences & Espace')),
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Préférences & Espace', style: TextStyle(fontWeight: FontWeight.w700))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          DropdownButtonFormField<String>(
-            value: _language,
-            decoration: const InputDecoration(labelText: 'Langue des rapports'),
-            items: const [
-              DropdownMenuItem(value: 'fr', child: Text('Français')),
-              DropdownMenuItem(value: 'en', child: Text('English')),
-            ],
-            onChanged: (v) => setState(() => _language = v ?? 'fr'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _style,
-            decoration: const InputDecoration(labelText: 'Style de réponse préféré'),
-            items: const [
-              DropdownMenuItem(value: 'concis', child: Text('Concis & opérationnel')),
-              DropdownMenuItem(value: 'detaille', child: Text('Détaillé & académique')),
-            ],
-            onChanged: (v) => setState(() => _style = v ?? 'concis'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _defaultDomain,
-            decoration: const InputDecoration(labelText: 'Domaine par défaut'),
-            items: const [
-              DropdownMenuItem(value: 'auto', child: Text('Détection automatique')),
-              DropdownMenuItem(value: 'chad_intelligence', child: Text('Intelligence Tchad')),
-              DropdownMenuItem(value: 'business_entrepreneurship', child: Text('Business & Études')),
-              DropdownMenuItem(value: 'tech_programming', child: Text('Tech & Code')),
-            ],
-            onChanged: (v) => setState(() => _defaultDomain = v ?? 'auto'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _userCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Identifiant espace projets (X-User-Id)',
-              helperText: 'Utilisé pour isoler vos projets (minimum 3 caractères).',
+          FDCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: _language,
+                  decoration: const InputDecoration(labelText: 'Langue des rapports'),
+                  items: const [
+                    DropdownMenuItem(value: 'fr', child: Text('Français')),
+                    DropdownMenuItem(value: 'en', child: Text('English')),
+                  ],
+                  onChanged: (v) => setState(() => _language = v ?? 'fr'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _style,
+                  decoration: const InputDecoration(labelText: 'Style de réponse préféré'),
+                  items: const [
+                    DropdownMenuItem(value: 'concis', child: Text('Concis & opérationnel')),
+                    DropdownMenuItem(value: 'detaille', child: Text('Détaillé & académique')),
+                  ],
+                  onChanged: (v) => setState(() => _style = v ?? 'concis'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _defaultDomain,
+                  decoration: const InputDecoration(labelText: 'Domaine par défaut'),
+                  items: const [
+                    DropdownMenuItem(value: 'auto', child: Text('Détection automatique')),
+                    DropdownMenuItem(value: 'chad_intelligence', child: Text('Intelligence Tchad')),
+                    DropdownMenuItem(value: 'business_entrepreneurship', child: Text('Business & Études')),
+                    DropdownMenuItem(value: 'tech_programming', child: Text('Tech & Code')),
+                  ],
+                  onChanged: (v) => setState(() => _defaultDomain = v ?? 'auto'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _userCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Identifiant espace projets (X-User-Id)',
+                    helperText: 'Utilisé pour isoler vos projets (minimum 3 caractères).',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FDPrimaryButton(
+                  label: 'Enregistrer',
+                  icon: Icons.save_outlined,
+                  onPressed: _save,
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Enregistrer'),
           ),
         ],
       ),

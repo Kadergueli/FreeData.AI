@@ -678,12 +678,26 @@ def chat_endpoint(
     payload: ChatRequest,
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
     tier = payload.tier
     # Le niveau « premium » (LLM payant) exige une clé valide : sans clé configurée ou fournie, repli sur le gratuit.
     if tier == "premium" and not _premium_key_ok(x_premium_key):
         tier = "free"
+    if x_user_id and x_user_id.strip():
+        uid = x_user_id.strip()
+        if _premium_key_ok(x_premium_key):
+            cur = sub_store.get_usage_summary(uid)["subscription"]
+            if cur.get("effective_plan_id") == "free":
+                sub_store.admin_update_subscription(
+                    actor="premium_key", target_user_id=uid, plan_id="premium", status="active",
+                    period_days=365, provider="key", reason="Active X-Premium-Key",
+                )
+        quota = sub_store.check_and_increment(uid, "daily_chat")
+        if not quota["allowed"]:
+            raise HTTPException(status_code=429, detail="Quota journalier de messages atteint.")
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
     if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
         raise HTTPException(status_code=503, detail="Assistant très sollicité. Réessayez dans un instant.",
@@ -937,6 +951,8 @@ def generate_market_study_pdf(
     payload: MarketStudyRequest,
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Génère et retourne le rapport PDF professionnel d'étude de marché PRO."""
     _require_premium_key(x_premium_key, "Rapports d'étude de marché PDF PRO")
@@ -950,6 +966,18 @@ def generate_market_study_pdf(
                 "validation": validation,
             },
         )
+    if x_user_id and x_user_id.strip():
+        uid = x_user_id.strip()
+        if _premium_key_ok(x_premium_key):
+            cur = sub_store.get_usage_summary(uid)["subscription"]
+            if cur.get("effective_plan_id") == "free":
+                sub_store.admin_update_subscription(
+                    actor="premium_key", target_user_id=uid, plan_id="premium", status="active",
+                    period_days=365, provider="key", reason="Active X-Premium-Key",
+                )
+        quota = sub_store.check_and_increment(uid, "monthly_pdf")
+        if not quota["allowed"]:
+            raise HTTPException(status_code=429, detail="Quota mensuel de PDF atteint.")
     pdf_bytes = render_market_study_pdf(dossier)
     safe_slug = "".join(c if c.isalnum() else "_" for c in dossier["commodity"].lower()).strip("_") or "marche"
     return Response(
@@ -1863,9 +1891,22 @@ def list_billing_plans_endpoint():
 @app.get("/api/v1/billing/me", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_my_billing_endpoint(
     owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    return sub_store.get_usage_summary(owner_id)
+    summary = sub_store.get_usage_summary(owner_id)
+    if _premium_key_ok(x_premium_key) and summary["subscription"].get("effective_plan_id") == "free":
+        sub_store.admin_update_subscription(
+            actor="premium_key",
+            target_user_id=owner_id,
+            plan_id="premium",
+            status="active",
+            period_days=365,
+            provider="key",
+            reason="Active X-Premium-Key",
+        )
+        summary = sub_store.get_usage_summary(owner_id)
+    return summary
 
 
 class AdminSubscriptionActivateRequest(BaseModel):
