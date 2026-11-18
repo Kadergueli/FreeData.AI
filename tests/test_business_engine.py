@@ -149,3 +149,58 @@ def test_agent_business_plan_wires_blueprint_to_llm(monkeypatch):
     assert "FreeData.AI Advisory" in captured["messages"][0]["content"]
     assert "[MODÈLE FINANCIER CALCULÉ]" in captured["messages"][-1]["content"]
 
+
+def test_dynamic_overrides_bfr_constant_and_zero_capex():
+    bp = build_professional_business_plan(
+        commodity="Millet",
+        commodity_fr="Mil",
+        origin_province="Lac",
+        dest_province="N'Djamena",
+        buy_price_per_kg=200.0,
+        sell_price_per_kg=320.0,
+        volatility_cv_pct=8.5,
+        credit_score=82.0,
+        capital_xaf=1_000_000.0,
+        user_instructions=["Sans équipement (CAPEX = 0)", "BFR constant sans réinvestissement"],
+    )
+    ca = bp["capital_allocation"]
+    assert ca["capex_equipment_xaf"] == 0
+    assert ca["working_capital_xaf"] == 880_000
+    assert ca["safety_cash_reserve_xaf"] == 120_000
+    assert ca["capex_share_pct"] == 0.0
+    assert ca["working_capital_share_pct"] == 88.0
+
+    proj = bp["projection_6_months"]
+    assert all(r["working_capital"] == 880_000 for r in proj)
+    total_net = sum(r["net_profit"] for r in proj)
+    assert proj[-1]["cumulative_cash"] == 120_000 + total_net
+
+
+def test_non_rentable_status_and_commercial_strategy():
+    bp = build_professional_business_plan(
+        commodity="Millet",
+        commodity_fr="Mil",
+        origin_province="Lac",
+        dest_province="N'Djamena",
+        buy_price_per_kg=220.0,
+        sell_price_per_kg=260.0,
+        volatility_cv_pct=10.0,
+        credit_score=70.0,
+        capital_xaf=150_000.0,
+        transport_cost_per_kg=25.0,
+        loss_rate_pct=5.0,
+        monthly_fixed_costs_xaf=35_000.0,
+        predicted_t1_sell_price_per_kg=245.0,
+    )
+    ue = bp["unit_economics"]
+    assert ue["break_even_price_per_kg"] > 260.0
+    assert ue["profitability_status"] == "NON RENTABLE À CETTE ÉCHELLE"
+    assert ue["net_profit_cycle1_xaf"] < 0
+    assert ue["min_theoretical_capital_xaf"] is None
+
+    cs = bp["commercial_strategy"]
+    assert "flux tendu < 15 jours" in cs["flow_strategy"]
+    assert "détaillants de quartier" in cs["distribution_channel"]
+    assert cs["long_distance_freight_warning"] is True
+    assert len(cs["field_validation_checklist"]) == 5
+

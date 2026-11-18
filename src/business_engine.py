@@ -2,26 +2,56 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from typing import Optional
 
 # Source unique de vérité pour l'allocation du capital (spécification officielle 80 / 8 / 12)
 WORKING_CAPITAL_SHARE = 0.80
 CAPEX_SHARE = 0.08
 RESERVE_SHARE = 0.12
+REINVEST_RATE = 0.75
 
 
-def allocate_capital(total_capital: float) -> dict:
+def _norm_instruction(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(stripped.lower().split())
+
+
+def _parse_instruction_overrides(user_instructions: Optional[list[str]]) -> tuple[Optional[bool], Optional[bool]]:
+    """Détecte les surcharges explicites (sans réinvestissement / BFR constant, sans équipement / CAPEX = 0)."""
+    reinvest_override: Optional[bool] = None
+    zero_capex_override: Optional[bool] = None
+    for raw in user_instructions or []:
+        norm = _norm_instruction(raw)
+        if "sans reinvestissement" in norm or "bfr constant" in norm or "sans reinjection" in norm:
+            reinvest_override = False
+        if (
+            "sans equipement" in norm
+            or "pas d'equipement" in norm
+            or "capex = 0" in norm
+            or "capex=0" in norm
+            or "capex 0" in norm
+            or "sans capex" in norm
+        ):
+            zero_capex_override = True
+    return reinvest_override, zero_capex_override
+
+
+def allocate_capital(total_capital: float, zero_capex: bool = False) -> dict:
     """
-    Ventile le capital selon la règle officielle 80 / 8 / 12 :
-    - 80 % BFR opérationnel (achat de stock + transport + sacherie)
-    - 8 % CAPEX équipement (balance, bâches, palettes ; reste disponible s'il n'est pas requis)
+    Ventile le capital selon la règle officielle 80 / 8 / 12 (ou 88 / 0 / 12 si sans équipement) :
+    - 80 % (ou 88 %) BFR opérationnel (achat de stock + transport + sacherie)
+    - 8 % (ou 0 %) CAPEX équipement (balance, bâches, palettes ; reste disponible s'il n'est pas requis)
     - 12 % Réserve de liquidités d'urgence (jamais incluse dans le budget d'achat de stock)
     """
     total = float(total_capital)
     if not math.isfinite(total) or total <= 0.0:
         raise ValueError("Le capital total doit être strictement positif.")
     total_r = round(total, 2)
-    capex_budget = round(total_r * CAPEX_SHARE, 2)
+    eff_capex_share = 0.0 if zero_capex else CAPEX_SHARE
+    eff_wc_share = (WORKING_CAPITAL_SHARE + CAPEX_SHARE) if zero_capex else WORKING_CAPITAL_SHARE
+    capex_budget = 0.0 if zero_capex else round(total_r * eff_capex_share, 2)
     reserve_budget = round(total_r * RESERVE_SHARE, 2)
     working_capital = round(total_r - capex_budget - reserve_budget, 2)
     if total_r.is_integer() and capex_budget.is_integer() and reserve_budget.is_integer() and working_capital.is_integer():
@@ -33,13 +63,18 @@ def allocate_capital(total_capital: float) -> dict:
         "total_capital_xaf": total_r,
         "working_capital_xaf": working_capital,
         "inventory_purchasing_budget_xaf": working_capital,
-        "working_capital_share_pct": WORKING_CAPITAL_SHARE * 100.0,
+        "working_capital_share_pct": round(eff_wc_share * 100.0, 1),
         "capex_equipment_xaf": capex_budget,
-        "capex_share_pct": CAPEX_SHARE * 100.0,
+        "capex_share_pct": round(eff_capex_share * 100.0, 1),
         "safety_cash_reserve_xaf": reserve_budget,
-        "safety_share_pct": RESERVE_SHARE * 100.0,
+        "safety_share_pct": round(RESERVE_SHARE * 100.0, 1),
         "remaining_liquidity_xaf": reserve_budget,
-        "capex_note": "Budget équipement alloué (8 %) : balance, bâches, palettes ; peut rester inutilisé si non requis.",
+        "zero_capex": zero_capex,
+        "capex_note": (
+            "Sans équipement (CAPEX = 0 %) : la part équipement (8 %) est basculée dans le BFR opérationnel (88/0/12)."
+            if zero_capex
+            else "Budget équipement alloué (8 %) : balance, bâches, palettes ; peut rester inutilisé si non requis."
+        ),
         "reserve_note": "Réserve de liquidités d'urgence (12 %) : non engagée dans l'achat de stock.",
     }
 
@@ -92,6 +127,10 @@ def build_professional_business_plan(
     monthly_fixed_costs_xaf: float = 35000.0,
     cycles_per_month: float = 1.0,
     user_instructions: Optional[list[str]] = None,
+    reinvest: Optional[bool] = None,
+    zero_capex: Optional[bool] = None,
+    predicted_t1_sell_price_per_kg: Optional[float] = None,
+    max_observed_dest_price_per_kg: Optional[float] = None,
 ) -> dict:
     """Construit un modèle financier complet et déterministe pour un business plan bancable."""
     cap = max(float(capital_xaf), 1.0)
@@ -101,8 +140,12 @@ def build_professional_business_plan(
     fixed_xaf = max(float(monthly_fixed_costs_xaf), 0.0)
     cycles = max(float(cycles_per_month), 0.25)
 
-    # 1. Allocation du capital initial (source unique 80 / 8 / 12)
-    capital_allocation = allocate_capital(cap)
+    inst_reinvest, inst_zero_capex = _parse_instruction_overrides(user_instructions)
+    eff_reinvest = True if reinvest is None and inst_reinvest is None else (reinvest if reinvest is not None else bool(inst_reinvest))
+    eff_zero_capex = False if zero_capex is None and inst_zero_capex is None else (zero_capex if zero_capex is not None else bool(inst_zero_capex))
+
+    # 1. Allocation du capital initial (80 / 8 / 12 ou 88 / 0 / 12 si sans équipement)
+    capital_allocation = allocate_capital(cap, zero_capex=eff_zero_capex)
     capex_equipment_xaf = capital_allocation["capex_equipment_xaf"]
     safety_cash_reserve_xaf = capital_allocation["safety_cash_reserve_xaf"]
     working_capital_xaf = capital_allocation["working_capital_xaf"]
@@ -126,6 +169,8 @@ def build_professional_business_plan(
         if sell_price_per_kg is not None
         else round(break_even_price_per_kg * 1.15, 1)
     )
+    if max_observed_dest_price_per_kg is not None and eff_sell_price > float(max_observed_dest_price_per_kg):
+        eff_sell_price = round(float(max_observed_dest_price_per_kg), 1)
 
     gross_revenue_xaf = round(volume_sellable_kg * eff_sell_price)
     total_variable_cost_xaf = round(volume_bought_kg * unit_landed_cost)
@@ -137,6 +182,18 @@ def build_professional_business_plan(
         max(0.0, (eff_sell_price * (1.0 - loss_pct / 100.0) / 1.20) - transport_p - packaging_cost_per_kg),
         1,
     )
+
+    is_non_rentable = (break_even_price_per_kg > eff_sell_price) or (net_profit_cycle1_xaf <= 0)
+    profitability_status = "NON RENTABLE À CETTE ÉCHELLE" if is_non_rentable else "RENTABLE"
+    unit_margin_per_bought_kg = eff_sell_price * (1.0 - loss_pct / 100.0) - unit_landed_cost
+    wc_share = (WORKING_CAPITAL_SHARE + CAPEX_SHARE) if eff_zero_capex else WORKING_CAPITAL_SHARE
+    if unit_margin_per_bought_kg > 0 and fixed_xaf > 0:
+        req_wc = (fixed_xaf / unit_margin_per_bought_kg) * unit_landed_cost
+        min_theoretical_capital_xaf: Optional[int] = round(req_wc / wc_share)
+    elif unit_margin_per_bought_kg > 0:
+        min_theoretical_capital_xaf = 0
+    else:
+        min_theoretical_capital_xaf = None
 
     unit_economics = {
         "buy_price_per_kg": round(buy_p, 1),
@@ -161,9 +218,13 @@ def build_professional_business_plan(
         "gross_margin_xaf": gross_margin_xaf,
         "net_profit_cycle1_xaf": net_profit_cycle1_xaf,
         "roi_cycle1_pct": roi_cycle1_pct,
+        "profitability_status": profitability_status,
+        "min_theoretical_capital_xaf": min_theoretical_capital_xaf,
+        "reinvest_enabled": eff_reinvest,
+        "reinvest_rate_pct": round(REINVEST_RATE * 100.0, 1) if eff_reinvest else 0.0,
     }
 
-    # 3. Projection financière sur 6 mois (70 % du bénéfice réinvesti dans le BFR, plafonné à 3x capital initial)
+    # 3. Projection financière sur 6 mois (75 % du bénéfice réinvesti dans le BFR par défaut, ou BFR constant si reinvest=False)
     max_working_capital = cap * 3.0
     wc = float(working_capital_xaf)
     cum_cash = float(safety_cash_reserve_xaf)
@@ -180,8 +241,8 @@ def build_professional_business_plan(
             cycles_per_month=cycles,
         )
         net = m["net_profit"]
-        if net > 0:
-            reinvested = min(net * 0.70, max(0.0, max_working_capital - wc))
+        if eff_reinvest and net > 0:
+            reinvested = min(net * REINVEST_RATE, max(0.0, max_working_capital - wc))
             wc = round(wc + reinvested)
             cum_cash = round(cum_cash + (net - reinvested))
         else:
@@ -221,6 +282,47 @@ def build_professional_business_plan(
             "viable": sm["net_profit"] > 0,
         })
 
+    long_distance_freight_warning = bool(
+        dest_province
+        and origin_province
+        and dest_province.strip().lower() != origin_province.strip().lower()
+        and abs(transport_p - 25.0) < 1e-6
+    )
+    if predicted_t1_sell_price_per_kg is not None and sell_price_per_kg is not None and predicted_t1_sell_price_per_kg < sell_price_per_kg:
+        flow_strategy = (
+            "Tendance baissière (Prix prévu t+1 < Prix observé) : rotation rapide impérative "
+            "(flux tendu < 15 jours) sans stockage spéculatif."
+        )
+    elif predicted_t1_sell_price_per_kg is not None and sell_price_per_kg is not None and predicted_t1_sell_price_per_kg > sell_price_per_kg:
+        flow_strategy = (
+            "Tendance haussière (Prix prévu t+1 > Prix observé) : stockage court terme envisageable "
+            "sous réserve de maîtriser les pertes techniques (5 % par défaut) et le coût de magasinage."
+        )
+    else:
+        flow_strategy = (
+            "Rotation maîtrisée (flux tendu recommandé si la tendance t+1 est neutre ou incertaine) "
+            "pour limiter les pertes de stockage."
+        )
+
+    distribution_channel = (
+        "Vente directe aux détaillants de quartier et transformateurs locaux "
+        "(économie des frais de loyer d'un box sur grand marché)."
+        if cap < 250_000.0
+        else "Négociation demi-gros avec restaurateurs, cantines et grossistes."
+    )
+    commercial_strategy = {
+        "flow_strategy": flow_strategy,
+        "distribution_channel": distribution_channel,
+        "long_distance_freight_warning": long_distance_freight_warning,
+        "field_validation_checklist": [
+            "Devis fret réel (surtout sur corridor inter-provinces longue distance)",
+            "Taxes communales / ticket de place",
+            "Vitesse d'écoulement en sacs/semaine auprès de 5 acheteurs",
+            "Coût de gardiennage / magasinage",
+            "Prix d'achat ferme bord-champ ou gros",
+        ],
+    }
+
     return {
         "commodity": commodity,
         "commodity_fr": commodity_fr,
@@ -230,6 +332,9 @@ def build_professional_business_plan(
         "certified_market_metrics": {
             "buy_price_per_kg": round(buy_p, 1),
             "sell_price_per_kg": round(float(sell_price_per_kg), 1) if sell_price_per_kg is not None else None,
+            "predicted_t1_sell_price_per_kg": round(float(predicted_t1_sell_price_per_kg), 1)
+            if predicted_t1_sell_price_per_kg is not None
+            else None,
             "volatility_cv_pct": round(float(volatility_cv_pct), 1) if volatility_cv_pct is not None else None,
             "credit_score": round(float(credit_score), 1) if credit_score is not None else None,
         },
@@ -237,6 +342,7 @@ def build_professional_business_plan(
         "unit_economics": unit_economics,
         "projection_6_months": projection_6_months,
         "stress_tests": stress_tests,
+        "commercial_strategy": commercial_strategy,
         "user_instructions": list(user_instructions or []),
     }
 
@@ -245,6 +351,7 @@ def format_business_plan_markdown(bp: dict) -> str:
     """Rendu Markdown structuré du modèle financier pour le mode gratuit ou repli LLM."""
     ca = bp["capital_allocation"]
     ue = bp["unit_economics"]
+    cs = bp.get("commercial_strategy") or {}
     route = (
         f"{bp['origin_province']} -> {bp['dest_province']}"
         if bp.get("dest_province")
@@ -255,18 +362,41 @@ def format_business_plan_markdown(bp: dict) -> str:
         if ue["is_simulated_sell_price"]
         else f"{ue['sell_price_per_kg']} XAF/kg"
     )
+    wc_pct = f"{ca.get('working_capital_share_pct', 80.0):.0f} %"
+    capex_pct = f"{ca.get('capex_share_pct', 8.0):.0f} %"
+    res_pct = f"{ca.get('safety_share_pct', 12.0):.0f} %"
+    reinvest_label = (
+        f"Réinvestissement {ue.get('reinvest_rate_pct', 75.0):.0f} % du bénéfice net dans le BFR"
+        if ue.get("reinvest_enabled", True)
+        else "Sans réinvestissement (BFR constant M1-M6)"
+    )
     lines = [
         f"### Business Plan Financier — {bp['commodity_fr']} ({route})",
         "",
+        f"- **Statut de rentabilité** : **{ue.get('profitability_status', 'RENTABLE')}**",
         f"- **Capital engagé** : {ca['total_capital_xaf']:,} XAF | **Résultat net Cycle 1** : {ue['net_profit_cycle1_xaf']:+,} XAF (**ROI {ue['roi_cycle1_pct']:+.1f}%**)".replace(",", " "),
         f"- **Volume acheté** : {ue['volume_bought_kg']:,} kg ({ue['volume_bought_bags_100kg']} sacs de 100 kg) | **Point mort** : {ue['break_even_price_per_kg']} XAF/kg ({ue['break_even_bag_100kg_xaf']:,} XAF/sac)".replace(",", " "),
-        f"- **Prix de vente retenu** : {sell_label}",
+        f"- **Prix de vente retenu** : {sell_label} | **Mode BFR** : {reinvest_label}",
+    ]
+    if ue.get("profitability_status") == "NON RENTABLE À CETTE ÉCHELLE":
+        min_cap = ue.get("min_theoretical_capital_xaf")
+        if min_cap is not None and min_cap > 0:
+            lines.append(
+                f"- **Capital minimum théorique requis** (pour absorber {ue['monthly_fixed_costs_xaf']:,} XAF de coûts fixes) : **{min_cap:,} XAF**".replace(",", " ")
+            )
+        else:
+            lines.append("- **Capital minimum théorique** : corridor structurellement déficitaire à ces prix (marge unitaire <= 0).")
+    if cs.get("long_distance_freight_warning"):
+        lines.append(
+            "- **Alerte fret inter-provinces** : le tarif par défaut de 25 XAF/kg doit être réévalué selon un devis transporteur réel sur ce corridor longue distance."
+        )
+    lines += [
         "",
         "| Poste de capital | Montant (XAF) | Part |",
         "| :--- | ---: | ---: |",
-        f"| BFR opérationnel (stock + fret + sacherie) | {ca['working_capital_xaf']:,} | 80 % |".replace(",", " "),
-        f"| CAPEX équipement (balance, bâches, palettes) | {ca['capex_equipment_xaf']:,} | 8 % |".replace(",", " "),
-        f"| Réserve de trésorerie (sécurité) | {ca['safety_cash_reserve_xaf']:,} | 12 % |".replace(",", " "),
+        f"| BFR opérationnel (stock + fret + sacherie) | {ca['working_capital_xaf']:,} | {wc_pct} |".replace(",", " "),
+        f"| CAPEX équipement (balance, bâches, palettes) | {ca['capex_equipment_xaf']:,} | {capex_pct} |".replace(",", " "),
+        f"| Réserve de trésorerie (sécurité) | {ca['safety_cash_reserve_xaf']:,} | {res_pct} |".replace(",", " "),
         "",
         "| Mois | BFR (XAF) | Chiffre d'affaires | Coûts totaux | Résultat net | Trésorerie cumulée |",
         "| :---: | ---: | ---: | ---: | ---: | ---: |",
@@ -280,10 +410,20 @@ def format_business_plan_markdown(bp: dict) -> str:
         lines.append(
             f"| {st['scenario']} | {st['assumption']} | {st['net_profit_xaf']:+,} | {st['roi_pct']:+.1f}% |".replace(",", " ")
         )
+    if cs:
+        lines += [
+            "",
+            "#### Stratégie Commerciale & Plan de Validation Terrain",
+            f"- **Stratégie d'écoulement** : {cs.get('flow_strategy', '')}",
+            f"- **Canal de distribution adapté au capital** : {cs.get('distribution_channel', '')}",
+            "- **Checklist de Validation Terrain (À vérifier avant décaissement en 24h-48h)** :",
+        ]
+        for idx, item in enumerate(cs.get("field_validation_checklist", []), 1):
+            lines.append(f"  {idx}. {item}")
     lines.append("")
     lines.append(
-        "*Note : Prix observés/prévus, volatilité (CV %) et score Credit Passport proviennent de FreeData.AI ; "
-        "CAPEX 8 %, sacherie 5 XAF/kg, pertes 5 % et charges fixes 35 000 XAF/mois sont des hypothèses standards à ajuster selon vos devis locaux.*"
+        "*Limites méthodologiques : Prix observés/prévus, volatilité (CV %) et score Credit Passport proviennent de FreeData.AI ; "
+        "sacherie 5 XAF/kg, pertes 5 %, fret 25 XAF/kg et charges fixes 35 000 XAF/mois sont des hypothèses standards à ajuster selon vos devis locaux.*"
     )
     return "\n".join(lines)
 

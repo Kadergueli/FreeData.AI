@@ -435,7 +435,7 @@ def _premium_key_ok(key: Optional[str]) -> bool:
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=1000)
+    message: str = Field(..., min_length=1, max_length=4000)
     history: list[dict] = Field(default_factory=list, max_length=40)
     tier: Literal["free", "premium"] = Field(default="free")
 

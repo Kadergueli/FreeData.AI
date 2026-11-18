@@ -136,7 +136,7 @@ class ApiService {
               headers: headers,
               body: body,
             )
-            .timeout(const Duration(seconds: 20));
+            .timeout(const Duration(seconds: 45));
 
         if (resp.statusCode == 200) {
           return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;

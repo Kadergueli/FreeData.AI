@@ -95,7 +95,7 @@ def _numbers_in(text: str) -> set[str]:
 
 
 # Garde-fou : une réponse LLM démesurée (dérive, boucle) n'est jamais renvoyée au client.
-_MAX_LLM_REPLY_CHARS = 6000
+_MAX_LLM_REPLY_CHARS = 8000
 
 
 def _ungrounded_numbers(candidate: str, *sources: str) -> set[str]:
@@ -249,10 +249,11 @@ _PROFILE_RULES: list[tuple[str, re.Pattern[str]]] = [
 
 _INSTRUCTION_TRIGGER_RE = re.compile(
     r"\b(?:je\s+(?:ne\s+)?veux(?:\s+pas)?|evite[zr]?|privilegie[zr]?|uniquement|sans|"
-    r"mon\s+objectif\s+est|prends?\s+en\s+compte)\b"
+    r"mon\s+objectif\s+est|prends?\s+en\s+compte|bfr\s+constant|capex\s*(?:=|a)?\s*0)\b"
 )
 _BUSINESS_PLAN_RE = re.compile(
-    r"\b(?:business\s*plan|plan\s+d['’]?affaires?|dossier\s+(?:de\s+financement|bancaire|imf)|modele\s+financier)\b"
+    r"\b(?:business\s*plan|plan\s+d['’]?affaires?|dossier\s+(?:de\s+financement|bancaire|imf)|"
+    r"modele\s+financier|etude\s+de\s+(?:prefaisabilite|faisabilite|marche))\b"
 )
 
 _PERISHABLE_COMMODITIES = {
@@ -2621,6 +2622,13 @@ class FreeDataAIAgent(FormattersMixin):
             return None
 
         sell_p = self.provider._median_province_commodity_price(dest, comm) if dest else None
+        predicted_t1_sell_p = None
+        fc_target = self.provider.get_forecasts(province=dest or orig, commodity=comm)
+        fc_recs = fc_target.get("records") or []
+        if fc_recs:
+            t1_vals = [v for v in (_clean_float(r.get("forecast_t1")) for r in fc_recs) if v is not None]
+            if t1_vals:
+                predicted_t1_sell_p = round(sum(t1_vals) / len(t1_vals), 1)
         vol_cv = None
         c_score = None
         if not self.provider.passport_df.empty:
@@ -2648,6 +2656,7 @@ class FreeDataAIAgent(FormattersMixin):
             transport_cost_per_kg=float(entities.get("transport_cost_per_kg") or 25.0),
             loss_rate_pct=5.0,
             user_instructions=instructions,
+            predicted_t1_sell_price_per_kg=predicted_t1_sell_p,
         )
 
     def _synthesize_with_llm(
@@ -2737,11 +2746,17 @@ class FreeDataAIAgent(FormattersMixin):
             "- Commerçant / Agriculteur : prix au kg et conversion directe en sac de 100 kg, pistes concrètes d'achat/stockage/revente et marges brutes avant frais.\n"
             "- Étudiant / Chercheur : précision méthodologique, citation des sources, intervalles de confiance (IC 80%), volatilité (CV), erreur (MAE) et limites.\n"
             "- ONG / Microfinance / Décideur : lecture risque stabilité marché (Agricultural Market Risk & Stability Index, LTV indicatif sur garantie/collatéral, jamais une décision de crédit bancaire), alertes et priorités opérationnelles.\n\n"
-            "RÈGLES MÉTIER & RIGUEUR FINANCIÈRE (MISES À JOUR ACTIVES) :\n"
-            "- Allocation du capital : toujours 80 % BFR opérationnel / 8 % CAPEX équipement / 12 % réserve d'urgence (jamais 85/15).\n"
-            "- Rentabilité commerciale : distingue toujours la marge brute (hors transport) du résultat d'exploitation estimé, et signale les frais non inclus (taxes, stockage, financement, assurance).\n"
-            "- Données non mesurées : FreeData.AI suit les prix de marché ; n'invente jamais de volumes de demande ou de parts de marché.\n"
-            "- Fraîcheur & intervalles : avertis honnêtement si le statut de fraîcheur est 'aging' ou 'stale', ou si un intervalle est marqué 'insufficient_history' / 'wide_reduced'.\n\n"
+            "RÈGLE D'OR : INTÉGRITÉ DES DONNÉES (ZÉRO CHIFFRE INVENTÉ) :\n"
+            "- Ancrage strict : utilise exclusivement les prix observés, prévisions t+1 et indicateurs fournis dans [DONNÉES VÉRIFIÉES] et <document_data>.\n"
+            "- Interdiction de forcer la rentabilité : ne simule JAMAIS un prix de vente cible supérieur au prix maximum observé sur le marché de destination (ou à l'intervalle supérieur t+1). "
+            "Si Point_Mort > Prix_Marche_Cible, déclare impérativement le statut « NON RENTABLE À CETTE ÉCHELLE », affiche le résultat net négatif réel et indique le capital minimum théorique requis pour absorber les coûts fixes.\n"
+            "- Cohérence des colonnes : vérifie toujours que Prix_Achat < Prix_Vente dans les scénarios rentables ; n'inverse jamais les valeurs d'achat et de vente.\n"
+            "- Allocation du capital : par défaut 80 % BFR opérationnel / 8 % CAPEX équipement / 12 % réserve d'urgence (jamais 85/15). Si l'utilisateur précise « sans équipement » ou « CAPEX = 0 », bascule la part CAPEX dans le BFR (88/0/12).\n"
+            "- Réinvestissement des bénéfices : par défaut 75 % du résultat net réinjecté dans le BFR ; si l'utilisateur demande « sans réinvestissement » ou « BFR constant », maintiens le BFR strictement constant de M1 à M6 (Trésorerie cumulée = Réserve d'urgence + Somme des résultats nets).\n"
+            "- Fret & Pertes : 25 XAF/kg pour le fret et 5 % de pertes par défaut, sauf tarifs terrain fournis par l'utilisateur ou corridor inter-provinces longue distance (signale alors explicitement que 25 XAF/kg doit être réévalué).\n"
+            "- Données manquantes (Marketing & Terrain) : n'invente aucune statistique marketing ni recommandation générique (pas de publicité sur les réseaux sociaux pour du négoce brut). Remplace tout volet marketing par « Stratégie Commerciale & Plan de Validation Terrain » (flux tendu < 15 jours si Prix_Prevu_t1 < Prix_Observe ; canal < 250 000 XAF détaillants/transformateurs vs >= 250 000 XAF demi-gros ; checklist 5 paramètres en 24h-48h : devis fret réel, taxes communales/ticket de place, vitesse d'écoulement sacs/semaine auprès de 5 acheteurs, coût de gardiennage/magasinage, prix d'achat ferme bord-champ ou gros).\n"
+            "- Fraîcheur & intervalles : avertis honnêtement si le statut de fraîcheur est 'aging' ou 'stale', ou si un intervalle est marqué 'insufficient_history' / 'wide_reduced'.\n"
+            "- Termine toujours de façon concise et factuelle par les limites méthodologiques vérifiées.\n\n"
             "COMPRÉHENSION DU CLIENT & RESPECT STRICT DE SES INSTRUCTIONS :\n"
             "- Lis attentivement l'objet [ÉTAT ET INSTRUCTIONS DU CLIENT] fourni ci-dessous.\n"
             "- Tu dois respecter à la lettre toutes les consignes et contraintes formulées par le client dans la conversation (ex: exclusion d'un type de produit, budget précis, coût de transport personnalisé, horizon de temps).\n"
@@ -2759,21 +2774,31 @@ class FreeDataAIAgent(FormattersMixin):
         blueprint_block = ""
         if business_plan_blueprint:
             system_prompt = (
-                "Tu es FreeData.AI Advisory, un cabinet de conseil en ingénierie financière et développement commercial au Tchad.\n"
-                "Rédige un BUSINESS PLAN PROFESSIONNEL, RIGOUREUX ET BANCABLE en utilisant EXCLUSIVEMENT les chiffres du modèle financier fourni dans [MODÈLE FINANCIER CALCULÉ] et les données de marché de [DONNÉES VÉRIFIÉES].\n\n"
+                "Tu es FreeData.AI Market Intelligence (FreeData.AI Advisory), un analyste financier et agricole spécialisé dans les marchés du Tchad.\n"
+                "Ta mission est de produire des études de préfaisabilité rigoureuses, adaptables et 100 % honnêtes économiquement, en utilisant EXCLUSIVEMENT les chiffres du modèle financier fourni dans [MODÈLE FINANCIER CALCULÉ] et les données de marché de [DONNÉES VÉRIFIÉES].\n\n"
+                "RÈGLE D'OR : INTÉGRITÉ DES DONNÉES (ZÉRO CHIFFRE INVENTÉ) :\n"
+                "1. Ancrage strict aux données : utilise exclusivement les prix observés, prévisions t+1 et indicateurs fournis par FreeData.AI.\n"
+                "2. Interdiction de forcer la rentabilité : ne simule JAMAIS un prix de vente cible supérieur au prix maximum observé sur le marché de destination (ou à l'intervalle supérieur t+1). "
+                "Si Point_Mort > Prix_Marche_Cible (ou profitability_status == 'NON RENTABLE À CETTE ÉCHELLE'), tu DOIS déclarer le statut **NON RENTABLE À CETTE ÉCHELLE**, afficher le résultat net négatif réel et indiquer le capital minimum théorique requis pour absorber les coûts fixes.\n"
+                "3. Cohérence des colonnes : vérifie toujours que Prix_Achat < Prix_Vente dans les scénarios rentables. Ne jamais inverser les valeurs d'achat et de vente.\n\n"
+                "ADAPTATION DYNAMIQUE AUX REQUÊTES UTILISATEUR :\n"
+                "- Réinvestissement des bénéfices : par défaut 75 % du résultat net réinjecté dans le BFR ; si l'utilisateur demande « sans réinvestissement » ou « BFR constant », le BFR reste strictement identique de M1 à M6 et la Trésorerie cumulée = Réserve d'urgence + Somme des résultats nets.\n"
+                "- Allocation du capital (80/8/12 par défaut) : si l'utilisateur précise « sans équipement » ou « CAPEX = 0 », bascule la part CAPEX (8 %) directement dans le BFR opérationnel (88/0/12).\n"
+                "- Fret & Pertes : 25 XAF/kg pour le fret et 5 % de pertes par défaut, sauf tarifs terrain utilisateur ou corridor inter-provinces longue distance (signale alors explicitement que 25 XAF/kg doit être réévalué).\n"
+                "- Respecte toutes les consignes et surcharges de [ÉTAT ET INSTRUCTIONS DU CLIENT] sans jamais casser la structure de sortie.\n\n"
                 "EXIGENCES DE PRÉSENTATION PROFESSIONNELLE :\n"
-                "- Utilise des tableaux Markdown clairs et bien alignés pour les chiffres financiers (Allocation du capital, Compte d'exploitation sur 6 mois, Stress-tests).\n"
-                "- Distingue explicitement par une note de bas de tableau :\n"
-                "  * Les données certifiées FreeData.AI (prix observés/prévus, volatilité CV %, score Credit Passport).\n"
-                "  * Les hypothèses d'exploitation standards (CAPEX 8 %, sacherie 5 XAF/kg, charges fixes mensuelles, fret) que l'entrepreneur devra ajuster selon ses devis locaux.\n"
-                "- Respecte impérativement toutes les instructions et contraintes exprimées par le client dans [ÉTAT ET INSTRUCTIONS DU CLIENT].\n\n"
+                "- Utilise des tableaux Markdown clairs et bien alignés (Allocation du capital, Compte d'exploitation sur 6 mois, Stress-tests).\n"
+                "- Distingue explicitement en note de bas de tableau les données certifiées FreeData.AI (prix observés/prévus, volatilité CV %, score Credit Passport) des hypothèses d'exploitation standards.\n\n"
                 "STRUCTURE OBLIGATOIRE DU DOCUMENT :\n"
-                "1. **Résumé Exécutif (Executive Summary)** : Concept, axe commercial, capital engagé, rentabilité attendue au Cycle 1 et ROI.\n"
-                "2. **Étude de Marché & Positionnement Commercial** : Analyse de l'offre et de la demande (prix origine vs destination, saisonnalité, cible client : demi-grossistes, détaillants, institutions).\n"
-                "3. **Plan d'Investissement (CAPEX) & Besoin en Fonds de Roulement (BFR)** : Tableau de répartition du capital (80 % BFR / 8 % Équipement / 12 % Trésorerie de sécurité).\n"
-                "4. **Compte d'Exploitation Prévisionnel (6 Mois) & Seuil de Rentabilité** : Tableau complet mois par mois + prix plancher (Point Mort).\n"
-                "5. **Analyse des Risques & Tests de Résistance (Stress Tests)** : Tableau d'impact en cas de baisse des prix (-10 %) ou hausse du fret (+25 %), plus mesures de mitigation terrain.\n"
-                "6. **Feuille de Route Opérationnelle (Semaines 1 à 4)** : Plan d'exécution concret avant le premier achat."
+                "1. **Résumé Exécutif (Executive Summary)** : Concept, axe commercial, statut de rentabilité réel, capital engagé, résultat Cycle 1 et ROI.\n"
+                "2. **Étude de Marché & Positionnement Commercial** : Prix origine vs destination, prévision t+1, saisonnalité.\n"
+                "3. **Stratégie Commerciale & Plan de Validation Terrain** (remplace tout volet marketing générique — aucune statistique marketing inventée, aucune pub réseaux sociaux) :\n"
+                "   - Stratégie d'écoulement : flux tendu (< 15 jours) sans stockage spéculatif si Prix_Prevu_t1 < Prix_Observe ; sinon évaluation stockage court terme vs risque de perte.\n"
+                "   - Canal de distribution adapté au capital : < 250 000 XAF (détaillants de quartier et transformateurs locaux, sans loyer de box) vs >= 250 000 XAF (demi-gros restaurateurs, cantines et grossistes).\n"
+                "   - Checklist de Validation Terrain (24h-48h avant décaissement) : (1) Devis fret réel, (2) Taxes communales / ticket de place, (3) Vitesse d'écoulement en sacs/semaine auprès de 5 acheteurs, (4) Coût de gardiennage/magasinage, (5) Prix d'achat ferme bord-champ ou gros.\n"
+                "4. **Plan d'Investissement (CAPEX) & Besoin en Fonds de Roulement (BFR)** : Tableau de répartition (80/8/12 ou 88/0/12).\n"
+                "5. **Compte d'Exploitation Prévisionnel (6 Mois) & Seuil de Rentabilité** : Tableau mois par mois (réinvestissement 75 % ou BFR constant) + prix plancher (Point Mort).\n"
+                "6. **Analyse des Risques, Tests de Résistance & Limites Méthodologiques** : Tableau de stress-tests, feuille de route opérationnelle (semaines 1-4) et limites méthodologiques vérifiées."
             )
             blueprint_block = (
                 "\n\n[MODÈLE FINANCIER CALCULÉ]\n"
@@ -2819,7 +2844,7 @@ class FreeDataAIAgent(FormattersMixin):
                     "temperature": 0.3,
                     "max_tokens": 1500 if business_plan_blueprint else 750,
                 },
-                timeout=12,
+                timeout=30 if business_plan_blueprint else 20,
             )
             resp.raise_for_status()
             choices = resp.json().get("choices") or []

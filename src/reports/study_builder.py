@@ -77,6 +77,12 @@ def build_market_study_dossier(
     ]
 
     # 5. Modèle financier déterministe Central + 3 Scénarios (Prudent / Central / Favorable)
+    fc_target_recs = (fc_dest.get("records") if fc_dest else None) or (fc_orig.get("records") or [])
+    t1_vals = [v for v in (_clean_float(r.get("forecast_t1")) for r in fc_target_recs) if v is not None]
+    predicted_t1_sell = round(sum(t1_vals) / len(t1_vals), 1) if t1_vals else None
+    obs_vals = [v for v in (_clean_float(r.get("last_observed_price")) for r in fc_target_recs) if v is not None]
+    max_obs_dest = round(max(obs_vals), 1) if (dest and obs_vals) else None
+
     central_bp = build_professional_business_plan(
         commodity=resolved_comm,
         commodity_fr=comm_fr,
@@ -91,6 +97,8 @@ def build_market_study_dossier(
         loss_rate_pct=loss_rate_pct,
         monthly_fixed_costs_xaf=monthly_fixed_costs_xaf,
         user_instructions=user_instructions,
+        predicted_t1_sell_price_per_kg=predicted_t1_sell,
+        max_observed_dest_price_per_kg=max_obs_dest,
     )
 
     eff_sell = sell_price if sell_price is not None else central_bp["unit_economics"]["target_sell_price_per_kg"]
