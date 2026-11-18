@@ -406,7 +406,8 @@ class _PassportScreenState extends State<PassportScreen> {
                                 builder: (c2, _) => Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    InkWell(
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
                                       onTap: () => setLocal(() => expanded = !expanded),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(vertical: 4),

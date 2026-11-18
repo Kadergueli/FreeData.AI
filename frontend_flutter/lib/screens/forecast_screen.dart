@@ -591,7 +591,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    InkWell(
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
                                       onTap: () => setLocal(() => expanded = !expanded),
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(vertical: 3),
