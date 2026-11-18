@@ -91,6 +91,11 @@ void main() {
     expect(find.textContaining('Intervalle 80 % : [245 – 308]'), findsOneWidget);
     expect(find.textContaining('Backtest 70/30'), findsOneWidget);
     expect(find.textContaining('MAE : 15.2'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Méthode & Formules Mathématiques'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Méthode & Formules Mathématiques'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

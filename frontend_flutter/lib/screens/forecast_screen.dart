@@ -584,25 +584,47 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                 style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
                               ),
                             ],
-                            ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              childrenPadding: const EdgeInsets.only(bottom: 4),
-                              dense: true,
-                              title: const Text(
-                                'Preuve & Détails du calcul',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: FDTheme.blue),
-                              ),
-                              children: [
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Série normalisée en XAF/kg (source : ${r['source'] ?? '—'}, dernier relevé : ${r['last_observed_month'] ?? '—'}). '
-                                    'Statut intervalle 80 % : ${intervalStatus.isEmpty ? 'indicatif' : intervalStatus} '
-                                    '(calibration conforme hors-échantillon 70/30).',
-                                    style: const TextStyle(fontSize: 11.5, height: 1.45, color: FDTheme.muted),
-                                  ),
-                                ),
-                              ],
+                            const SizedBox(height: 6),
+                            StatefulBuilder(
+                              builder: (ctx, setLocal) {
+                                bool expanded = false;
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    InkWell(
+                                      onTap: () => setLocal(() => expanded = !expanded),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 3),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Text(
+                                              'Preuve & Détails du calcul',
+                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Icon(
+                                              expanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                              size: 16,
+                                              color: FDTheme.blue,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    if (expanded)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          'Série normalisée en XAF/kg (source : ${r['source'] ?? '—'}, dernier relevé : ${r['last_observed_month'] ?? '—'}). '
+                                          'Statut intervalle 80 % : ${intervalStatus.isEmpty ? 'indicatif' : intervalStatus} '
+                                          '(calibration conforme hors-échantillon 70/30).',
+                                          style: const TextStyle(fontSize: 11.5, height: 1.45, color: FDTheme.muted),
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
                             ),
                           ],
                           if (widget.onSelectPrompt != null) ...[

@@ -669,6 +669,16 @@ def get_metadata(state: dict = Depends(get_state)):
     }
 
 
+_SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
+
+
+def get_subscription_store() -> SubscriptionStore:
+    global _SUBSCRIPTION_STORE
+    if _SUBSCRIPTION_STORE is None:
+        _SUBSCRIPTION_STORE = SubscriptionStore()
+    return _SUBSCRIPTION_STORE
+
+
 @app.post(
     "/api/v1/chat",
     response_model=ChatResponse,
@@ -1869,14 +1879,6 @@ def _fallback_domain_reply(domain_mod, query: str, rag_hits: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Phase 12 — Subscription Lifecycle, Atomic Usage Metering & Cost Simulation
 # ---------------------------------------------------------------------------
-_SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
-
-
-def get_subscription_store() -> SubscriptionStore:
-    global _SUBSCRIPTION_STORE
-    if _SUBSCRIPTION_STORE is None:
-        _SUBSCRIPTION_STORE = SubscriptionStore()
-    return _SUBSCRIPTION_STORE
 
 
 @app.get("/api/v1/billing/plans", dependencies=[Depends(_data_rate_limit_dependency)])
