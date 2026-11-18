@@ -42,7 +42,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     try {
       final meta = await widget.apiService.getMetadata();
       final legacy = meta['legacy'];
-      final rawComms = meta['commodities'] ?? (legacy is Map ? legacy['commodities'] : null) ?? const [];
+      final rawComms = meta['products'] ??
+          meta['commodities'] ??
+          meta['passport_products'] ??
+          (legacy is Map ? (legacy['products'] ?? legacy['commodities']) : null) ??
+          const [];
       final rawProvs = meta['provinces'] ?? (legacy is Map ? legacy['provinces'] : null) ?? const [];
       final comms = rawComms is List
           ? rawComms.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
@@ -151,56 +155,93 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           v['commodity'].toString(): num.tryParse(v['avg_cv_pct'].toString()) ?? 0,
     };
 
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text('Analytics & Preuves Statistiques', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          DropdownButton<String?>(
-            value: (_selectedCommodity == null || _commodities.contains(_selectedCommodity)) ? _selectedCommodity : null,
-            hint: const Text('Tous produits'),
-            underline: const SizedBox.shrink(),
+    final filterBar = FDCard(
+      padding: const EdgeInsets.all(14),
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final isWide = constraints.maxWidth >= 540;
+          final productField = DropdownButtonFormField<String?>(
+            initialValue: (_selectedCommodity == null || _commodities.contains(_selectedCommodity))
+                ? _selectedCommodity
+                : null,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Produit / Céréale'),
             items: [
-              const DropdownMenuItem<String?>(value: null, child: Text('Tous produits')),
+              const DropdownMenuItem<String?>(value: null, child: Text('Tous les produits')),
               ..._commodities.map(
-                (c) => DropdownMenuItem<String?>(value: c, child: Text(commodityLabelFr(c))),
+                (c) => DropdownMenuItem<String?>(
+                  value: c,
+                  child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
+                ),
               ),
             ],
             onChanged: (v) {
               setState(() => _selectedCommodity = v);
               _load();
             },
-          ),
-          const SizedBox(width: 8),
-          DropdownButton<String?>(
-            value: (_selectedProvince == null || _provinces.contains(_selectedProvince)) ? _selectedProvince : null,
-            hint: const Text('Toutes provinces'),
-            underline: const SizedBox.shrink(),
+          );
+          final provinceField = DropdownButtonFormField<String?>(
+            initialValue: (_selectedProvince == null || _provinces.contains(_selectedProvince))
+                ? _selectedProvince
+                : null,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Province'),
             items: [
-              const DropdownMenuItem<String?>(value: null, child: Text('Toutes provinces')),
+              const DropdownMenuItem<String?>(value: null, child: Text('Toutes les provinces')),
               ..._provinces.map(
-                (p) => DropdownMenuItem<String?>(value: p, child: Text(p)),
+                (p) => DropdownMenuItem<String?>(
+                  value: p,
+                  child: Text(p, overflow: TextOverflow.ellipsis),
+                ),
               ),
             ],
             onChanged: (v) {
               setState(() => _selectedProvince = v);
               _load();
             },
-          ),
-          const SizedBox(width: 12),
-        ],
+          );
+          if (isWide) {
+            return Row(
+              children: [
+                Expanded(child: productField),
+                const SizedBox(width: 12),
+                Expanded(child: provinceField),
+              ],
+            );
+          }
+          return Column(
+            children: [
+              productField,
+              const SizedBox(height: 10),
+              provinceField,
+            ],
+          );
+        },
       ),
+    );
+
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: FDCard(
-                    child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      filterBar,
+                      const SizedBox(height: 12),
+                      FDCard(
+                        child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                      ),
+                    ],
                   ),
                 )
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    filterBar,
+                    const SizedBox(height: 12),
                     if (_profile != null)
                       FDCard(
                         child: Wrap(

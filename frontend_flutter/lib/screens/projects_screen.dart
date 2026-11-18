@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 
@@ -21,6 +22,8 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   List<Map<String, dynamic>> _projects = [];
+  List<String> _commodities = const ['Millet', 'Sorghum (red)', 'Maize (white)', 'Rice (imported)'];
+  List<String> _provinces = const ['Lac', "N'Djamena", 'Salamat', 'Logone Occidental', 'Ouaddai'];
   bool _loading = true;
   bool _includeArchived = false;
   String? _error;
@@ -28,7 +31,34 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadMetadata();
     _load();
+  }
+
+  Future<void> _loadMetadata() async {
+    try {
+      final meta = await widget.apiService.getMetadata();
+      final legacy = meta['legacy'];
+      final rawComms = meta['products'] ??
+          meta['commodities'] ??
+          meta['passport_products'] ??
+          (legacy is Map ? (legacy['products'] ?? legacy['commodities']) : null) ??
+          const [];
+      final rawProvs = meta['provinces'] ?? (legacy is Map ? legacy['provinces'] : null) ?? const [];
+      final comms = rawComms is List
+          ? rawComms.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          : <String>[];
+      final provs = rawProvs is List
+          ? rawProvs.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          : <String>[];
+      comms.sort((a, b) => commodityLabelFr(a).compareTo(commodityLabelFr(b)));
+      provs.sort();
+      if (!mounted) return;
+      setState(() {
+        if (comms.isNotEmpty) _commodities = comms;
+        if (provs.isNotEmpty) _provinces = provs;
+      });
+    } catch (_) {}
   }
 
   Future<void> _load() async {
@@ -121,9 +151,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   Future<void> _generateStudyDialog(Map<String, dynamic> proj) async {
-    String commodity = 'Millet';
-    String origin = 'Lac';
-    String dest = "N'Djamena";
+    String commodity = _commodities.contains('Millet') ? 'Millet' : _commodities.first;
+    String origin = _provinces.contains('Lac') ? 'Lac' : _provinces.first;
+    String dest = _provinces.contains("N'Djamena") ? "N'Djamena" : _provinces.first;
     final capCtrl = TextEditingController(text: '2000000');
     final ok = await showDialog<bool>(
       context: context,
@@ -134,26 +164,35 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           children: [
             DropdownButtonFormField<String>(
               initialValue: commodity,
-              decoration: const InputDecoration(labelText: 'Produit'),
-              items: const [
-                DropdownMenuItem(value: 'Millet', child: Text('Mil')),
-                DropdownMenuItem(value: 'Sorghum (red)', child: Text('Sorgho rouge')),
-                DropdownMenuItem(value: 'Maize (white)', child: Text('Maïs blanc')),
-                DropdownMenuItem(value: 'Rice (imported)', child: Text('Riz importé')),
-              ],
-              onChanged: (v) => commodity = v ?? 'Millet',
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Produit / Céréale'),
+              items: _commodities
+                  .map((c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
+              onChanged: (v) => commodity = v ?? commodity,
             ),
             const SizedBox(height: 8),
-            TextFormField(
+            DropdownButtonFormField<String>(
               initialValue: origin,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Province d\'origine'),
-              onChanged: (v) => origin = v,
+              items: _provinces
+                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                  .toList(),
+              onChanged: (v) => origin = v ?? origin,
             ),
             const SizedBox(height: 8),
-            TextFormField(
+            DropdownButtonFormField<String>(
               initialValue: dest,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Province de destination'),
-              onChanged: (v) => dest = v,
+              items: _provinces
+                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                  .toList(),
+              onChanged: (v) => dest = v ?? dest,
             ),
             const SizedBox(height: 8),
             TextField(
