@@ -74,6 +74,12 @@ class _MainShellState extends State<MainShell> {
     final uri = widget.initialUri ?? Uri.base;
     final urlKey = (uri.queryParameters['key'] ?? uri.queryParameters['premium_key'])?.trim();
     final prefs = await SharedPreferences.getInstance();
+    var uid = prefs.getString('fd_pref_user_id');
+    if (uid == null || !ApiService.isStrongUserId(uid)) {
+      uid = ApiService.generateUserId();
+      await prefs.setString('fd_pref_user_id', uid);
+    }
+    _apiService.setUserId(uid);
     if (urlKey != null && urlKey.isNotEmpty) {
       try {
         final isValid = await _apiService.verifyPremiumKey(urlKey);

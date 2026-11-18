@@ -296,3 +296,21 @@ def test_config_defaults_on_render_and_locally(tmp_path):
     hops, docs, origins = run({})
     assert hops is None and docs is True and "*" not in origins
     assert run({"RENDER": "true", "TRUSTED_PROXY_HOPS": "2"})[0] == 2
+
+
+def test_workspace_identity_requires_strong_id_on_render(monkeypatch):
+    """Sur Render, « local-user » (identifiant partagé par tous les visiteurs) est refusé ; un identifiant aléatoire passe."""
+    import api.server as server
+    from fastapi import HTTPException
+    monkeypatch.delenv("AUTH_SECRET", raising=False)
+    monkeypatch.delenv("REQUIRE_SIGNED_USER_AUTH", raising=False)
+    import dataclasses, pytest
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, allow_weak_user_id=False))
+    for weak in ("local-user", "abc", "a" * 31, "bad id with spaces " + "x" * 20):
+        with pytest.raises(HTTPException) as e:
+            server._require_project_owner(x_user_id=weak, x_premium_key=None, authorization=None)
+        assert e.value.status_code == 401
+    strong = "u" + "a1" * 16
+    assert server._require_project_owner(x_user_id=strong, x_premium_key=None, authorization=None) == f"user:{strong}"
+    monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, allow_weak_user_id=True))
+    assert server._require_project_owner(x_user_id="local-user", x_premium_key=None, authorization=None) == "user:local-user"

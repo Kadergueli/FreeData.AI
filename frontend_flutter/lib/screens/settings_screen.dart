@@ -41,12 +41,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('fd_pref_style', _style);
     await prefs.setString('fd_pref_domain', _defaultDomain);
     final uid = _userCtrl.text.trim();
-    if (uid.length >= 3) {
-      await prefs.setString('fd_pref_user_id', uid);
-      widget.apiService.setUserId(uid);
+    var idRejected = false;
+    if (uid.isNotEmpty && uid != widget.apiService.userId) {
+      if (widget.apiService.setUserId(uid)) {
+        await prefs.setString('fd_pref_user_id', uid);
+      } else {
+        idRejected = true;
+      }
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Préférences enregistrées.')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(idRejected
+          ? 'Identifiant refusé : 32 à 80 caractères (lettres, chiffres, - ou _). Autres préférences enregistrées.'
+          : 'Préférences enregistrées.'),
+    ));
   }
 
   @override

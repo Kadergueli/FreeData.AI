@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sys
+import re
 import threading
 import time
 import uuid
@@ -991,9 +992,14 @@ def _require_project_owner(
         digest = hashlib.sha256(x_premium_key.strip().encode("utf-8")).hexdigest()[:16]
         return f"key:{digest}"
     require_signed = os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() in ("1", "true", "yes")
-    if not require_signed and x_user_id and len(x_user_id.strip()) >= 3:
-        return f"user:{x_user_id.strip()[:80]}"
-    raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id en mode dev).")
+    uid = (x_user_id or "").strip()
+    if not require_signed and uid:
+        strong = len(uid) >= 32 and re.fullmatch(r"[A-Za-z0-9_-]{32,80}", uid) is not None
+        if strong or (settings.allow_weak_user_id and len(uid) >= 3):
+            return f"user:{uid[:80]}"
+        raise HTTPException(status_code=401, detail="Identifiant d'espace trop faible : mettez à jour l'application "
+                                                    "(identifiant aléatoire d'au moins 32 caractères requis).")
+    raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id).")
 
 
 class ProjectCreateRequest(BaseModel):

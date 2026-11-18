@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
@@ -24,7 +25,8 @@ class ApiService {
 
   final http.Client _client;
   String? _runtimePremiumKey;
-  String _userId = 'local-user';
+  // Identifiant d'espace : aléatoire et propre à ce navigateur (un identifiant partagé donnerait les mêmes projets à tous).
+  String _userId = generateUserId();
   Future<Map<String, dynamic>>? _metadataCache;
   DateTime? _metadataCachedAt;
 
@@ -36,11 +38,20 @@ class ApiService {
 
   String get userId => _userId;
 
-  void setUserId(String id) {
+  static String generateUserId() {
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    return 'u${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+  }
+
+  static bool isStrongUserId(String id) => RegExp(r'^[A-Za-z0-9_-]{32,80}$').hasMatch(id.trim());
+
+  /// Retourne false (sans rien changer) si l'identifiant est trop faible pour être accepté par l'API.
+  bool setUserId(String id) {
     final cleaned = id.trim();
-    if (cleaned.length >= 3) {
-      _userId = cleaned;
-    }
+    if (!isStrongUserId(cleaned)) return false;
+    _userId = cleaned;
+    return true;
   }
 
   Map<String, String> _projectHeaders({bool includeJson = false}) {

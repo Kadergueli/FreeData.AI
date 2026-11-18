@@ -38,6 +38,9 @@ class Settings:
     allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "https://freedata-ai.web.app,https://freedata-ai.firebaseapp.com").strip()
     # Documentation interactive (/docs, /openapi.json) : active en local, désactivée sur Render sauf ENABLE_DOCS=1.
     enable_docs: bool = os.getenv("ENABLE_DOCS", "0" if ON_RENDER else "1").strip().lower() in ("1", "true", "yes")
+    # Identifiant d'espace (X-User-Id) : sur Render, seuls les identifiants aléatoires d'au moins 32 caractères sont acceptés
+    # (un « local-user » partagé donnerait à tous les visiteurs les mêmes projets). Local : tout identifiant de 3+ caractères.
+    allow_weak_user_id: bool = os.getenv("ALLOW_WEAK_USER_ID", "0" if ON_RENDER else "1").strip().lower() in ("1", "true", "yes")
     # Taille maximale d'une requête (octets) ; au-delà : 413.
     max_body_bytes: int = int(os.getenv("MAX_BODY_BYTES", "65536"))
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "").strip()
