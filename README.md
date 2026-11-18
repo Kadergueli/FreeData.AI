@@ -29,6 +29,18 @@ Dans l'éditeur SQL, exécuter les scripts dans l'ordre exact pour une installat
 7. `sql/07_gold_anomalies.sql` (`table_ml_anomalies`)
 8. `sql/08_harden_grants.sql` *(optionnel — vérifier d'abord qu'aucune app tierce n'écrit en `anon`/`authenticated`)*
 9. `sql/09_lock_premium_tables_rls.sql` *(retire la lecture directe `anon`/`authenticated` sur les tables PRO ; requiert `SUPABASE_SERVICE_ROLE_KEY` sur l'API)*
+10. `sql/10_projects_and_study_versions.sql` *(projets persistants, StudyContext, conversations, versions d'études & RLS)*
+
+## Documentation & Base de Connaissances
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Architecture système, diagrammes et flux de données
+- [DATA_CATALOG.md](DATA_CATALOG.md) — Catalogue des jeux de données sources, Silver et Gold
+- [METHODOLOGY.md](METHODOLOGY.md) — Méthodologie statistique, formules financières et scoring QA
+- [DATA_GOVERNANCE.md](DATA_GOVERNANCE.md) — Gouvernance des données, qualité et usage responsable
+- [USER_GUIDE.md](USER_GUIDE.md) — Guide utilisateur pas-à-pas
+- [API.md](API.md) — Référence complète des endpoints REST
+- [SECURITY.md](SECURITY.md) — Authentification, isolation par utilisateur et RLS
+- [DEPLOYMENT.md](DEPLOYMENT.md) — Déploiement Render, Firebase Hosting, sauvegardes et rollback
 
 Ensuite, lancer le pipeline de publication : `python -m scripts.publish_pipeline` (ou `python scripts/update_predictions.py`). Tant que `predicted_price` / `deviation_pct` ne sont pas remplis, `/api/v1/health` indique `"alerts_source": "approximated"`.
 

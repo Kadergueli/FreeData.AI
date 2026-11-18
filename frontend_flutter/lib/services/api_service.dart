@@ -24,6 +24,7 @@ class ApiService {
 
   final http.Client _client;
   String? _runtimePremiumKey;
+  String _userId = 'local-user';
   Future<Map<String, dynamic>>? _metadataCache;
   DateTime? _metadataCachedAt;
 
@@ -32,6 +33,23 @@ class ApiService {
   String get activePremiumKey => _runtimePremiumKey?.trim() ?? '';
 
   bool get hasPremiumKey => activePremiumKey.isNotEmpty;
+
+  String get userId => _userId;
+
+  void setUserId(String id) {
+    final cleaned = id.trim();
+    if (cleaned.length >= 3) {
+      _userId = cleaned;
+    }
+  }
+
+  Map<String, String> _projectHeaders({bool includeJson = false}) {
+    return <String, String>{
+      'X-User-Id': _userId,
+      if (includeJson) 'Content-Type': 'application/json',
+      if (hasPremiumKey) 'X-Premium-Key': activePremiumKey,
+    };
+  }
 
   static String _cleanKey(String? key) {
     return (key ?? '').trim().replaceAll(RegExp(r'^["\x27]+|["\x27]+$'), '').trim();
@@ -112,16 +130,45 @@ class ApiService {
     );
   }
 
+  Future<Map<String, dynamic>> sendPlatformChatMessage(
+    String message, {
+    String? domain,
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+    Map<String, dynamic>? studyContext,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/platform/chat');
+    final body = jsonEncode({
+      'message': message,
+      if (domain != null && domain.isNotEmpty) 'domain': domain,
+      if (history.isNotEmpty) 'history': history,
+      'tier': tier,
+      if (studyContext != null) 'study_context': studyContext,
+    });
+    final resp = await _client
+        .post(uri, headers: _projectHeaders(includeJson: true), body: body)
+        .timeout(const Duration(seconds: 45));
+    if (resp.statusCode == 200) {
+      return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
+    if (resp.statusCode == 429) {
+      throw const ApiHttpException(429, 'Quota journalier ou limite de requêtes atteint (429).');
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur API Plateforme (${resp.statusCode})');
+  }
+
   Future<Map<String, dynamic>> sendChatMessage(
     String message, {
     List<Map<String, String>> history = const [],
     String tier = 'free',
+    Map<String, dynamic>? studyContext,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/chat');
     final body = jsonEncode({
       'message': message,
       if (history.isNotEmpty) 'history': history,
       'tier': tier,
+      if (studyContext != null) 'study_context': studyContext,
     });
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -328,6 +375,7 @@ class ApiService {
     double? transportCostPerKg,
     String? promoterName,
     List<String> userInstructions = const [],
+    Map<String, dynamic>? studyContext,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/reports/market-study/pdf');
     final body = <String, dynamic>{
@@ -338,6 +386,7 @@ class ApiService {
       if (transportCostPerKg != null) 'transport_cost_per_kg': transportCostPerKg,
       if (promoterName != null && promoterName.trim().isNotEmpty) 'promoter_name': promoterName.trim(),
       'user_instructions': userInstructions,
+      if (studyContext != null) 'study_context': studyContext,
     };
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -352,6 +401,250 @@ class ApiService {
     if (resp.statusCode == 403 || resp.statusCode == 503) {
       throw ApiHttpException(resp.statusCode, 'Accès Partenaire PRO requis pour générer le PDF.');
     }
+    if (resp.statusCode == 422) {
+      try {
+        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+        final detail = decoded is Map ? decoded['detail'] : null;
+        if (detail is Map && detail['validation'] is Map) {
+          final corr = (detail['validation']['required_corrections'] as List?)?.join(' ; ') ?? '';
+          throw ApiHttpException(422, corr.isNotEmpty ? 'Validation QA échouée : $corr' : 'Validation QA du rapport échouée.');
+        }
+      } catch (e) {
+        if (e is ApiHttpException) rethrow;
+      }
+      throw ApiHttpException(422, 'Validation QA du rapport échouée (422).');
+    }
     throw ApiHttpException(resp.statusCode, 'Erreur génération PDF (${resp.statusCode})');
+  }
+
+  Future<List<Map<String, dynamic>>> listProjects({bool includeArchived = false}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects?include_archived=$includeArchived');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final list = decoded['projects'] as List? ?? [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement projets (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> createProject({
+    required String name,
+    String description = '',
+    Map<String, dynamic>? studyContext,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'name': name,
+            'description': description,
+            if (studyContext != null) 'study_context': studyContext,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur création projet (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getProject(String projectId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Projet introuvable (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> updateProject(
+    String projectId, {
+    String? name,
+    String? description,
+    String? status,
+    Map<String, dynamic>? studyContext,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId');
+    final resp = await _client
+        .patch(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            if (name != null) 'name': name,
+            if (description != null) 'description': description,
+            if (status != null) 'status': status,
+            if (studyContext != null) 'study_context': studyContext,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur mise à jour projet (${resp.statusCode})');
+  }
+
+  Future<void> deleteProject(String projectId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId?confirm=true');
+    final resp = await _client.delete(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur suppression projet (${resp.statusCode})');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listStudyVersions(String projectId, String studyId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies/$studyId/versions');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final list = decoded['versions'] as List? ?? [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement versions (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> compareStudyVersions(String projectId, String studyId, int v1, int v2) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies/$studyId/compare?v1=$v1&v2=$v2');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur comparaison versions (${resp.statusCode})');
+  }
+
+  Future<Uint8List> downloadStudyVersionPdf(String projectId, String studyId, int versionNumber) async {
+    final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies/$studyId/versions/$versionNumber/pdf');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 45));
+    if (resp.statusCode == 200) {
+      return resp.bodyBytes;
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur téléchargement PDF version $versionNumber (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getAnalyticsProfile() async {
+    final uri = Uri.parse('$baseUrl/api/v1/analytics/profile');
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur profil analytique (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getAnalyticsSummary({String? commodity, String? province}) async {
+    final q = <String, String>{
+      if (commodity != null && commodity.isNotEmpty) 'commodity': commodity,
+      if (province != null && province.isNotEmpty) 'province': province,
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/analytics/summary').replace(queryParameters: q.isEmpty ? null : q);
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur résumé analytique (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getRegionalComparison({String? commodity}) async {
+    final q = <String, String>{
+      if (commodity != null && commodity.isNotEmpty) 'commodity': commodity,
+    };
+    final uri = Uri.parse('$baseUrl/api/v1/analytics/regional-comparison').replace(queryParameters: q.isEmpty ? null : q);
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur comparaison régionale (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getBillingPlans() async {
+    final uri = Uri.parse('$baseUrl/api/v1/billing/plans');
+    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement plans (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getMyBilling() async {
+    final uri = Uri.parse('$baseUrl/api/v1/billing/me');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement abonnement (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getAdminOverview(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/overview');
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Accès admin refusé (${resp.statusCode})');
+  }
+
+  Future<void> setAdminUserStatus(String adminToken, String userId, String status) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/users/$userId/status');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {'X-Admin-Token': adminToken.trim(), 'Content-Type': 'application/json'},
+          body: jsonEncode({'status': status, 'reason': 'Admin dashboard action'}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur mise à jour statut (${resp.statusCode})');
+    }
+  }
+
+  Future<Map<String, dynamic>> createSupportTicket({
+    required String category,
+    required String subject,
+    required String description,
+    String priority = 'normal',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/support/tickets');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'category': category, 'subject': subject, 'description': description, 'priority': priority}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur envoi ticket (${resp.statusCode})');
+  }
+
+  Future<List<Map<String, dynamic>>> listMyTickets() async {
+    final uri = Uri.parse('$baseUrl/api/v1/support/tickets');
+    final resp = await _client.get(uri, headers: _projectHeaders()).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['tickets'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    throw ApiHttpException(resp.statusCode, 'Erreur chargement tickets (${resp.statusCode})');
+  }
+
+  Future<void> submitFeedback({
+    required String feature,
+    required int rating,
+    String comment = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/feedback');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'feature': feature, 'rating': rating, 'comment': comment}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode, 'Erreur envoi avis (${resp.statusCode})');
+    }
   }
 }

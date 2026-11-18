@@ -798,7 +798,7 @@ void main() {
     expect(find.text('Am Timan'), findsOneWidget);
   });
 
-  testWidgets('ChartCard handles negative and zero values cleanly and ChatScreen enforces 1000 chars',
+  testWidgets('ChartCard handles negative and zero values cleanly and ChatScreen enforces 4000 chars',
       (tester) async {
     expect(ApiService.baseUrl, 'https://freedata-ai.onrender.com');
 
@@ -824,11 +824,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final overLimit = 'a' * 1200;
+    final overLimit = 'a' * 4100;
     await tester.enterText(find.byType(TextField), overLimit);
     await tester.pump();
     final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.controller!.text.length, 1000);
+    expect(field.controller!.text.length, 4000);
   });
 
   testWidgets('Delete conversation SnackBar auto-dismisses even with accessibleNavigation enabled',
@@ -1495,6 +1495,7 @@ class _DelayedChatFakeApi extends ApiService {
     String message, {
     List<Map<String, String>> history = const [],
     String tier = 'free',
+    Map<String, dynamic>? studyContext,
   }) =>
       completer.future;
 }

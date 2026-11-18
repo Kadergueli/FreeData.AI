@@ -83,8 +83,8 @@ class Settings:
     # Plafonds indépendants de l'IP (non falsifiables) : requêtes/minute tous clients confondus, et appels chat simultanés.
     global_rate_limit_per_min: int = int(os.getenv("GLOBAL_RATE_LIMIT_PER_MIN", "600"))
     chat_max_concurrency: int = int(os.getenv("CHAT_MAX_CONCURRENCY", "8"))
-    # Autorise les origines http://localhost:* (développement). À mettre à 0 en production.
-    allow_localhost_cors: bool = os.getenv("ALLOW_LOCALHOST_CORS", "1").strip().lower() not in ("0", "false", "no")
+    # Autorise les origines http://localhost:* (développement). Désactivé par défaut sur Render.
+    allow_localhost_cors: bool = os.getenv("ALLOW_LOCALHOST_CORS", "0" if ON_RENDER else "1").strip().lower() not in ("0", "false", "no")
 
     @property
     def premium_keys(self) -> tuple:

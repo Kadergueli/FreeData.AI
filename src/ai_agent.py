@@ -17,6 +17,8 @@ from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import assess_dataset_freshness
 from src.season_study import StudyBook
 from src.seasonality import MONTHS_FR as _SEASON_MONTHS_FR
+from src.study_context import StudyContext, apply_structured_update, extract_structured_instructions
+from src.analytics import AnalyticsService
 
 logger = logging.getLogger("freedata.agent")
 from src.chat.lexicon import (  # noqa: F401
@@ -249,7 +251,10 @@ _PROFILE_RULES: list[tuple[str, re.Pattern[str]]] = [
 
 _INSTRUCTION_TRIGGER_RE = re.compile(
     r"\b(?:je\s+(?:ne\s+)?veux(?:\s+pas)?|evite[zr]?|privilegie[zr]?|uniquement|sans|"
-    r"mon\s+objectif\s+est|prends?\s+en\s+compte|bfr\s+constant|capex\s*(?:=|a)?\s*0)\b"
+    r"mon\s+objectif\s+est|prends?\s+en\s+compte|bfr\s+constant|capex\s*(?:=|a)?\s*0|"
+    r"swot|pestel|concurren(?:ce|ts?|tielle)|recommandations?\s+operationnelles?|"
+    r"exclure|exclus|inclure|inclus|ajoute[zr]?|retire[zr]?|supprime[zr]?|enleve[zr]?|"
+    r"finalement|plutot|rectification|corrige[zr]?|au\s+lieu\s+de|pdf|promoteur|clientele|cible)\b"
 )
 _BUSINESS_PLAN_RE = re.compile(
     r"\b(?:business\s*plan|plan\s+d['’]?affaires?|dossier\s+(?:de\s+financement|bancaire|imf)|"
@@ -297,8 +302,10 @@ def extract_client_state(
     history: Optional[list[dict]] = None,
     current_message: str = "",
     provider: Optional["MarketDataProvider"] = None,
+    previous_context: Optional[dict] = None,
 ) -> dict:
-    """Reconstruit l'état cumulé du client (profil, paramètres connus, consignes, champs manquants)."""
+    """Reconstruit l'état cumulé du client et son StudyContext persistant."""
+    ctx = StudyContext.from_dict(previous_context)
     turns: list[dict] = []
     for item in (history or []):
         if not isinstance(item, dict):
@@ -314,20 +321,23 @@ def extract_client_state(
     user_turns = [t["content"] for t in turns if t["role"] == "user"]
     full_user_norm = _normalize_text(" ".join(user_turns))
 
-    user_profile = "general"
+    user_profile = ctx.project_profile or "general"
     for profile, pattern in _PROFILE_RULES:
         if pattern.search(full_user_norm):
             user_profile = profile
             break
 
-    known_commodity: Optional[str] = None
-    provs_ordered: list[str] = []
-    capital_xaf: Optional[float] = None
-    transport_cost_per_kg: Optional[float] = None
-    quantity_kg: Optional[float] = None
-    promoter_name: Optional[str] = None
-    user_instructions: list[str] = []
-    seen_inst_norm: set[str] = set()
+    known_commodity: Optional[str] = ctx.product_activity.get("commodity")
+    provs_ordered: list[str] = list(ctx.geography.get("provinces_mentioned") or [])
+    if ctx.geography.get("origin_province") and ctx.geography["origin_province"] not in provs_ordered:
+        provs_ordered.insert(0, ctx.geography["origin_province"])
+    if ctx.geography.get("dest_province") and ctx.geography["dest_province"] not in provs_ordered:
+        provs_ordered.append(ctx.geography["dest_province"])
+    capital_xaf: Optional[float] = ctx.budget_and_assumptions.get("capital_xaf")
+    transport_cost_per_kg: Optional[float] = ctx.budget_and_assumptions.get("transport_cost_per_kg")
+    quantity_kg: Optional[float] = ctx.product_activity.get("quantity_kg")
+    promoter_name: Optional[str] = ctx.promoter_info.get("name")
+    seen_inst_norm: set[str] = {_normalize_text(i) for i in ctx.user_instructions}
 
     _promoter_re = re.compile(
         r"(?:\bpromoteur\b\s*(?::|=|\best\b)?|\bje\s+m['’]appelle\b|\bmon\s+nom\s+est\b|"
@@ -335,6 +345,7 @@ def extract_client_state(
         r"([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.\- ]{1,60})",
         re.IGNORECASE,
     )
+    _excl_prefix_re = re.compile(r"\b(?:exclure|exclus|sans|pas\s+de|evite[zr]?)\s+([^.!?\n;]+)")
 
     for idx, turn in enumerate(turns):
         if turn["role"] != "user":
@@ -343,11 +354,21 @@ def extract_client_state(
         cleaned = _strip_list_prefixes(raw)
         q_norm = _normalize_text(cleaned)
 
-        turn_provs, turn_comm = _resolve_provinces_and_commodity(cleaned, provider=provider)
-        if turn_comm:
+        excl_comms: list[str] = []
+        excl_provs: list[str] = []
+        for m_ex in _excl_prefix_re.finditer(q_norm):
+            ex_provs, ex_comm = _resolve_provinces_and_commodity(m_ex.group(1), provider=provider)
+            if ex_comm:
+                excl_comms.append(ex_comm)
+            excl_provs.extend(ex_provs)
+
+        # Résout les entités positives en masquant d'abord les segments d'exclusion explicites
+        positive_text = _excl_prefix_re.sub(" ", q_norm)
+        turn_provs, turn_comm = _resolve_provinces_and_commodity(positive_text, provider=provider)
+        if turn_comm and turn_comm not in excl_comms:
             known_commodity = turn_comm
         for p in turn_provs:
-            if p not in provs_ordered:
+            if p not in excl_provs and p not in provs_ordered:
                 provs_ordered.append(p)
 
         biz = _extract_business_params_with_meta(q_norm)
@@ -377,6 +398,7 @@ def extract_client_state(
             if 2 <= len(cand_prom) <= 80:
                 promoter_name = cand_prom
 
+        turn_clauses: list[str] = []
         for clause in re.split(r"[.!?\n;]+", raw):
             clause_clean = clause.strip(" -•\t")
             if not clause_clean:
@@ -384,10 +406,30 @@ def extract_client_state(
             clause_norm = _normalize_text(clause_clean)
             if _INSTRUCTION_TRIGGER_RE.search(clause_norm) and clause_norm not in seen_inst_norm:
                 seen_inst_norm.add(clause_norm)
-                user_instructions.append(clause_clean[:200])
+                turn_clauses.append(clause_clean[:200])
 
-    origin_province = provs_ordered[0] if provs_ordered else None
-    dest_province = provs_ordered[1] if len(provs_ordered) >= 2 else None
+        ctx.project_profile = user_profile
+        ctx.promoter_info["name"] = promoter_name
+        ctx.product_activity["commodity"] = known_commodity
+        ctx.product_activity["quantity_kg"] = quantity_kg
+        ctx.geography["provinces_mentioned"] = list(provs_ordered)
+        ctx.geography["origin_province"] = provs_ordered[0] if provs_ordered else None
+        ctx.geography["dest_province"] = provs_ordered[1] if len(provs_ordered) >= 2 else None
+        ctx.budget_and_assumptions["capital_xaf"] = capital_xaf
+        ctx.budget_and_assumptions["transport_cost_per_kg"] = transport_cost_per_kg
+
+        parsed_struct = extract_structured_instructions(raw)
+        apply_structured_update(
+            ctx,
+            raw,
+            parsed=parsed_struct,
+            excluded_commodities=excl_comms,
+            excluded_provinces=excl_provs,
+            instruction_clauses=turn_clauses,
+        )
+
+    origin_province = ctx.geography.get("origin_province")
+    dest_province = ctx.geography.get("dest_province")
     known_params = {
         "commodity": known_commodity,
         "origin_province": origin_province,
@@ -411,14 +453,9 @@ def extract_client_state(
         check_fields = ["commodity", "origin_province", "capital_xaf"]
     else:
         check_fields = ["commodity", "origin_province"]
-    missing_fields = [f for f in check_fields if known_params.get(f) is None]
+    ctx.missing_information = [f for f in check_fields if known_params.get(f) is None]
 
-    return {
-        "user_profile": user_profile,
-        "known_params": known_params,
-        "user_instructions": user_instructions,
-        "missing_fields": missing_fields,
-    }
+    return ctx.to_client_state_dict()
 
 
 class MarketDataProvider:
@@ -2859,7 +2896,7 @@ class FreeDataAIAgent(FormattersMixin):
                     "temperature": 0.3,
                     "max_tokens": 1500 if business_plan_blueprint else 750,
                 },
-                timeout=30 if business_plan_blueprint else 20,
+                timeout=30 if business_plan_blueprint else 12,
             )
             resp.raise_for_status()
             choices = resp.json().get("choices") or []
@@ -3122,11 +3159,71 @@ class FreeDataAIAgent(FormattersMixin):
         except Exception:
             return ""
 
+    def answer_analytical_query(
+        self,
+        user_query: str,
+        commodity: Optional[str] = None,
+        province: Optional[str] = None,
+    ) -> dict:
+        """Répond aux questions analytiques avancées via AnalyticsService (période, portée, unité, source)."""
+        svc = AnalyticsService()
+        q_norm = _normalize_text(user_query)
+        fc = self.provider.forecast_df
+        hist = self.provider.hist_df
+        cp = self.provider.passport_df
+        prof = svc.get_profile(fc, hist)
+        period = prof.get("latest_observed_month") or "période suivie"
+        sources = ", ".join(prof.get("sources") or ["FreeData.AI"])
+
+        if any(k in q_norm for k in ("volatil", "instable", "risque")):
+            ranking = svc.get_summary(fc, cp, commodity=commodity, province=province)["most_volatile_commodities"]
+            if not ranking:
+                return {"reply": "Aucune donnée de volatilité disponible.", "data": {}, "period": period, "unit": "%", "source": sources}
+            top = ranking[0]
+            return {
+                "reply": f"Produit le plus volatil ({period}, portée nationale suivie) : **{self._fr_commodity(top['commodity'])}** (CV moyen {top['avg_cv_pct']} %, source : {top['source']}).",
+                "data": {"ranking": ranking},
+                "period": period,
+                "unit": "%",
+                "source": top["source"],
+            }
+
+        if any(k in q_norm for k in ("12 mois", "evolu", "tendance")):
+            tr = svc.get_trends(hist, commodity=commodity, province=province)
+            if tr.get("change_12m_pct") is not None:
+                scope = province or "ensemble des provinces suivies"
+                return {
+                    "reply": f"Évolution observée ({tr['period_start']} à {tr['period_end']}, {scope}) : **{tr['change_12m_pct']:+.1f} %** (unité : XAF/kg, source : {sources}).",
+                    "data": tr,
+                    "period": f"{tr['period_start']}..{tr['period_end']}",
+                    "unit": "XAF/kg",
+                    "source": sources,
+                }
+
+        reg = svc.get_regional_comparison(fc, commodity=commodity)
+        hi = reg.get("highest_province")
+        lo = reg.get("lowest_province")
+        if hi and lo:
+            return {
+                "reply": (
+                    f"Comparaison provinciale ({period}, unité : XAF/kg, source : {sources}) : "
+                    f"plus élevé à **{hi['province']}** ({hi['median_observed_xaf_kg']} XAF/kg), "
+                    f"plus bas à **{lo['province']}** ({lo['median_observed_xaf_kg']} XAF/kg), "
+                    f"écart spatial **{reg['spatial_spread_xaf_kg']} XAF/kg**."
+                ),
+                "data": reg,
+                "period": period,
+                "unit": "XAF/kg",
+                "source": sources,
+            }
+        return {"reply": "Données analytiques insuffisantes pour cette requête.", "data": reg, "period": period, "unit": "XAF/kg", "source": sources}
+
     def answer(
         self,
         user_query: str,
         history: Optional[list[dict]] = None,
         tier: Literal["free", "premium"] = "free",
+        study_context: Optional[dict] = None,
     ) -> dict:
         """
         Point d'entrée unifié :
@@ -3196,7 +3293,7 @@ class FreeDataAIAgent(FormattersMixin):
         if history:
             entities = self._extract_entities(q, history=history)
 
-        client_state = extract_client_state(history, q, provider=self.provider)
+        client_state = extract_client_state(history, q, provider=self.provider, previous_context=study_context)
         entities = self._apply_client_state_to_entities(entities, client_state)
         hist_user_norm = _normalize_text(" ".join(
             str(m.get("content") or "") for m in (history or []) if isinstance(m, dict) and m.get("role", "user") == "user"
@@ -3312,6 +3409,7 @@ class FreeDataAIAgent(FormattersMixin):
         user_query: str,
         history: Optional[list[dict]] = None,
         tier: Literal["free", "premium"] = "free",
+        study_context: Optional[dict] = None,
     ) -> dict:
         """Alias rétrocompatible vers `answer(..., tier=...)`."""
-        return self.answer(user_query, history=history, tier=tier)
+        return self.answer(user_query, history=history, tier=tier, study_context=study_context)

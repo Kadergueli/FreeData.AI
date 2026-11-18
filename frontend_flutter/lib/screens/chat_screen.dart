@@ -47,6 +47,19 @@ class _ChatScreenState extends State<ChatScreen> {
   ConversationThread? _thread;
   bool _loading = false;
   String? _lastPrompt;
+  String? _selectedDomain;
+
+  static const List<Map<String, String?>> _domainChoices = [
+    {'id': null, 'label': 'Auto'},
+    {'id': 'chad_intelligence', 'label': 'Tchad'},
+    {'id': 'business_entrepreneurship', 'label': 'Business'},
+    {'id': 'finance', 'label': 'Finance'},
+    {'id': 'agriculture', 'label': 'Agriculture'},
+    {'id': 'data_science', 'label': 'Data Science'},
+    {'id': 'education', 'label': 'Éducation'},
+    {'id': 'tech_programming', 'label': 'Tech & Code'},
+    {'id': 'productivity', 'label': 'Productivité'},
+  ];
 
   static const List<_QuickAction> _quickActions = [
     _QuickAction(
@@ -209,6 +222,18 @@ class _ChatScreenState extends State<ChatScreen> {
     return const [];
   }
 
+  Map<String, dynamic>? _latestStudyContext() {
+    final msgs = _thread?.messages;
+    if (msgs == null) return null;
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      final cs = msgs[i].metadata['client_state'];
+      if (cs is Map && cs['study_context'] is Map) {
+        return Map<String, dynamic>.from(cs['study_context'] as Map);
+      }
+    }
+    return null;
+  }
+
   Future<void> _sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _loading) return;
@@ -258,11 +283,20 @@ class _ChatScreenState extends State<ChatScreen> {
               })
           .toList();
 
-      final response = await widget.apiService.sendChatMessage(
-        trimmed,
-        history: recentHistory,
-        tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
-      );
+      final response = _selectedDomain == null
+          ? await widget.apiService.sendChatMessage(
+              trimmed,
+              history: recentHistory,
+              tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
+              studyContext: _latestStudyContext(),
+            )
+          : await widget.apiService.sendPlatformChatMessage(
+              trimmed,
+              domain: _selectedDomain,
+              history: recentHistory,
+              tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
+              studyContext: _latestStudyContext(),
+            );
 
       final raw = Map<String, dynamic>.from(response);
       final reply = raw['reply']?.toString() ??
@@ -362,6 +396,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 : _buildConversationState(messages),
           ),
           _buildDynamicContextStrip(messages),
+          _buildDomainSelectorStrip(),
           _buildInputBar(),
         ],
       ),
@@ -616,6 +651,7 @@ class _ChatScreenState extends State<ChatScreen> {
         transportCostPerKg: (kp['transport_cost_per_kg'] as num?)?.toDouble(),
         promoterName: kp['promoter_name']?.toString(),
         userInstructions: instructions,
+        studyContext: _latestStudyContext(),
       );
       final slug = comm.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
       triggerPdfDownload(bytes, 'freedata_etude_$slug.pdf');
@@ -629,6 +665,33 @@ class _ChatScreenState extends State<ChatScreen> {
         ?..clearSnackBars()
         ..showSnackBar(SnackBar(content: Text(e.toString())));
     }
+  }
+
+  Widget _buildDomainSelectorStrip() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _domainChoices.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 6),
+            itemBuilder: (_, i) {
+              final item = _domainChoices[i];
+              final selected = _selectedDomain == item['id'];
+              return ChoiceChip(
+                label: Text(item['label']!, style: const TextStyle(fontSize: 12)),
+                selected: selected,
+                visualDensity: VisualDensity.compact,
+                onSelected: (_) => setState(() => _selectedDomain = item['id']),
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildInputBar() {
@@ -654,7 +717,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     maxLines: 4,
                     textInputAction: TextInputAction.send,
                     inputFormatters: [
-                      LengthLimitingTextInputFormatter(1000),
+                      LengthLimitingTextInputFormatter(4000),
                     ],
                     style: const TextStyle(
                       color: FDTheme.ink,
@@ -687,6 +750,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: IconButton(
+                    tooltip: 'Envoyer le message',
                     onPressed: _loading ? null : () => _sendMessage(_controller.text),
                     icon: const Icon(Icons.arrow_upward_rounded, size: 22),
                     style: IconButton.styleFrom(

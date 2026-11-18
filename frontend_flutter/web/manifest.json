@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#1D4ED8",
   "theme_color": "#1D4ED8",
-  "description": "FreeData.AI - Intelligence des Marchés · Tchad",
+  "description": "FreeData.AI — Plateforme d'IA multi-domaines : assistance IA, RAG, ML, analyse de données et génération de rapports.",
   "orientation": "portrait-primary",
   "prefer_related_applications": false,
   "icons": [

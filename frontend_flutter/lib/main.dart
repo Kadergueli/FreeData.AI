@@ -6,8 +6,14 @@ import 'services/conversation_storage.dart';
 import 'screens/chat_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
+import 'screens/analytics_screen.dart';
+import 'screens/docs_screen.dart';
 import 'screens/forecast_screen.dart';
 import 'screens/passport_screen.dart';
+import 'screens/projects_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/subscription_screen.dart';
+import 'screens/support_screen.dart';
 
 void main() => runApp(const FreeDataAIApp());
 
@@ -596,6 +602,58 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.support_agent_outlined, color: FDTheme.ink),
+            tooltip: 'Assistance & Avis',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.workspace_premium_outlined, color: FDTheme.ink),
+            tooltip: 'Abonnement & Quotas',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune_rounded, color: FDTheme.ink),
+            tooltip: 'Préférences',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined, color: FDTheme.ink),
+            tooltip: 'Analytics & Intelligence',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => AnalyticsScreen(apiService: _apiService)),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.menu_book_outlined, color: FDTheme.ink),
+            tooltip: 'Documentation & Méthodologie',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DocsScreen()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.folder_special_outlined, color: FDTheme.ink),
+            tooltip: 'Espace Projets',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ProjectsScreen(
+                  apiService: _apiService,
+                  onResumeProject: (proj) {
+                    Navigator.pop(context);
+                    _openPromptInChat('Reprendre le projet ${proj['name']}');
+                  },
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(

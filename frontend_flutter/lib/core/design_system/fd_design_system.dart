@@ -1,6 +1,20 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+/// Backward-compatible color alias for screens referencing `FDTheme.*`.
+class FDTheme {
+  static const blue = AppColors.blue;
+  static const blueDark = AppColors.blueDark;
+  static const blueSoft = AppColors.blueSoft;
+  static const turquoise = AppColors.turquoise;
+  static const green = AppColors.green;
+  static const muted = AppColors.muted;
+  static const danger = AppColors.danger;
+  static const warning = AppColors.warning;
+  static const line = AppColors.line;
+  static const ink = AppColors.ink;
+}
+
 class FDCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;

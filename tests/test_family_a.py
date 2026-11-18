@@ -205,7 +205,14 @@ def test_chat_premium_tier_needs_key_once_keys_are_configured(premium_client, mo
     seen = []
     agent = server.STATE["agent"]
     orig = agent.answer
-    monkeypatch.setattr(agent, "answer", lambda q, history=None, tier="free": (seen.append(tier), orig(q, history=history, tier=tier))[1])
+    monkeypatch.setattr(
+        agent,
+        "answer",
+        lambda q, history=None, tier="free", study_context=None: (
+            seen.append(tier),
+            orig(q, history=history, tier=tier, study_context=study_context),
+        )[1],
+    )
     premium_client.post("/api/v1/chat", json={"message": "prix du mil", "tier": "premium"})
     premium_client.post("/api/v1/chat", json={"message": "prix du mil", "tier": "premium"}, headers={"X-Premium-Key": KEY})
     assert seen == ["free", "premium"]

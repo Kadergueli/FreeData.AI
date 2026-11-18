@@ -24,6 +24,8 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Tests unitaires & fonctionnels
         run: python -m pytest -q
+      - name: Porte de sécurité, QA & Release Gate
+        run: python -m pytest -q tests/test_release_gate.py tests/test_security_hardening.py tests/test_phase4_qa_validator.py tests/test_monetization.py tests/test_admin_dashboard.py
       - name: Audit des vulnérabilités Python
         run: pip-audit -r requirements.txt
 

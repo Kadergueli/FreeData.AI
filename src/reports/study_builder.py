@@ -8,6 +8,7 @@ from typing import Optional
 from src.ai_agent import MarketDataProvider, _clean_float
 from src.business_engine import build_professional_business_plan
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
+from src.study_context import StudyContext
 
 
 def build_market_study_dossier(
@@ -23,8 +24,17 @@ def build_market_study_dossier(
     capital_is_user_provided: bool = True,
     promoter_name: Optional[str] = None,
     user_instructions: Optional[list[str]] = None,
+    study_context: Optional[dict] = None,
 ) -> dict:
-    """Construit le dossier structuré complet à partir des seules données vérifiées disponibles."""
+    """Construit le dossier structuré complet à partir des seules données vérifiées disponibles et du StudyContext."""
+    ctx = StudyContext.from_dict(study_context) if study_context else StudyContext()
+    merged_instructions: list[str] = []
+    for inst in list(ctx.user_instructions) + list(user_instructions or []):
+        if inst and inst not in merged_instructions:
+            merged_instructions.append(inst)
+    eff_promoter = promoter_name or ctx.promoter_info.get("name")
+    reinvest_flag = ctx.budget_and_assumptions.get("reinvest") if study_context else None
+    zero_capex_flag = ctx.budget_and_assumptions.get("zero_capex") if study_context else None
     resolved_comm = provider.resolve_commodity(commodity) or commodity
     comm_fr = provider.fr_commodity(resolved_comm)
     orig = provider.prov_lookup.get(origin_province.strip().lower(), origin_province) if hasattr(provider, "prov_lookup") else origin_province
@@ -97,7 +107,9 @@ def build_market_study_dossier(
         transport_cost_per_kg=transport_cost_per_kg,
         loss_rate_pct=loss_rate_pct,
         monthly_fixed_costs_xaf=monthly_fixed_costs_xaf,
-        user_instructions=user_instructions,
+        user_instructions=merged_instructions,
+        reinvest=reinvest_flag,
+        zero_capex=zero_capex_flag,
         predicted_t1_sell_price_per_kg=predicted_t1_sell,
         max_observed_dest_price_per_kg=max_obs_dest,
     )
@@ -120,7 +132,9 @@ def build_market_study_dossier(
         transport_cost_per_kg=round(transport_cost_per_kg * 1.25, 1),
         loss_rate_pct=min(50.0, round(loss_rate_pct * 1.5, 1)),
         monthly_fixed_costs_xaf=monthly_fixed_costs_xaf,
-        user_instructions=user_instructions,
+        user_instructions=merged_instructions,
+        reinvest=reinvest_flag,
+        zero_capex=zero_capex_flag,
     )
     favorable_bp = build_professional_business_plan(
         commodity=resolved_comm,
@@ -135,7 +149,9 @@ def build_market_study_dossier(
         transport_cost_per_kg=transport_cost_per_kg,
         loss_rate_pct=max(1.0, round(loss_rate_pct * 0.7, 1)),
         monthly_fixed_costs_xaf=monthly_fixed_costs_xaf,
-        user_instructions=user_instructions,
+        user_instructions=merged_instructions,
+        reinvest=reinvest_flag,
+        zero_capex=zero_capex_flag,
     )
 
     scenarios = [
@@ -211,11 +227,34 @@ def build_market_study_dossier(
         "financial_scenarios": "calculated_deterministic",
     }
 
-    return {
+    # 7. Validation de conformité aux exigences (Requirement Compliance)
+    unsupported_sections: dict[str, str] = {}
+    for sec in ctx.required_sections:
+        if sec == "competitor_analysis":
+            unsupported_sections[sec] = (
+                "Non mesuré quantitativement : FreeData.AI ne suit ni les parts de marché ni les prix individuels des concurrents. "
+                "Une vérification terrain auprès des acteurs locaux est requise."
+            )
+        elif sec == "marketing":
+            unsupported_sections[sec] = (
+                "Les volumes de demande des ménages et parts de marché ne sont pas mesurés : remplacé par la Stratégie Commerciale & Plan de Validation Terrain."
+            )
+    requirement_compliance = {
+        "requested_sections": list(ctx.required_sections),
+        "excluded_sections": list(ctx.excluded_sections),
+        "unsupported_sections": unsupported_sections,
+        "objectives_applied": list(ctx.objectives),
+        "target_customers_applied": list(ctx.target_customers),
+        "operational_constraints_applied": list(ctx.operational_constraints),
+        "financial_assumptions_visible": True,
+        "data_sources_documented": True,
+    }
+
+    dossier = {
         "study_id": study_id,
         "generated_at_utc": generated_at_utc,
         "tier": "premium",
-        "promoter_name": promoter_name or "Non précisé",
+        "promoter_name": eff_promoter or "Non précisé",
         "commodity": resolved_comm,
         "commodity_fr": comm_fr,
         "origin_province": orig,
@@ -232,8 +271,13 @@ def build_market_study_dossier(
         "scenarios": scenarios,
         "sources": sources,
         "data_traceability": data_traceability,
-        "user_instructions": list(user_instructions or []),
+        "user_instructions": merged_instructions,
+        "study_context": ctx.to_dict(),
+        "requirement_compliance": requirement_compliance,
         "data_gaps": data_gaps,
         "provenance": provenance,
     }
+    from src.reports.qa_validator import validate_market_study_report
+    dossier["validation"] = validate_market_study_report(dossier)
+    return dossier
 
