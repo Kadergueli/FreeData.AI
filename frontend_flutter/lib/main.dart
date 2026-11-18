@@ -356,6 +356,12 @@ class _MainShellState extends State<MainShell> {
         return 'Prévisions';
       case 4:
         return 'Credit Passport';
+      case 5:
+        return 'Analytics PRO';
+      case 6:
+        return 'Projets PRO';
+      case 7:
+        return 'Abonnement & Quotas';
       default:
         return 'FreeData.AI';
     }
@@ -412,7 +418,29 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(5))
+        AnalyticsScreen(apiService: _apiService)
+      else
+        const SizedBox.shrink(),
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(6))
+        ProjectsScreen(
+          apiService: _apiService,
+          onResumeProject: (proj) {
+            _openPromptInChat('Reprendre le projet ${proj['name']}');
+          },
+        )
+      else
+        const SizedBox.shrink(),
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(7))
+        SubscriptionScreen(
+          apiService: _apiService,
+          onConfigureKey: _configurePremiumKey,
+        )
+      else
+        const SizedBox.shrink(),
     ];
+
+    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5) ? 0 : _selectedIndex;
 
     if (isDesktop) {
       return Scaffold(
@@ -507,7 +535,7 @@ class _MainShellState extends State<MainShell> {
                   ),
                   Expanded(
                     child: IndexedStack(
-                      index: _selectedIndex,
+                      index: effectiveIndex,
                       children: pages,
                     ),
                   ),
@@ -602,57 +630,69 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.support_agent_outlined, color: FDTheme.ink),
-            tooltip: 'Assistance & Avis',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.workspace_premium_outlined, color: FDTheme.ink),
-            tooltip: 'Abonnement & Quotas',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.tune_rounded, color: FDTheme.ink),
-            tooltip: 'Préférences',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined, color: FDTheme.ink),
-            tooltip: 'Analytics & Intelligence',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => AnalyticsScreen(apiService: _apiService)),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.menu_book_outlined, color: FDTheme.ink),
-            tooltip: 'Documentation & Méthodologie',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const DocsScreen()),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.folder_special_outlined, color: FDTheme.ink),
-            tooltip: 'Espace Projets',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ProjectsScreen(
-                  apiService: _apiService,
-                  onResumeProject: (proj) {
-                    Navigator.pop(context);
-                    _openPromptInChat('Reprendre le projet ${proj['name']}');
-                  },
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
+            tooltip: 'Plus d\'options',
+            onSelected: (value) {
+              if (value == 'support') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
+                );
+              } else if (value == 'subscription') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
+                  ),
+                );
+              } else if (value == 'settings') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)),
+                );
+              } else if (value == 'docs') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DocsScreen()),
+                );
+              }
+            },
+            itemBuilder: (context) => [
+              if (_apiService.hasPremiumKey)
+                const PopupMenuItem(
+                  value: 'subscription',
+                  child: ListTile(
+                    leading: Icon(Icons.workspace_premium_outlined),
+                    title: Text('Abonnement & Quotas'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'support',
+                child: ListTile(
+                  leading: Icon(Icons.support_agent_outlined),
+                  title: Text('Assistance & Avis'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
                 ),
               ),
-            ),
+              const PopupMenuItem(
+                value: 'docs',
+                child: ListTile(
+                  leading: Icon(Icons.menu_book_outlined),
+                  title: Text('Documentation'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: ListTile(
+                  leading: Icon(Icons.tune_rounded),
+                  title: Text('Préférences'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -718,7 +758,7 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
       body: IndexedStack(
-        index: _selectedIndex,
+        index: effectiveIndex,
         children: pages,
       ),
     );
@@ -774,145 +814,162 @@ class _SidebarContent extends StatelessWidget {
             ),
           ),
         ),
-        // En-tête ESPACE DE TRAVAIL
-        const Padding(
-          padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
-          child: Text(
-            'ESPACE DE TRAVAIL',
-            style: TextStyle(
-              fontSize: 12,
-              color: FDTheme.subtle,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
-        _navItem(0, Icons.chat_bubble_outline_rounded, 'Assistant IA'),
-        _navItem(1, Icons.explore_outlined, 'Explore'),
-        _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
-        _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
-        _navItem(4, Icons.shield_outlined, 'Credit Passport'),
-        const Divider(height: 18, thickness: 1, color: FDTheme.canvasSoft),
-        // Historique des conversations récentes
-        const Padding(
-          padding: EdgeInsets.fromLTRB(20, 8, 20, 6),
-          child: Text(
-            'HISTORIQUE RÉCENT',
-            style: TextStyle(
-              fontSize: 12,
-              color: FDTheme.subtle,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
+        // Zone défilante : Espace de travail + Espace PRO + Historique récent
         Expanded(
-          child: conversations.isEmpty
-              ? const Padding(
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
+                child: Text(
+                  'ESPACE DE TRAVAIL',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: FDTheme.subtle,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+              _navItem(0, Icons.chat_bubble_outline_rounded, 'Assistant IA'),
+              _navItem(1, Icons.explore_outlined, 'Explore'),
+              _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
+              _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
+              _navItem(4, Icons.shield_outlined, 'Credit Passport'),
+              if (hasPremiumKey) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
+                  child: Text(
+                    'ESPACE PRO',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: FDTheme.greenDark,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                _navItem(5, Icons.analytics_outlined, 'Analytics PRO'),
+                _navItem(6, Icons.folder_special_outlined, 'Projets PRO'),
+                _navItem(7, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
+              ],
+              const Divider(height: 18, thickness: 1, color: FDTheme.canvasSoft),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 8, 20, 6),
+                child: Text(
+                  'HISTORIQUE RÉCENT',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: FDTheme.subtle,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+              if (conversations.isEmpty)
+                const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   child: Text(
                     'Aucune conversation enregistrée.',
                     style: TextStyle(fontSize: 14, color: FDTheme.muted),
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  itemCount: conversations.length,
-                  itemBuilder: (context, index) {
-                    final conv = conversations[index];
-                    final isSelected = currentIndex == 0 && conv.id == activeConversationId;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Material(
-                        color: isSelected ? FDTheme.blueSoft : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                        child: ListTile(
-                          dense: false,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.only(left: 10, right: 4),
-                          leading: Icon(
-                            conv.isSavedInLibrary ? Icons.bookmark_rounded : Icons.chat_bubble_outline_rounded,
-                            size: 18,
-                            color: isSelected ? FDTheme.blue : FDTheme.subtle,
-                          ),
-                          title: Text(
-                            conv.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                              color: isSelected ? FDTheme.blue : FDTheme.body,
-                            ),
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            icon: const Icon(Icons.more_vert_rounded, size: 16, color: FDTheme.subtle),
-                            padding: EdgeInsets.zero,
-                            tooltip: 'Options',
-                            onSelected: (val) {
-                              if (val == 'rename') {
-                                onRenameConversation(conv.id, conv.title);
-                              } else if (val == 'library') {
-                                onToggleLibrary(conv.id);
-                              } else if (val == 'delete') {
-                                onDeleteConversation(conv.id);
-                              }
-                            },
-                            itemBuilder: (ctx) => [
-                              const PopupMenuItem(
-                                value: 'rename',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit_outlined, size: 16),
-                                    SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        'Renommer',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: 'library',
-                                child: Row(
-                                  children: [
-                                    Icon(conv.isSavedInLibrary ? Icons.bookmark_remove_outlined : Icons.bookmark_add_outlined, size: 16),
-                                    const SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        conv.isSavedInLibrary ? 'Retirer de Library' : 'Sauvegarder dans Library',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
-                                    SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        'Supprimer',
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(color: Color(0xFFDC2626)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          onTap: () => onSelectConversation(conv.id),
+              else
+                ...conversations.map((conv) {
+                  final isSelected = currentIndex == 0 && conv.id == activeConversationId;
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
+                    child: Material(
+                      color: isSelected ? FDTheme.blueSoft : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      child: ListTile(
+                        dense: false,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.only(left: 10, right: 4),
+                        leading: Icon(
+                          conv.isSavedInLibrary ? Icons.bookmark_rounded : Icons.chat_bubble_outline_rounded,
+                          size: 18,
+                          color: isSelected ? FDTheme.blue : FDTheme.subtle,
                         ),
+                        title: Text(
+                          conv.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            color: isSelected ? FDTheme.blue : FDTheme.body,
+                          ),
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert_rounded, size: 16, color: FDTheme.subtle),
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Options',
+                          onSelected: (val) {
+                            if (val == 'rename') {
+                              onRenameConversation(conv.id, conv.title);
+                            } else if (val == 'library') {
+                              onToggleLibrary(conv.id);
+                            } else if (val == 'delete') {
+                              onDeleteConversation(conv.id);
+                            }
+                          },
+                          itemBuilder: (ctx) => [
+                            const PopupMenuItem(
+                              value: 'rename',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit_outlined, size: 16),
+                                  SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'Renommer',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'library',
+                              child: Row(
+                                children: [
+                                  Icon(conv.isSavedInLibrary ? Icons.bookmark_remove_outlined : Icons.bookmark_add_outlined, size: 16),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      conv.isSavedInLibrary ? 'Retirer de Library' : 'Sauvegarder dans Library',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
+                                  SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'Supprimer',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: Color(0xFFDC2626)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        onTap: () => onSelectConversation(conv.id),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                }),
+            ],
+          ),
         ),
         // Pied de Sidebar
         const Divider(height: 1, thickness: 1, color: FDTheme.line),

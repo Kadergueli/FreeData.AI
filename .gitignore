@@ -15,3 +15,6 @@ frontend_flutter/.firebase/
 # Générés
 .coverage
 frontend_flutter/.flutter-plugins-dependencies
+data/*.db
+data/research/
+data/artifacts/

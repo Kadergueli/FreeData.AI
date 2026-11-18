@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
+import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 
 class SubscriptionScreen extends StatefulWidget {
@@ -56,64 +57,117 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final quotas = _me?['quotas'] as Map? ?? {};
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Abonnement & Quotas')),
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Abonnement & Quotas', style: TextStyle(fontWeight: FontWeight.w700))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: FDTheme.danger)))
+              ? Center(
+                  child: FDCard(
+                    child: Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                  ),
+                )
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    Card(
-                      child: ListTile(
-                        title: Text(
-                          'Plan actif : ${sub['effective_plan_id'] ?? 'free'} (${sub['status'] ?? 'active'})',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          sub['current_period_end'] != null
-                              ? 'Échéance : ${sub['current_period_end']}'
-                              : 'Activation manuelle ou clé partenaire requise pour PRO.',
-                        ),
-                        trailing: ElevatedButton(
-                          onPressed: widget.onConfigureKey,
-                          child: const Text('Clé PRO'),
-                        ),
+                    FDCard(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Plan actif : ${sub['effective_plan_id'] ?? 'free'} (${sub['status'] ?? 'active'})',
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  sub['current_period_end'] != null
+                                      ? 'Échéance : ${sub['current_period_end']}'
+                                      : 'Activation par clé partenaire pour l\'accès PRO.',
+                                  style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          FDPrimaryButton(
+                            label: 'Clé PRO',
+                            icon: Icons.vpn_key_outlined,
+                            onPressed: widget.onConfigureKey,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    const Text('Utilisation & Quotas restants', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Utilisation & Quotas restants',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 8),
                     ...quotas.entries.map((e) {
                       final q = e.value as Map;
                       final used = (q['used'] as num?)?.toInt() ?? 0;
                       final limit = (q['limit'] as num?)?.toInt() ?? 0;
                       final pct = limit > 0 ? (used / limit).clamp(0.0, 1.0) : 0.0;
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: FDCard(
+                          padding: const EdgeInsets.all(14),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('${e.key} : $used / $limit', style: const TextStyle(fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 6),
-                              LinearProgressIndicator(value: pct),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                                  Text('$used / $limit', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.blue)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(99),
+                                child: LinearProgressIndicator(
+                                  value: pct,
+                                  minHeight: 7,
+                                  backgroundColor: AppColors.canvasSoft,
+                                  color: pct > 0.85 ? AppColors.warning : AppColors.blue,
+                                ),
+                              ),
                             ],
                           ),
                         ),
                       );
                     }),
-                    const SizedBox(height: 12),
-                    const Text('Plans disponibles (quotas appliqués côté serveur)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
-                    ..._plans.map((p) => Card(
-                          child: ListTile(
-                            title: Text('${p['label']} (${p['plan_id']})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text(
-                              'Chat/jour : ${p['daily_chat_limit']} · PDF/mois : ${p['monthly_pdf_limit']} · ML/jour : ${p['daily_ml_limit']} · Projets max : ${p['max_projects']}',
-                            ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Plans disponibles (quotas appliqués côté serveur)',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._plans.map(
+                      (p) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: FDCard(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${p['label']} (${p['plan_id']})',
+                                style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Chat/jour : ${p['daily_chat_limit']} · PDF/mois : ${p['monthly_pdf_limit']} · ML/jour : ${p['daily_ml_limit']} · Projets max : ${p['max_projects']}',
+                                style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                              ),
+                            ],
                           ),
-                        )),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
     );
