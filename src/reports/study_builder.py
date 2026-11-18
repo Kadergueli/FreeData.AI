@@ -101,7 +101,11 @@ def build_market_study_dossier(
         max_observed_dest_price_per_kg=max_obs_dest,
     )
 
-    eff_sell = sell_price if sell_price is not None else central_bp["unit_economics"]["target_sell_price_per_kg"]
+    eff_sell = (
+        central_bp["unit_economics"]["sell_price_per_kg"]
+        if central_bp["unit_economics"]["sell_price_per_kg"] is not None
+        else central_bp["unit_economics"]["target_sell_price_per_kg"]
+    )
     prudent_bp = build_professional_business_plan(
         commodity=resolved_comm,
         commodity_fr=comm_fr,

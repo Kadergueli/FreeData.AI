@@ -10,13 +10,21 @@ from reportlab.lib.units import cm
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
+def _clean_pdf_text(val: object) -> str:
+    txt = str(val if val is not None else "")
+    txt = txt.replace("\u03a7", "X").replace("\u03c7", "x")
+    for bad in ("FreeData. Al", "FreeData.Al", "FreeData. al", "FreeData.al", "FreeData. AI"):
+        txt = txt.replace(bad, "FreeData.AI")
+    return txt
+
+
 def _xaf(val: object) -> str:
     if val is None:
         return "—"
     try:
-        return f"{round(float(val)):,} XAF".replace(",", " ")
+        return _clean_pdf_text(f"{round(float(val)):,} XAF".replace(",", " "))
     except (TypeError, ValueError):
-        return str(val)
+        return _clean_pdf_text(val)
 
 
 def _num(val: object, suffix: str = "") -> str:
@@ -25,13 +33,14 @@ def _num(val: object, suffix: str = "") -> str:
     try:
         f = float(val)
         txt = f"{f:.1f}" if not f.is_integer() else f"{int(f)}"
-        return f"{txt}{suffix}"
+        return _clean_pdf_text(f"{txt}{suffix}")
     except (TypeError, ValueError):
-        return str(val)
+        return _clean_pdf_text(val)
 
 
 def _styled_table(rows: list[list[str]], col_widths: list[float] | None = None) -> Table:
-    tbl = Table(rows, colWidths=col_widths, repeatRows=1)
+    cleaned_rows = [[_clean_pdf_text(cell) for cell in row] for row in rows]
+    tbl = Table(cleaned_rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(
         TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1D4ED8")),
@@ -64,8 +73,8 @@ def render_market_study_pdf(dossier: dict) -> bytes:
     )
 
     styles = getSampleStyleSheet()
-    h1 = ParagraphStyle("FDH1", parent=styles["Heading1"], textColor=colors.HexColor("#1E3A8A"), fontSize=17, spaceAfter=6)
-    h2 = ParagraphStyle("FDH2", parent=styles["Heading2"], textColor=colors.HexColor("#1D4ED8"), fontSize=11.5, spaceBefore=10, spaceAfter=4)
+    h1 = ParagraphStyle("FDH1", parent=styles["Heading1"], textColor=colors.HexColor("#1E3A8A"), fontSize=17, spaceAfter=6, keepWithNext=True)
+    h2 = ParagraphStyle("FDH2", parent=styles["Heading2"], textColor=colors.HexColor("#1D4ED8"), fontSize=11.5, spaceBefore=10, spaceAfter=4, keepWithNext=True)
     body = ParagraphStyle("FDBody", parent=styles["Normal"], fontSize=9.0, leading=12.5, spaceAfter=3)
     small = ParagraphStyle("FDSmall", parent=styles["Normal"], fontSize=8.0, leading=10.5, textColor=colors.HexColor("#475569"))
 
@@ -226,15 +235,15 @@ def render_market_study_pdf(dossier: dict) -> bytes:
     story.append(Spacer(1, 0.2 * cm))
     checklist_rows = [["Parametre terrain (24h-48h)", "Objectif de verification", "Valeur verifiee (a remplir)"]]
     checklist_items = [
-        ("1. Fret reel", "Devis transporteur bord-champ -> destination (XAF/kg)", "[                    XAF/kg]"),
-        ("2. Taxes communales", "Ticket de place / droits de marche hebdomadaires", "[                    XAF]"),
-        ("3. Vitesse d'ecoulement", "Capacite d'absorption en sacs/semaine (5 acheteurs)", "[                    sacs/sem]"),
-        ("4. Gardiennage / magasinage", "Loyer depot ou gardiennage nocturne", "[                    XAF/mois]"),
-        ("5. Prix d'achat ferme", "Prix negocie bord-champ ou demi-gros", "[                    XAF/kg]"),
+        ("1. Fret reel", "Devis transporteur bord-champ -> destination (XAF/kg)", "________\u00a0XAF/kg"),
+        ("2. Taxes communales", "Ticket de place / droits de marche hebdomadaires", "________\u00a0XAF"),
+        ("3. Vitesse d'ecoulement", "Capacite d'absorption en sacs/semaine (5 acheteurs)", "________\u00a0sacs/sem"),
+        ("4. Gardiennage / magasinage", "Loyer depot ou gardiennage nocturne", "________\u00a0XAF/mois"),
+        ("5. Prix d'achat ferme", "Prix negocie bord-champ ou demi-gros", "________\u00a0XAF/kg"),
     ]
     for param, obj, blank in checklist_items:
         checklist_rows.append([param, obj, blank])
-    story.append(KeepTogether(_styled_table(checklist_rows, col_widths=[4.6 * cm, 8.2 * cm, 4.2 * cm])))
+    story.append(KeepTogether(_styled_table(checklist_rows, col_widths=[4.4 * cm, 7.8 * cm, 4.8 * cm])))
 
     story.append(Spacer(1, 0.2 * cm))
     story.append(Paragraph("<b>Limites methodologiques verifiees :</b>", body))

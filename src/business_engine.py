@@ -163,12 +163,13 @@ def build_professional_business_plan(
     )
     break_even_bag_100kg_xaf = round(break_even_price_per_kg * 100.0)
 
-    is_simulated_sell_price = sell_price_per_kg is None
-    eff_sell_price = (
-        round(float(sell_price_per_kg), 1)
-        if sell_price_per_kg is not None
-        else round(break_even_price_per_kg * 1.15, 1)
-    )
+    is_simulated_sell_price = sell_price_per_kg is None and predicted_t1_sell_price_per_kg is None
+    if sell_price_per_kg is not None:
+        eff_sell_price = round(float(sell_price_per_kg), 1)
+    elif predicted_t1_sell_price_per_kg is not None:
+        eff_sell_price = round(float(predicted_t1_sell_price_per_kg), 1)
+    else:
+        eff_sell_price = round(break_even_price_per_kg * 1.15, 1)
     if max_observed_dest_price_per_kg is not None and eff_sell_price > float(max_observed_dest_price_per_kg):
         eff_sell_price = round(float(max_observed_dest_price_per_kg), 1)
 
@@ -183,7 +184,7 @@ def build_professional_business_plan(
         1,
     )
 
-    is_non_rentable = (break_even_price_per_kg > eff_sell_price) or (net_profit_cycle1_xaf <= 0)
+    is_non_rentable = (break_even_price_per_kg >= eff_sell_price) or (net_profit_cycle1_xaf <= 0)
     profitability_status = "NON RENTABLE À CETTE ÉCHELLE" if is_non_rentable else "RENTABLE"
     unit_margin_per_bought_kg = eff_sell_price * (1.0 - loss_pct / 100.0) - unit_landed_cost
     wc_share = (WORKING_CAPITAL_SHARE + CAPEX_SHARE) if eff_zero_capex else WORKING_CAPITAL_SHARE
@@ -210,7 +211,7 @@ def build_professional_business_plan(
         "break_even_bag_100kg_xaf": break_even_bag_100kg_xaf,
         "max_buy_price_20pct_per_kg": max_buy_price_20pct_per_kg,
         "max_buy_price_20pct_bag_100kg_xaf": round(max_buy_price_20pct_per_kg * 100.0),
-        "sell_price_per_kg": round(float(sell_price_per_kg), 1) if sell_price_per_kg is not None else None,
+        "sell_price_per_kg": eff_sell_price if not is_simulated_sell_price else None,
         "target_sell_price_per_kg": eff_sell_price if is_simulated_sell_price else None,
         "is_simulated_sell_price": is_simulated_sell_price,
         "gross_revenue_xaf": gross_revenue_xaf,
@@ -331,7 +332,7 @@ def build_professional_business_plan(
         "cycles_per_month": cycles,
         "certified_market_metrics": {
             "buy_price_per_kg": round(buy_p, 1),
-            "sell_price_per_kg": round(float(sell_price_per_kg), 1) if sell_price_per_kg is not None else None,
+            "sell_price_per_kg": eff_sell_price if not is_simulated_sell_price else None,
             "predicted_t1_sell_price_per_kg": round(float(predicted_t1_sell_price_per_kg), 1)
             if predicted_t1_sell_price_per_kg is not None
             else None,
