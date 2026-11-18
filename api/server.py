@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -804,7 +804,13 @@ class MarketStudyRequest(BaseModel):
     loss_rate_pct: float = Field(5.0, ge=0.0, le=50.0)
     monthly_fixed_costs_xaf: float = Field(35_000.0, ge=0.0, le=100_000_000)
     promoter_name: Optional[str] = Field(None, max_length=120)
-    user_instructions: list[Annotated[str, Field(max_length=300)]] = Field(default_factory=list, max_length=10)
+    user_instructions: list[str] = Field(default_factory=list)
+
+    @field_validator("user_instructions")
+    @classmethod
+    def _bound_instructions(cls, items: list[str]) -> list[str]:
+        """Garde au plus 10 consignes de 300 caractères (le chat peut en accumuler) ; jamais d'erreur 422 pour le client."""
+        return [i[:300] for i in items[:10]]
 
 
 def _build_study_dossier_or_404(payload: MarketStudyRequest, state: dict) -> dict:

@@ -93,16 +93,11 @@ def test_pdf_user_text_is_never_interpreted_as_markup(monkeypatch):
         server.STATE.clear()
 
 
-def test_market_study_request_bounds(monkeypatch):
-    try:
-        _setup_state(monkeypatch, premium_keys="pro-key-1234567890")
-        c = TestClient(server.app, raise_server_exceptions=False)
-        hdr = {"X-Premium-Key": "pro-key-1234567890"}
-        base = {"commodity": "Millet", "origin_province": "Lac", "capital_xaf": 1_000_000}
-        assert c.post("/api/v1/reports/market-study", json={**base, "user_instructions": ["x"] * 11}, headers=hdr).status_code == 422
-        assert c.post("/api/v1/reports/market-study", json={**base, "user_instructions": ["x" * 301]}, headers=hdr).status_code == 422
-    finally:
-        server.STATE.clear()
+def test_market_study_instructions_are_bounded_not_rejected():
+    payload = server.MarketStudyRequest(commodity="Millet", origin_province="Lac", capital_xaf=1_000_000,
+                                        user_instructions=["x" * 900] * 25)
+    assert len(payload.user_instructions) == 10
+    assert all(len(i) == 300 for i in payload.user_instructions)
 
 
 def test_report_endpoints_share_the_chat_concurrency_cap(monkeypatch):
