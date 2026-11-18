@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 import '../widgets/chat/data_cards.dart';
 
@@ -23,6 +24,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Map<String, dynamic>? _trends;
   Map<String, dynamic>? _benchmark;
   Map<String, dynamic>? _latestForecast;
+  List<String> _commodities = const ['Millet', 'Sorghum (red)', 'Rice (imported)', 'Maize (white)'];
+  List<String> _provinces = const ["N'Djamena", 'Lac', 'Salamat', 'Logone Occidental', 'Ouaddai'];
   String? _selectedCommodity;
   String? _selectedProvince;
   bool _loading = true;
@@ -31,7 +34,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadMetadata();
     _load();
+  }
+
+  Future<void> _loadMetadata() async {
+    try {
+      final meta = await widget.apiService.getMetadata();
+      final legacy = meta['legacy'];
+      final rawComms = meta['commodities'] ?? (legacy is Map ? legacy['commodities'] : null) ?? const [];
+      final rawProvs = meta['provinces'] ?? (legacy is Map ? legacy['provinces'] : null) ?? const [];
+      final comms = rawComms is List
+          ? rawComms.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          : <String>[];
+      final provs = rawProvs is List
+          ? rawProvs.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          : <String>[];
+      comms.sort((a, b) => commodityLabelFr(a).compareTo(commodityLabelFr(b)));
+      provs.sort();
+      if (!mounted) return;
+      setState(() {
+        if (comms.isNotEmpty) _commodities = comms;
+        if (provs.isNotEmpty) _provinces = provs;
+      });
+    } catch (_) {}
   }
 
   Future<void> _load() async {
@@ -131,15 +157,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: const Text('Analytics & Preuves Statistiques', style: TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           DropdownButton<String?>(
-            value: _selectedCommodity,
+            value: (_selectedCommodity == null || _commodities.contains(_selectedCommodity)) ? _selectedCommodity : null,
             hint: const Text('Tous produits'),
             underline: const SizedBox.shrink(),
-            items: const [
-              DropdownMenuItem(value: null, child: Text('Tous produits')),
-              DropdownMenuItem(value: 'Millet', child: Text('Mil')),
-              DropdownMenuItem(value: 'Sorghum (red)', child: Text('Sorgho')),
-              DropdownMenuItem(value: 'Rice (imported)', child: Text('Riz importé')),
-              DropdownMenuItem(value: 'Maize (white)', child: Text('Maïs blanc')),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('Tous produits')),
+              ..._commodities.map(
+                (c) => DropdownMenuItem<String?>(value: c, child: Text(commodityLabelFr(c))),
+              ),
             ],
             onChanged: (v) {
               setState(() => _selectedCommodity = v);
@@ -148,16 +173,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(width: 8),
           DropdownButton<String?>(
-            value: _selectedProvince,
+            value: (_selectedProvince == null || _provinces.contains(_selectedProvince)) ? _selectedProvince : null,
             hint: const Text('Toutes provinces'),
             underline: const SizedBox.shrink(),
-            items: const [
-              DropdownMenuItem(value: null, child: Text('Toutes provinces')),
-              DropdownMenuItem(value: "N'Djamena", child: Text("N'Djamena")),
-              DropdownMenuItem(value: 'Lac', child: Text('Lac')),
-              DropdownMenuItem(value: 'Salamat', child: Text('Salamat')),
-              DropdownMenuItem(value: 'Logone Occidental', child: Text('Logone Occ.')),
-              DropdownMenuItem(value: 'Ouaddai', child: Text('Ouaddaï')),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('Toutes provinces')),
+              ..._provinces.map(
+                (p) => DropdownMenuItem<String?>(value: p, child: Text(p)),
+              ),
             ],
             onChanged: (v) {
               setState(() => _selectedProvince = v);

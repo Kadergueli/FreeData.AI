@@ -8,6 +8,12 @@ class _FakeAnalyticsApiService extends ApiService {
   _FakeAnalyticsApiService();
 
   @override
+  Future<Map<String, dynamic>> getMetadata() async => {
+        'commodities': ['Millet', 'Sorghum (red)', 'Groundnuts (shelled)', 'Cowpeas'],
+        'provinces': ["N'Djamena", 'Lac', 'Salamat', 'Batha'],
+      };
+
+  @override
   Future<Map<String, dynamic>> getAnalyticsProfile() async => {
         'forecast_rows': 120,
         'provinces_count': 12,
