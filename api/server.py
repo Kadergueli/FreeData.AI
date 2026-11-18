@@ -7,9 +7,9 @@ import sys
 import threading
 import time
 from collections import defaultdict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -783,6 +783,18 @@ def seasonality_study(
     return study
 
 
+@contextmanager
+def _report_slot():
+    """Même plafond de concurrence que le chat : la génération d'un rapport/PDF ne doit pas saturer les threads de l'API."""
+    if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
+        raise HTTPException(status_code=503, detail="Service très sollicité. Réessayez dans un instant.",
+                            headers={"Retry-After": "5"})
+    try:
+        yield
+    finally:
+        _CHAT_SLOTS.release()
+
+
 class MarketStudyRequest(BaseModel):
     commodity: str = Field(..., min_length=2, max_length=60)
     origin_province: str = Field(..., min_length=2, max_length=60)
@@ -792,7 +804,7 @@ class MarketStudyRequest(BaseModel):
     loss_rate_pct: float = Field(5.0, ge=0.0, le=50.0)
     monthly_fixed_costs_xaf: float = Field(35_000.0, ge=0.0, le=100_000_000)
     promoter_name: Optional[str] = Field(None, max_length=120)
-    user_instructions: list[str] = Field(default_factory=list)
+    user_instructions: list[Annotated[str, Field(max_length=300)]] = Field(default_factory=list, max_length=10)
 
 
 def _build_study_dossier_or_404(payload: MarketStudyRequest, state: dict) -> dict:
@@ -827,7 +839,8 @@ def generate_market_study_json(
 ):
     """Génère le dossier structuré d'étude de marché PRO (100 % données réelles, zéro hallucination)."""
     _require_premium_key(x_premium_key, "Rapports d'étude de marché PRO")
-    return _build_study_dossier_or_404(payload, state)
+    with _report_slot():
+        return _build_study_dossier_or_404(payload, state)
 
 
 @app.post(
@@ -841,8 +854,9 @@ def generate_market_study_pdf(
 ):
     """Génère et retourne le rapport PDF professionnel d'étude de marché PRO."""
     _require_premium_key(x_premium_key, "Rapports d'étude de marché PDF PRO")
-    dossier = _build_study_dossier_or_404(payload, state)
-    pdf_bytes = render_market_study_pdf(dossier)
+    with _report_slot():
+        dossier = _build_study_dossier_or_404(payload, state)
+        pdf_bytes = render_market_study_pdf(dossier)
     safe_slug = "".join(c if c.isalnum() else "_" for c in dossier["commodity"].lower()).strip("_") or "marche"
     return Response(
         content=pdf_bytes,

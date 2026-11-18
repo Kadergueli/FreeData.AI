@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from xml.sax.saxutils import escape   # le texte saisi par l'utilisateur ne doit jamais être interprété comme balisage ReportLab
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -172,7 +173,7 @@ def render_market_study_pdf(dossier: dict) -> bytes:
 
     if dossier.get("user_instructions"):
         story.append(Spacer(1, 0.15 * cm))
-        story.append(Paragraph("<b>Consignes client memorisees :</b> " + " ; ".join(dossier["user_instructions"]), body))
+        story.append(Paragraph("<b>Consignes client memorisees :</b> " + " ; ".join(escape(str(i)) for i in dossier["user_instructions"]), body))
 
     # 2. Analyse des prix observés et prévisions t+1
     story.append(Paragraph("2. Analyse des prix observes et previsions t+1", h2))

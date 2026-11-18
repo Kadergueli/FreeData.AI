@@ -318,7 +318,7 @@ def test_opportunity_llm_uses_global_snapshot_and_logs_fallback_on_ungrounded(ag
 
     def fake_post(url, *args, **kwargs):
         assert url == "https://api.groq.com/openai/v1/chat/completions"
-        assert kwargs["timeout"] == 12
+        assert kwargs["timeout"] == 20
         assert kwargs["json"]["temperature"] == 0.3
         assert kwargs["json"]["max_tokens"] == 750
         messages = kwargs["json"]["messages"]
@@ -508,7 +508,7 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
 
     def fake_post(url, *args, **kwargs):
         llm_calls.append(url)
-        assert kwargs["timeout"] == 12
+        assert kwargs["timeout"] == 20
         messages = kwargs["json"]["messages"]
         assert len(messages) == 4  # system + 2 historique + user
         user_prompt = messages[-1]["content"]

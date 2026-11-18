@@ -298,7 +298,7 @@ class TestChatPayloadRobustness:
         [
             {},
             {"message": ""},
-            {"message": "x" * 1001},
+            {"message": "x" * 4001},
             {"message": 123},
             {"message": None},
             {"message": "salut", "tier": "gold"},

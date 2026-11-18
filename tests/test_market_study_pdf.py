@@ -71,3 +71,52 @@ def test_market_study_and_pdf_require_premium_key(monkeypatch):
     finally:
         server.STATE.clear()
 
+
+
+def test_pdf_user_text_is_never_interpreted_as_markup(monkeypatch):
+    """Les consignes saisies sont du texte : balises cassées, <img> locales ou distantes ne doivent ni planter ni charger de ressource."""
+    try:
+        _setup_state(monkeypatch, premium_keys="pro-key-1234567890")
+        c = TestClient(server.app, raise_server_exceptions=False)
+        hdr = {"X-Premium-Key": "pro-key-1234567890"}
+        base = {"commodity": "Millet", "origin_province": "Lac", "dest_province": "N'Djamena", "capital_xaf": 1_000_000}
+        loaded = []
+        from reportlab.platypus import flowables
+        real = flowables.Image.__init__
+        monkeypatch.setattr(flowables.Image, "__init__", lambda self, *a, **k: (loaded.append(a), real(self, *a, **k))[1])
+        for txt in ("<b>texte non fermé", '<img src="http://127.0.0.1:9/x.png"/>', '<img src="file:///etc/hostname"/>',
+                    '<a href="https://evil.example">x</a>'):
+            r = c.post("/api/v1/reports/market-study/pdf", json={**base, "user_instructions": [txt]}, headers=hdr)
+            assert r.status_code == 200 and r.content.startswith(b"%PDF-"), txt
+        assert not any("127.0.0.1" in str(a) or "/etc/" in str(a) for a in loaded)
+    finally:
+        server.STATE.clear()
+
+
+def test_market_study_request_bounds(monkeypatch):
+    try:
+        _setup_state(monkeypatch, premium_keys="pro-key-1234567890")
+        c = TestClient(server.app, raise_server_exceptions=False)
+        hdr = {"X-Premium-Key": "pro-key-1234567890"}
+        base = {"commodity": "Millet", "origin_province": "Lac", "capital_xaf": 1_000_000}
+        assert c.post("/api/v1/reports/market-study", json={**base, "user_instructions": ["x"] * 11}, headers=hdr).status_code == 422
+        assert c.post("/api/v1/reports/market-study", json={**base, "user_instructions": ["x" * 301]}, headers=hdr).status_code == 422
+    finally:
+        server.STATE.clear()
+
+
+def test_report_endpoints_share_the_chat_concurrency_cap(monkeypatch):
+    try:
+        _setup_state(monkeypatch, premium_keys="pro-key-1234567890")
+        monkeypatch.setattr(server, "_CHAT_WAIT_S", 0.05)
+        taken = [server._CHAT_SLOTS.acquire() for _ in range(server.settings.chat_max_concurrency)]
+        try:
+            c = TestClient(server.app, raise_server_exceptions=False)
+            payload = {"commodity": "Millet", "origin_province": "Lac", "capital_xaf": 1_000_000}
+            r = c.post("/api/v1/reports/market-study", json=payload, headers={"X-Premium-Key": "pro-key-1234567890"})
+            assert r.status_code == 503 and r.headers.get("retry-after") == "5"
+        finally:
+            for _ in taken:
+                server._CHAT_SLOTS.release()
+    finally:
+        server.STATE.clear()
