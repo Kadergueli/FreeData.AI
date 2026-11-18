@@ -82,6 +82,7 @@ def build_market_study_dossier(
     predicted_t1_sell = round(sum(t1_vals) / len(t1_vals), 1) if t1_vals else None
     obs_vals = [v for v in (_clean_float(r.get("last_observed_price")) for r in fc_target_recs) if v is not None]
     max_obs_dest = round(max(obs_vals), 1) if (dest and obs_vals) else None
+    effective_central_sell = sell_price if sell_price is not None else (predicted_t1_sell if predicted_t1_sell is not None else buy_price)
 
     central_bp = build_professional_business_plan(
         commodity=resolved_comm,
@@ -89,7 +90,7 @@ def build_market_study_dossier(
         origin_province=orig,
         dest_province=dest,
         buy_price_per_kg=buy_price,
-        sell_price_per_kg=sell_price,
+        sell_price_per_kg=effective_central_sell,
         volatility_cv_pct=vol_cv,
         credit_score=c_score,
         capital_xaf=capital_xaf,
@@ -167,15 +168,33 @@ def build_market_study_dossier(
         },
     ]
 
-    # 6. Données manquantes & réserves explicites (zéro hallucination)
+    # 6. Données manquantes, traçabilité dynamique & réserves explicites (zéro hallucination)
+    all_fc_recs = (fc_orig.get("records") or []) + (fc_dest.get("records") or [])
+    src_names = sorted({str(r.get("source")).strip() for r in all_fc_recs if r.get("source")})
+    obs_months = sorted({str(r.get("last_observed_month")).strip() for r in all_fc_recs if r.get("last_observed_month")})
+    hist_df = getattr(provider, "hist_df", None)
+    obs_count = len(all_fc_recs)
+    if hist_df is not None and not hist_df.empty and "commodity_std" in hist_df.columns:
+        provs = [p for p in (orig, dest) if p]
+        sub_h = hist_df[(hist_df["commodity_std"] == resolved_comm) & (hist_df["province"].isin(provs))]
+        if not sub_h.empty:
+            obs_count = int(len(sub_h))
+    data_traceability = {
+        "observed_sources": ", ".join(src_names) if src_names else "Source primaire non renseignée dans le jeu de données",
+        "latest_observed_date": obs_months[-1] if obs_months else "Non renseignée",
+        "observation_count": obs_count,
+        "dataset_id": f"{resolved_comm.upper()}-{orig.upper()}" + (f"-{dest.upper()}" if dest else ""),
+        "logistics_source": (
+            "Paramètres saisis par le promoteur"
+            if transport_is_user_provided
+            else f"Hypothèses standards indicatives FreeData.AI (Fret {transport_cost_per_kg:g} XAF/kg, Pertes {loss_rate_pct:g}%) à confirmer sur le terrain"
+        ),
+    }
+
     data_gaps = [
         "Les données FreeData.AI couvrent les prix de marché : les volumes de demande des ménages et les parts de marché des concurrents ne sont pas mesurés.",
         "Frais non inclus automatiquement dans les charges fixes standards : taxes communales, assurance, intérêts de financement et gardiennage spécifique.",
     ]
-    if sell_price is None:
-        data_gaps.append(
-            f"Prix de vente à destination ({dest or 'non précisée'}) absent des séries suivies : le scénario Central utilise une cible simulée (+15 % au-dessus du point mort)."
-        )
     if not transport_is_user_provided:
         data_gaps.append(
             f"Coût de transport basé sur l'hypothèse indicative de {transport_cost_per_kg:g} XAF/kg (à confirmer par devis transporteur)."
@@ -185,7 +204,7 @@ def build_market_study_dossier(
 
     provenance = {
         "buy_price_per_kg": "retrieved_from_dataset",
-        "sell_price_per_kg": "retrieved_from_dataset" if sell_price is not None else "simulated_target_break_even_plus_15pct",
+        "sell_price_per_kg": "retrieved_from_dataset" if sell_price is not None else "forecast_t1_or_local_observed",
         "capital_xaf": "user_provided" if capital_is_user_provided else "default_assumption",
         "transport_cost_per_kg": "user_provided" if transport_is_user_provided else "default_assumption",
         "market_stability_index": "retrieved_from_dataset" if c_score is not None else "unavailable",
@@ -212,6 +231,7 @@ def build_market_study_dossier(
         "business_plan": central_bp,
         "scenarios": scenarios,
         "sources": sources,
+        "data_traceability": data_traceability,
         "user_instructions": list(user_instructions or []),
         "data_gaps": data_gaps,
         "provenance": provenance,

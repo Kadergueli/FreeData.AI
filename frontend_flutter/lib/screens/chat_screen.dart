@@ -614,6 +614,7 @@ class _ChatScreenState extends State<ChatScreen> {
         destProvince: kp['dest_province']?.toString(),
         capitalXaf: cap,
         transportCostPerKg: (kp['transport_cost_per_kg'] as num?)?.toDouble(),
+        promoterName: kp['promoter_name']?.toString(),
         userInstructions: instructions,
       );
       final slug = comm.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');

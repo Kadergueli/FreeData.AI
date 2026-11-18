@@ -325,8 +325,16 @@ def extract_client_state(
     capital_xaf: Optional[float] = None
     transport_cost_per_kg: Optional[float] = None
     quantity_kg: Optional[float] = None
+    promoter_name: Optional[str] = None
     user_instructions: list[str] = []
     seen_inst_norm: set[str] = set()
+
+    _promoter_re = re.compile(
+        r"(?:\bpromoteur\b\s*(?::|=|\best\b)?|\bje\s+m['’]appelle\b|\bmon\s+nom\s+est\b|"
+        r"\bau\s+nom\s+de\b|\bpour\s+(?:le\s+promoteur|l['’]entreprise|la\s+soci[eé]t[eé])\b)\s*"
+        r"([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.\- ]{1,60})",
+        re.IGNORECASE,
+    )
 
     for idx, turn in enumerate(turns):
         if turn["role"] != "user":
@@ -363,6 +371,12 @@ def extract_client_state(
         if biz["quantity_kg"] is not None:
             quantity_kg = biz["quantity_kg"]
 
+        m_prom = _promoter_re.search(cleaned)
+        if m_prom:
+            cand_prom = re.split(r"\b(?:avec|pour|sur|dans|sans|qui|dont)\b|[,;\n]", m_prom.group(1), maxsplit=1, flags=re.IGNORECASE)[0].strip(" .:-")
+            if 2 <= len(cand_prom) <= 80:
+                promoter_name = cand_prom
+
         for clause in re.split(r"[.!?\n;]+", raw):
             clause_clean = clause.strip(" -•\t")
             if not clause_clean:
@@ -381,6 +395,7 @@ def extract_client_state(
         "capital_xaf": capital_xaf,
         "transport_cost_per_kg": transport_cost_per_kg,
         "quantity_kg": quantity_kg,
+        "promoter_name": promoter_name,
     }
 
     is_biz_goal = bool(

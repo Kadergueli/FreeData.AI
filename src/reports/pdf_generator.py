@@ -2,12 +2,23 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+
+def _resolve_logo_path() -> Path | None:
+    local_logo = Path(__file__).with_name("freedata_logo.png")
+    if local_logo.is_file():
+        return local_logo
+    web_logo = Path(__file__).resolve().parents[2] / "frontend_flutter" / "web" / "icons" / "Icon-192.png"
+    if web_logo.is_file():
+        return web_logo
+    return None
 
 
 def _clean_pdf_text(val: object) -> str:
@@ -89,8 +100,24 @@ def render_market_study_pdf(dossier: dict) -> bytes:
     )
 
     story = []
+    logo_path = _resolve_logo_path()
     # 1. En-tête & Encadré Verdict Exécutif
-    story.append(Paragraph("FreeData.AI Market Intelligence - Dossier PRO", h1))
+    title_para = Paragraph("FreeData.AI Market Intelligence - Dossier PRO", h1)
+    if logo_path is not None:
+        logo_img = Image(str(logo_path), width=1.35 * cm, height=1.35 * cm)
+        header_tbl = Table([[logo_img, title_para]], colWidths=[1.6 * cm, 15.4 * cm])
+        header_tbl.setStyle(
+            TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ])
+        )
+        story.append(KeepTogether(header_tbl))
+    else:
+        story.append(title_para)
     story.append(Paragraph(f"<b>1. Etude de prefaisabilite : {dossier['commodity_fr']} ({route})</b>", h2))
     meta_rows = [
         ["Reference etude", dossier["study_id"]],
@@ -246,21 +273,62 @@ def render_market_study_pdf(dossier: dict) -> bytes:
     story.append(KeepTogether(_styled_table(checklist_rows, col_widths=[4.4 * cm, 7.8 * cm, 4.8 * cm])))
 
     story.append(Spacer(1, 0.2 * cm))
+    trace = dossier.get("data_traceability") or {}
+    if trace:
+        story.append(Paragraph("<b>Sources des donnees reellement utilisees (Tracabilite dynamique) :</b>", body))
+        story.append(
+            Paragraph(
+                _clean_pdf_text(
+                    f"- <b>Prix observes :</b> {trace.get('observed_sources', 'Source primaire non renseignee dans le jeu de donnees')} "
+                    f"- Dernier releve verifie : {trace.get('latest_observed_date', 'Non renseignee')} "
+                    f"(Profondeur : {trace.get('observation_count', 0)} observations)."
+                ),
+                small,
+            )
+        )
+        story.append(
+            Paragraph(
+                _clean_pdf_text(
+                    f"- <b>Previsions t+1 & Indice de risque :</b> Calcules par le moteur statistique FreeData.AI "
+                    f"a partir de la serie historique ci-dessus (ID serie : {trace.get('dataset_id', '-')})."
+                ),
+                small,
+            )
+        )
+        story.append(
+            Paragraph(
+                _clean_pdf_text(f"- <b>Parametres logistiques :</b> {trace.get('logistics_source', '-')}"),
+                small,
+            )
+        )
+        story.append(Spacer(1, 0.15 * cm))
+
     story.append(Paragraph("<b>Limites methodologiques verifiees :</b>", body))
     for gap in dossier.get("data_gaps") or []:
-        story.append(Paragraph(f"- {gap}", small))
+        story.append(Paragraph(_clean_pdf_text(f"- {gap}"), small))
     if dossier.get("sources"):
         story.append(Spacer(1, 0.15 * cm))
         story.append(Paragraph("<b>Sources documentaires RAG associees :</b>", body))
         for src in dossier["sources"]:
-            story.append(Paragraph(f"- {src.get('editeur', 'Source')} - {src.get('titre', 'Document')} (p.{src.get('page', '?')})", small))
+            story.append(Paragraph(_clean_pdf_text(f"- {src.get('editeur', 'Source')} - {src.get('titre', 'Document')} (p.{src.get('page', '?')})"), small))
 
     def _footer(canvas, doc_obj):
         canvas.saveState()
+        text_x = 1.8 * cm
+        if logo_path is not None:
+            canvas.drawImage(
+                str(logo_path),
+                1.8 * cm,
+                0.88 * cm,
+                width=0.55 * cm,
+                height=0.55 * cm,
+                mask="auto",
+            )
+            text_x = 2.5 * cm
         canvas.setFont("Helvetica", 7.5)
         canvas.setFillColor(colors.HexColor("#64748B"))
         canvas.drawString(
-            1.8 * cm,
+            text_x,
             1.1 * cm,
             f"FreeData.AI Market Intelligence | {dossier['study_id']} | Donnees verifiees uniquement (zero chiffre invente)",
         )

@@ -326,6 +326,7 @@ class ApiService {
     String? destProvince,
     required double capitalXaf,
     double? transportCostPerKg,
+    String? promoterName,
     List<String> userInstructions = const [],
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/reports/market-study/pdf');
@@ -335,6 +336,7 @@ class ApiService {
       if (destProvince != null && destProvince.isNotEmpty) 'dest_province': destProvince,
       'capital_xaf': capitalXaf,
       if (transportCostPerKg != null) 'transport_cost_per_kg': transportCostPerKg,
+      if (promoterName != null && promoterName.trim().isNotEmpty) 'promoter_name': promoterName.trim(),
       'user_instructions': userInstructions,
     };
     final headers = <String, String>{
