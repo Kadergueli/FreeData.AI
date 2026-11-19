@@ -623,15 +623,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Row(
+                                  Row(
                                     children: [
-                                      Icon(Icons.storage_rounded,
-                                          color: FDTheme.blue, size: 22),
-                                      SizedBox(width: 8),
+                                      Icon(
+                                          widget.apiService.isAuthenticated
+                                              ? Icons.cloud_done_outlined
+                                              : Icons.storage_rounded,
+                                          color:
+                                              widget.apiService.isAuthenticated
+                                                  ? FDTheme.green
+                                                  : FDTheme.blue,
+                                          size: 22),
+                                      const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          'Stockage local',
-                                          style: TextStyle(
+                                          widget.apiService.isAuthenticated
+                                              ? 'Stockage & Synchro Cloud'
+                                              : 'Stockage local',
+                                          style: const TextStyle(
                                               fontWeight: FontWeight.w700,
                                               color: FDTheme.ink,
                                               fontSize: 17),
@@ -641,10 +650,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  const Text(
-                                    'Vos conversations sont enregistrées uniquement sur cet appareil. '
-                                    'La synchronisation cloud multi-appareils est actuellement indisponible.',
-                                    style: TextStyle(
+                                  Text(
+                                    widget.apiService.isAuthenticated
+                                        ? 'Vos conversations sont sauvegardées sur cet appareil et synchronisées automatiquement avec votre compte FreeData.AI.'
+                                        : 'Vos conversations sont enregistrées uniquement sur cet appareil. Connectez-vous pour activer la synchronisation cloud multi-appareils.',
+                                    style: const TextStyle(
                                         fontSize: 14,
                                         color: FDTheme.muted,
                                         height: 1.5),
@@ -661,9 +671,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                             .withValues(alpha: 0.10),
                                       ),
                                       FDBadge(
-                                        label: 'SYNCHRONISATION INDISPONIBLE',
-                                        color: FDTheme.muted,
-                                        backgroundColor: FDTheme.canvasSoft,
+                                        label: widget.apiService.isAuthenticated
+                                            ? 'SYNCHRONISATION CLOUD ACTIVE'
+                                            : 'SYNCHRONISATION INDISPONIBLE',
+                                        color: widget.apiService.isAuthenticated
+                                            ? FDTheme.greenDark
+                                            : FDTheme.muted,
+                                        backgroundColor:
+                                            widget.apiService.isAuthenticated
+                                                ? FDTheme.greenSoft
+                                                : FDTheme.canvasSoft,
                                       ),
                                     ],
                                   ),

@@ -121,3 +121,103 @@ def test_project_study_requires_premium_key_and_404_on_unknown_study_id(tmp_path
             sub_store=sub_store,
         )
     assert exc_404.value.status_code == 404
+
+
+def test_admin_suspension_blocks_jwt_and_login_and_lists_email(tmp_path, monkeypatch):
+    from src.admin import AdminService
+    from src.auth import AuthStore
+
+    monkeypatch.setenv("AUTH_SECRET", "super-secret-auth-key-for-tests-123456")
+    auth_store = AuthStore(db_path=str(tmp_path / "auth.db"))
+    admin_svc = AdminService(db_path=str(tmp_path / "admin.db"))
+    sub_store = SubscriptionStore(db_path=str(tmp_path / "billing.db"))
+    monkeypatch.setattr(server, "_AUTH_STORE", auth_store)
+    monkeypatch.setattr(server, "_ADMIN_SERVICE", admin_svc)
+
+    reg = server.auth_register_endpoint(
+        server.AuthRegisterRequest(email="suspended@freedata.td", password="StrongPassword123!", display_name="Kader"),
+        auth_store=auth_store,
+    )
+    uid = reg["user"]["user_id"]
+    owner_id = f"user:{uid}"
+    bearer = f"Bearer {reg['token']}"
+
+    # Admin user list shows email and supports both q and search
+    listed = server.admin_list_users_endpoint(
+        q=None,
+        search="suspended@freedata.td",
+        status=None,
+        limit=50,
+        offset=0,
+        actor_info=("root", "super_admin"),
+        admin=admin_svc,
+        sub_store=sub_store,
+        auth_store=auth_store,
+    )
+    assert len(listed["users"]) == 1
+    assert listed["users"][0]["email"] == "suspended@freedata.td"
+    assert listed["users"][0]["status"] == "active"
+
+    # Admin suspends the user
+    server.admin_set_user_status_endpoint(
+        owner_id,
+        server.AdminUserStatusRequest(status="suspended", reason="Test suspension"),
+        actor_info=("root", "super_admin"),
+        admin=admin_svc,
+        auth_store=auth_store,
+    )
+
+    # Active JWT is immediately blocked with 403
+    with pytest.raises(HTTPException) as exc_jwt:
+        server._require_project_owner(x_user_id=None, x_premium_key=None, authorization=bearer)
+    assert exc_jwt.value.status_code == 403
+
+    # Re-login is also blocked
+    with pytest.raises(HTTPException) as exc_login:
+        server.auth_login_endpoint(
+            server.AuthLoginRequest(email="suspended@freedata.td", password="StrongPassword123!"),
+            auth_store=auth_store,
+        )
+    assert exc_login.value.status_code == 401
+
+
+def test_max_projects_limit_and_privacy_deletion_purges_conversations(tmp_path):
+    from src.conversations import ConversationStore
+
+    store = ProjectStore(db_path=str(tmp_path / "proj.db"), artifacts_dir=str(tmp_path / "art"))
+    sub_store = SubscriptionStore(db_path=str(tmp_path / "billing.db"))
+    conv_store = ConversationStore(db_path=str(tmp_path / "conv.db"))
+    owner_id = "user:" + "u" + "c" * 32
+
+    # Free plan allows up to 5 active projects
+    for i in range(5):
+        server.create_project_endpoint(
+            server.ProjectCreateRequest(name=f"Projet {i+1}"),
+            owner_id=owner_id,
+            x_premium_key=None,
+            store=store,
+            sub_store=sub_store,
+        )
+
+    # 6th active project -> 429
+    with pytest.raises(HTTPException) as exc_limit:
+        server.create_project_endpoint(
+            server.ProjectCreateRequest(name="Projet 6"),
+            owner_id=owner_id,
+            x_premium_key=None,
+            store=store,
+            sub_store=sub_store,
+        )
+    assert exc_limit.value.status_code == 429
+
+    # Privacy deletion purges both projects and cloud conversations
+    conv_store.upsert_conversation(
+        owner_id,
+        {"id": "conv-1", "title": "Test", "messages": [{"role": "user", "text": "Bonjour"}]},
+    )
+    assert len(conv_store.list_conversations(owner_id)) == 1
+    out = server.delete_my_data_endpoint(confirm=True, owner_id=owner_id, store=store, conv_store=conv_store)
+    assert out["deleted_projects"] == 5
+    assert out["deleted_conversations"] == 1
+    assert len(conv_store.list_conversations(owner_id)) == 0
+

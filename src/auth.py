@@ -178,6 +178,26 @@ class AuthStore:
             row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
         return self._public_user(row) if row else None
 
+    def set_account_status(self, user_id: str, status: str) -> bool:
+        """Met à jour user_accounts.status ('active' | 'suspended') si le compte existe."""
+        if status not in ("active", "suspended"):
+            raise ValueError("Statut invalide (active | suspended).")
+        clean = (user_id or "").strip().removeprefix("user:")
+        if not clean:
+            return False
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE user_accounts SET status = ? WHERE user_id = ?",
+                (status, clean),
+            )
+            return (cur.rowcount or 0) > 0
+
+    def list_accounts(self) -> list[dict[str, Any]]:
+        """Retourne tous les comptes inscrits (sans hash/salt) pour la console d'administration."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM user_accounts ORDER BY created_at DESC").fetchall()
+        return [self._public_user(r) for r in rows]
+
     def update_profile(self, user_id: str, *, display_name: str) -> dict[str, Any]:
         clean = (user_id or "").strip().removeprefix("user:")
         clean_name = (display_name or "").strip()[:80]

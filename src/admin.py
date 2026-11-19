@@ -191,16 +191,32 @@ class AdminService:
         )
         return {"user_id": target_user_id, "role": new_role, "updated_at": now}
 
+    def is_user_suspended(self, user_id: str) -> bool:
+        """Retourne True si l'identifiant (avec ou sans préfixe user:) est suspendu dans admin_accounts."""
+        clean = (user_id or "").strip()
+        if not clean:
+            return False
+        raw = clean.removeprefix("user:")
+        candidates = tuple({clean, raw, f"user:{raw}"})
+        placeholders = ",".join("?" for _ in candidates)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT account_status FROM admin_accounts WHERE user_id IN ({placeholders}) AND account_status = 'suspended' LIMIT 1",
+                candidates,
+            ).fetchone()
+        return row is not None
+
     def list_users(
         self,
         sub_store: Any,
         *,
+        auth_store: Any = None,
         q: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Lists users with role, status, subscription, and usage count (never private conversations/files)."""
+        """Lists users with role, status, email, subscription, and usage count (never private conversations/files)."""
         with self._connect() as conn:
             acc_rows = {r["user_id"]: dict(r) for r in conn.execute("SELECT * FROM admin_accounts").fetchall()}
 
@@ -211,24 +227,50 @@ class AdminService:
                 for r in sconn.execute("SELECT user_id, COUNT(*) AS cnt FROM usage_events GROUP BY user_id").fetchall()
             }
 
-        all_ids = sorted(set(acc_rows.keys()) | set(sub_rows.keys()) | set(ev_counts.keys()))
+        auth_by_owner: dict[str, dict[str, Any]] = {}
+        if auth_store is not None and hasattr(auth_store, "list_accounts"):
+            try:
+                for u in auth_store.list_accounts():
+                    raw_id = str(u.get("user_id") or "").strip().removeprefix("user:")
+                    if raw_id:
+                        auth_by_owner[f"user:{raw_id}"] = u
+                        auth_by_owner[raw_id] = u
+            except Exception:
+                pass
+
+        raw_ids = set(acc_rows.keys()) | set(sub_rows.keys()) | set(ev_counts.keys())
+        for u in auth_by_owner.values():
+            raw_id = str(u.get("user_id") or "").strip().removeprefix("user:")
+            if raw_id and raw_id not in raw_ids and f"user:{raw_id}" not in raw_ids:
+                raw_ids.add(f"user:{raw_id}")
+
+        all_ids = sorted(raw_ids)
         out: list[dict[str, Any]] = []
         q_low = (q or "").strip().lower()
         for uid in all_ids:
-            acc = acc_rows.get(uid, {})
-            sub = sub_rows.get(uid, {})
-            acc_status = acc.get("account_status", "active")
-            if q_low and q_low not in uid.lower():
+            bare = uid.removeprefix("user:")
+            pref = f"user:{bare}"
+            acc = acc_rows.get(uid) or acc_rows.get(pref) or acc_rows.get(bare) or {}
+            sub = sub_rows.get(uid) or sub_rows.get(pref) or sub_rows.get(bare) or {}
+            auth_u = auth_by_owner.get(uid) or auth_by_owner.get(pref) or auth_by_owner.get(bare) or {}
+            acc_status = acc.get("account_status") or auth_u.get("status") or "active"
+            email = str(auth_u.get("email") or "")
+            display_name = str(auth_u.get("display_name") or "")
+            searchable = f"{uid} {email} {display_name}".lower()
+            if q_low and q_low not in searchable:
                 continue
             if status and acc_status != status:
                 continue
             out.append({
                 "user_id": uid,
+                "email": email,
+                "display_name": display_name,
                 "role": acc.get("role", "user"),
                 "account_status": acc_status,
+                "status": acc_status,
                 "plan_id": sub.get("plan_id", "free"),
                 "subscription_status": sub.get("status", "active"),
-                "usage_events_count": ev_counts.get(uid, 0),
+                "usage_events_count": ev_counts.get(uid, 0) or ev_counts.get(pref, 0) or ev_counts.get(bare, 0),
             })
         return out[offset : offset + limit]
 

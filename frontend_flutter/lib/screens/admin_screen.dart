@@ -484,12 +484,22 @@ class _AdminScreenState extends State<AdminScreen> {
                     else
                       ..._users.map((u) {
                         final uid = u['user_id'].toString();
-                        final status = u['status']?.toString() ?? 'active';
+                        final email = u['email']?.toString().trim() ?? '';
+                        final displayName =
+                            u['display_name']?.toString().trim() ?? '';
+                        final status =
+                            (u['account_status'] ?? u['status'])?.toString() ??
+                                'active';
                         final suspended = status == 'suspended';
+                        final titleText = email.isNotEmpty
+                            ? (displayName.isNotEmpty
+                                ? '$displayName · $email ($uid)'
+                                : '$email ($uid)')
+                            : uid;
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          title: Text(uid,
+                          title: Text(titleText,
                               style:
                                   const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text(

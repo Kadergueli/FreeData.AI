@@ -304,6 +304,10 @@ void main() {
     expect(find.text('32 mois'), findsOneWidget);
     expect(find.textContaining('Indicateur informatif fondé sur la volatilité'),
         findsOneWidget);
+    await tester.tap(find.text('Détails du calcul'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Score marché : 65/100 calculé sur 32 mois'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -784,8 +784,13 @@ class ApiService {
         .get(uri, headers: _projectHeaders())
         .timeout(const Duration(seconds: 20));
     if (resp.statusCode == 200) {
-      return Map<String, dynamic>.from(
+      final data = Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      final sub = data['subscription'];
+      final effPlan = sub is Map ? sub['effective_plan_id']?.toString() : null;
+      _subscriptionIsPro =
+          data['is_pro'] == true || effPlan == 'premium' || effPlan == 'trial';
+      return data;
     }
     throw ApiHttpException(
         resp.statusCode, 'Erreur chargement abonnement (${resp.statusCode})');
@@ -841,7 +846,7 @@ class ApiService {
       {String search = ''}) async {
     final uri = Uri.parse('$baseUrl/api/v1/admin/users').replace(
       queryParameters: {
-        if (search.trim().isNotEmpty) 'search': search.trim(),
+        if (search.trim().isNotEmpty) 'q': search.trim(),
         'limit': '100',
       },
     );

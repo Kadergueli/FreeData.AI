@@ -527,7 +527,10 @@ class _MainShellState extends State<MainShell> {
         .push(MaterialPageRoute(
             builder: (_) => SettingsScreen(apiService: _apiService)))
         .then((_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        _reloadConversations();
+      }
     });
   }
 

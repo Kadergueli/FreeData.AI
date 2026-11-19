@@ -728,6 +728,17 @@ def get_conversation_store() -> ConversationStore:
 _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
 
 
+def _assert_not_suspended(owner_id: Optional[str]) -> None:
+    if not owner_id:
+        return
+    if _ADMIN_SERVICE is not None and _ADMIN_SERVICE.is_user_suspended(owner_id):
+        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    if _AUTH_STORE is not None and owner_id.startswith("user:"):
+        u = _AUTH_STORE.get_user(owner_id)
+        if u and u.get("status") == "suspended":
+            raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+
+
 def _resolve_owner_id_optional(
     x_user_id: Optional[str] = None,
     x_premium_key: Optional[str] = None,
@@ -741,7 +752,9 @@ def _resolve_owner_id_optional(
         if sub:
             if _AUTH_STORE is not None and _AUTH_STORE.is_token_revoked(tok):
                 raise HTTPException(status_code=401, detail="Session révoquée. Veuillez vous reconnecter.")
-            return f"user:{sub}"
+            owner = f"user:{sub}"
+            _assert_not_suspended(owner)
+            return owner
         raise HTTPException(status_code=401, detail="Jeton Bearer invalide ou expiré.")
 
     require_signed = os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() in ("1", "true", "yes")
@@ -750,9 +763,13 @@ def _resolve_owner_id_optional(
     strong = _STRONG_UID_RE.fullmatch(uid) is not None
     # Isoler chaque utilisateur par son identifiant fort même en mode PRO (évite le partage entre détenteurs d'une même clé).
     if strong and (not require_signed or _premium_key_ok(pkey)):
-        return f"user:{uid}"
+        owner = f"user:{uid}"
+        _assert_not_suspended(owner)
+        return owner
     if not require_signed and uid and settings.allow_weak_user_id and len(uid) >= 3:
-        return f"user:{uid[:80]}"
+        owner = f"user:{uid[:80]}"
+        _assert_not_suspended(owner)
+        return owner
     if pkey and _premium_key_ok(pkey):
         import hashlib
         digest = hashlib.sha256(pkey.strip().encode("utf-8")).hexdigest()[:16]
@@ -1191,8 +1208,22 @@ class ProjectStudyCreateRequest(MarketStudyRequest):
 def create_project_endpoint(
     payload: ProjectCreateRequest,
     owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
     store: ProjectStore = Depends(get_project_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
+    if isinstance(sub_store, SubscriptionStore):
+        sub = sub_store.get_subscription(owner_id)
+        limits = sub["limits"]
+        if _premium_key_ok(x_premium_key) and sub.get("plan_id") == "free" and sub.get("status") == "active":
+            limits = DEFAULT_PLANS["premium"]
+        max_proj = int(limits.get("max_projects", 5))
+        existing_active = store.list_projects(owner_id, include_archived=False, limit=max_proj + 1, offset=0)
+        if not payload.idempotency_key and len(existing_active) >= max_proj:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Plafond de projets actifs atteint ({max_proj} max pour votre plan). Archivez un projet ou passez à PRO.",
+            )
     return store.create_project(
         owner_id=owner_id,
         name=payload.name,
@@ -1548,10 +1579,14 @@ def delete_my_data_endpoint(
     confirm: bool = Query(False),
     owner_id: str = Depends(_require_project_owner),
     store: ProjectStore = Depends(get_project_store),
+    conv_store: ConversationStore = Depends(get_conversation_store),
 ):
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation explicite requise (?confirm=true).")
-    return PrivacyController.delete_user_data(store, owner_id)
+    deleted_convs = conv_store.purge_owner(owner_id) if isinstance(conv_store, ConversationStore) else 0
+    out = PrivacyController.delete_user_data(store, owner_id)
+    out["deleted_conversations"] = deleted_convs
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1623,8 +1658,11 @@ def analytics_anomalies_endpoint(
     state: dict = Depends(get_state),
     svc: AnalyticsService = Depends(get_analytics_service),
 ):
+    anom_df = state.get("anomalies")
+    if anom_df is None or (isinstance(anom_df, pd.DataFrame) and anom_df.empty):
+        anom_df = state.get("anomalies_df", pd.DataFrame())
     return svc.get_anomalies(
-        state.get("anomalies_df", pd.DataFrame()),
+        anom_df,
         province=province,
         commodity=commodity,
         limit=limit,
@@ -1717,12 +1755,15 @@ def intelligence_orchestrate_endpoint(
     rag: HybridRAGEngine = Depends(get_hybrid_rag),
 ):
     orch = IntelligenceOrchestrator(analytics=svc, rag=rag)
+    anom_df = state.get("anomalies")
+    if anom_df is None or (isinstance(anom_df, pd.DataFrame) and anom_df.empty):
+        anom_df = state.get("anomalies_df", pd.DataFrame())
     return orch.handle(
         payload.query,
         forecast_df=state["forecast_df"],
         hist_df=state.get("hist_df", pd.DataFrame()),
         passport_df=state.get("passport_df", pd.DataFrame()),
-        anomalies_df=state.get("anomalies_df", pd.DataFrame()),
+        anomalies_df=anom_df,
         commodity=payload.commodity,
         province=payload.province,
     )
@@ -1910,7 +1951,7 @@ def list_domains_endpoint(
 ):
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
     eff_tier = "premium" if _has_pro_access(owner_id, x_premium_key, sub_store) else "free"
-    uid = (x_user_id or "anonymous").strip()[:80]
+    uid = (owner_id or x_user_id or "anonymous").strip()[:80]
     return {
         "domains": DomainRegistry.list_domains(),
         "entitlements": ent.get_entitlements(eff_tier, uid),
@@ -1932,7 +1973,7 @@ def platform_chat_endpoint(
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
     eff_tier = "premium" if (payload.tier == "premium" and _has_pro_access(owner_id, x_premium_key, sub_store)) else "free"
     _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
-    uid = (x_user_id or "anonymous").strip()[:80]
+    uid = (owner_id or x_user_id or "anonymous").strip()[:80]
     try:
         quota_info = ent.consume_chat_quota(eff_tier, uid)
     except OverflowError as exc:
@@ -1952,12 +1993,15 @@ def platform_chat_endpoint(
 
     if domain_mod.domain_id == "data_science":
         orch = IntelligenceOrchestrator(analytics=svc, rag=rag)
+        anom_df = state.get("anomalies")
+        if anom_df is None or (isinstance(anom_df, pd.DataFrame) and anom_df.empty):
+            anom_df = state.get("anomalies_df", pd.DataFrame())
         out = orch.handle(
             payload.message,
             forecast_df=state["forecast_df"],
             hist_df=state.get("hist_df", pd.DataFrame()),
             passport_df=state.get("passport_df", pd.DataFrame()),
-            anomalies_df=state.get("anomalies_df", pd.DataFrame()),
+            anomalies_df=anom_df,
         )
         return {
             "reply": f"**[{domain_mod.label_fr}]** Outil exécuté : `{out['tool_used']}` (portée : {out['geographic_scope']}, méthodologie : {out['methodology']}).",
@@ -2577,6 +2621,7 @@ def admin_overview_endpoint(
     state: dict = Depends(get_state),
     admin: AdminService = Depends(get_admin_service),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
+    auth_store: AuthStore = Depends(get_auth_store),
     registry: LicensingRegistry = Depends(get_licensing_registry),
 ):
     _, role = actor_info
@@ -2589,7 +2634,7 @@ def admin_overview_endpoint(
         api_metrics = dict(_METRICS)
     api_metrics["avg_latency_ms"] = round(api_metrics.pop("total_latency_ms", 0.0) / max(1, api_metrics.get("total_requests", 1)), 2)
 
-    users = admin.list_users(sub_store, limit=500, offset=0)
+    users = admin.list_users(sub_store, auth_store=auth_store, limit=500, offset=0)
     plan_counts = {"free": 0, "trial": 0, "premium": 0}
     for u in users:
         p = u["plan_id"]
@@ -2610,19 +2655,22 @@ def admin_overview_endpoint(
 @app.get("/api/v1/admin/users", dependencies=[Depends(_admin_rate_limit_dependency)])
 def admin_list_users_endpoint(
     q: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     status: Optional[Literal["active", "suspended"]] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     actor_info: tuple[str, str] = Depends(_require_admin_actor),
     admin: AdminService = Depends(get_admin_service),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
+    auth_store: AuthStore = Depends(get_auth_store),
 ):
     _, role = actor_info
     try:
         admin.check_permission(role, "read_overview")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    return {"users": admin.list_users(sub_store, q=q, status=status, limit=limit, offset=offset)}
+    query_str = (q if q is not None else search)
+    return {"users": admin.list_users(sub_store, auth_store=auth_store, q=query_str, status=status, limit=limit, offset=offset)}
 
 
 class AdminUserStatusRequest(BaseModel):
@@ -2636,10 +2684,14 @@ def admin_set_user_status_endpoint(
     payload: AdminUserStatusRequest,
     actor_info: tuple[str, str] = Depends(_require_admin_actor),
     admin: AdminService = Depends(get_admin_service),
+    auth_store: AuthStore = Depends(get_auth_store),
 ):
     actor, role = actor_info
     try:
-        return admin.set_user_status(actor=actor, actor_role=role, target_user_id=target_user_id, status=payload.status, reason=payload.reason)
+        res = admin.set_user_status(actor=actor, actor_role=role, target_user_id=target_user_id, status=payload.status, reason=payload.reason)
+        if isinstance(auth_store, AuthStore):
+            auth_store.set_account_status(target_user_id, payload.status)
+        return res
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

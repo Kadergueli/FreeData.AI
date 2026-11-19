@@ -152,6 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _loadDefaultDomain();
     if (oldWidget.conversationId != widget.conversationId) {
       _loadConversation(widget.conversationId);
     }

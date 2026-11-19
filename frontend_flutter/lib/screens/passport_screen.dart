@@ -336,6 +336,7 @@ class _PassportScreenState extends State<PassportScreen> {
                       : (score >= 45
                           ? const Color(0xFFD98B24)
                           : const Color(0xFFB54745));
+                  bool expanded = false;
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -430,57 +431,56 @@ class _PassportScreenState extends State<PassportScreen> {
                           const SizedBox(height: 8),
                           StatefulBuilder(
                             builder: (ctx, setLocal) {
-                              bool expanded = false;
-                              return StatefulBuilder(
-                                builder: (c2, _) => Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () =>
-                                          setLocal(() => expanded = !expanded),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 4),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Text(
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () =>
+                                        setLocal(() => expanded = !expanded),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 4),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Flexible(
+                                            child: Text(
                                               'Détails du calcul',
                                               style: TextStyle(
                                                   fontSize: 12.5,
                                                   fontWeight: FontWeight.w600,
                                                   color: FDTheme.blue),
                                             ),
-                                            const SizedBox(width: 4),
-                                            Icon(
-                                              expanded
-                                                  ? Icons
-                                                      .keyboard_arrow_up_rounded
-                                                  : Icons
-                                                      .keyboard_arrow_down_rounded,
-                                              size: 16,
-                                              color: FDTheme.blue,
-                                            ),
-                                          ],
-                                        ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Icon(
+                                            expanded
+                                                ? Icons
+                                                    .keyboard_arrow_up_rounded
+                                                : Icons
+                                                    .keyboard_arrow_down_rounded,
+                                            size: 16,
+                                            color: FDTheme.blue,
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    if (expanded)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          'Score marché : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
-                                          '(volatilité CV = $cvLabel %, baisse max = $drawdownLabel %, ratio LTV indicatif = $maxLoanLabel). '
-                                          'Indicateur de stabilité des prix uniquement (non calibré sur défauts bancaires).',
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              height: 1.45,
-                                              color: FDTheme.muted),
-                                        ),
+                                  ),
+                                  if (expanded)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        'Score marché : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
+                                        '(volatilité CV = $cvLabel %, baisse max = $drawdownLabel %, ratio LTV indicatif = $maxLoanLabel). '
+                                        'Indicateur de stabilité des prix uniquement (non calibré sur défauts bancaires).',
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            height: 1.45,
+                                            color: FDTheme.muted),
                                       ),
-                                  ],
-                                ),
+                                    ),
+                                ],
                               );
                             },
                           ),
