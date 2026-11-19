@@ -819,12 +819,16 @@ class _MainShellState extends State<MainShell> {
                         ),
                         const SizedBox(width: 8),
                         Semantics(
-                          button: true,
+                          button: _apiService.isAuthenticated ||
+                              _apiService.hasPremiumKey,
                           label: _apiService.hasPremiumKey
                               ? 'Accès Partenaire actif'
                               : 'Tchad · Marchés et Prix',
                           child: InkWell(
-                            onTap: _configurePremiumKey,
+                            onTap: (_apiService.isAuthenticated ||
+                                    _apiService.hasPremiumKey)
+                                ? _configurePremiumKey
+                                : null,
                             borderRadius: BorderRadius.circular(99),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
@@ -1780,7 +1784,7 @@ class _SidebarContentState extends State<_SidebarContent> {
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: widget.onConfigurePremiumKey,
+              onTap: widget.hasPremiumKey ? widget.onConfigurePremiumKey : null,
               borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding:
@@ -1837,32 +1841,28 @@ class _SidebarContentState extends State<_SidebarContent> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: widget.hasPremiumKey
-                            ? FDTheme.greenSoft
-                            : FDTheme.canvas,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: widget.hasPremiumKey
-                              ? FDTheme.green.withValues(alpha: 0.3)
-                              : FDTheme.line,
+                    if (widget.hasPremiumKey) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: FDTheme.greenSoft,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: FDTheme.green.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: const Text(
+                          'PRO',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: FDTheme.greenDark,
+                          ),
                         ),
                       ),
-                      child: Text(
-                        widget.hasPremiumKey ? 'PRO' : 'Clé Pro',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: widget.hasPremiumKey
-                              ? FDTheme.greenDark
-                              : FDTheme.muted,
-                        ),
-                      ),
-                    ),
+                    ],
                   ],
                 ),
               ),

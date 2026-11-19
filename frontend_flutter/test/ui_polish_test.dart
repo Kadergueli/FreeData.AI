@@ -762,11 +762,35 @@ void main() {
     });
 
     final shellApi = _ReducedForecastFakeApi();
+    // Sans compte, le bouton 'Clé Pro' n'est plus affiché dans le pied de sidebar invité
     await tester.pumpWidget(MaterialApp(home: MainShell(apiService: shellApi)));
     await tester.pumpAndSettle();
+    expect(find.text('Clé Pro'), findsNothing);
 
-    // Une fausse clé saisie manuellement via 'Clé Pro' est refusée
-    await tester.tap(find.text('Clé Pro'));
+    // Une fois connecté, la clé partenaire s'active depuis le menu du compte ('Clé partenaire PRO')
+    shellApi.setAuthSession(
+      token: 'jwt-test-session',
+      user: {
+        'user_id': ApiService.generateUserId(),
+        'email': 'partenaire@freedata.td',
+        'display_name': 'Partenaire Tchad',
+      },
+      isPro: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MainShell(
+          key: const ValueKey('authed-shell'),
+          apiService: shellApi,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Une fausse clé saisie manuellement via le menu compte est refusée
+    await tester.tap(find.byTooltip('Menu du compte'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clé partenaire PRO'));
     await tester.pumpAndSettle();
     expect(find.text('Accès Partenaire & Clé Pro'), findsOneWidget);
     await tester.enterText(
@@ -782,7 +806,9 @@ void main() {
     expect(shellApi.hasPremiumKey, isFalse);
 
     // Saisie de la vraie clé configurée sur Render -> activée après vérification serveur
-    await tester.tap(find.text('Clé Pro'));
+    await tester.tap(find.byTooltip('Menu du compte'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clé partenaire PRO'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
