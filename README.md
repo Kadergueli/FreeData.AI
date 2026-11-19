@@ -49,7 +49,8 @@ Ensuite, lancer le pipeline de publication : `python -m scripts.publish_pipeline
 Voir `.env.example`. Points importants :
 
 - `SUPABASE_KEY` : clé **publique** (anon) pour l'API. `SUPABASE_SERVICE_ROLE_KEY` : seulement pour le script mensuel.
-- `ADMIN_TOKEN` : active `POST /api/v1/refresh` (en-tête `X-Admin-Token`). Sans valeur, l'endpoint est désactivé.
+- `ADMIN_TOKENS` : jetons admin par personne `acteur:rôle:jeton` séparés par `;` (rôles `read_only_analyst`, `support_admin`, `platform_admin`, `super_admin`). Le rôle et l'acteur journalisé sont déduits du jeton ; `X-Admin-Role`/`X-Admin-Actor` sont ignorés.
+- `ADMIN_TOKEN` (hérité, équivaut à `root_admin` / `super_admin`) : active `POST /api/v1/refresh` (en-tête `X-Admin-Token`). Sans valeur, l'endpoint est désactivé.
 - `MAX_STALENESS_MONTHS` : fraîcheur maximale des séries servies (défaut 3).
 
 ## 3. Démarrage Backend Python (FastAPI)
