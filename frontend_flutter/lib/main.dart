@@ -743,20 +743,40 @@ class _MainShellState extends State<MainShell> {
         ProjectsScreen(
           apiService: _apiService,
           onResumeProject: (proj) {
-            // Le chat n'a pas de canal « study_context » : on injecte le contexte du projet dans le prompt.
-            final buf =
-                StringBuffer('Reprendre le projet « ${proj['name']} ».');
+            final name = proj['name']?.toString().trim() ?? 'Projet';
             final desc = proj['description']?.toString().trim() ?? '';
-            if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
             final ctx = proj['study_context'];
-            if (ctx is Map && ctx.isNotEmpty) {
-              final parts = ctx.entries
-                  .where((e) =>
-                      e.value != null && e.value.toString().trim().isNotEmpty)
-                  .map((e) => '${e.key} = ${e.value}')
-                  .take(12);
-              if (parts.isNotEmpty)
-                buf.write('\nContexte enregistré : ${parts.join(' ; ')}');
+            final details = <String>[];
+            if (ctx is Map) {
+              final prod = ctx['product_activity'];
+              if (prod is Map) {
+                final comm = prod['commodity']?.toString().trim() ?? '';
+                if (comm.isNotEmpty) details.add('Produit : $comm');
+                final qty = prod['quantity_kg'];
+                if (qty != null) details.add('Quantité : $qty kg');
+              }
+              final geo = ctx['geography'];
+              if (geo is Map) {
+                final orig = geo['origin_province']?.toString().trim() ?? '';
+                final dest = geo['dest_province']?.toString().trim() ?? '';
+                if (orig.isNotEmpty && dest.isNotEmpty) {
+                  details.add('Axe : $orig → $dest');
+                } else if (orig.isNotEmpty) {
+                  details.add('Province : $orig');
+                }
+              }
+              final bud = ctx['budget_and_assumptions'];
+              if (bud is Map) {
+                final cap = bud['capital_xaf'];
+                if (cap != null) details.add('Capital : $cap FCFA');
+                final tr = bud['transport_cost_per_kg'];
+                if (tr != null) details.add('Transport : $tr XAF/kg');
+              }
+            }
+            final buf = StringBuffer('Reprendre le projet « $name ».');
+            if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
+            if (details.isNotEmpty) {
+              buf.write('\nParamètres : ${details.join(' · ')}');
             }
             final studies = proj['studies'];
             if (studies is List && studies.isNotEmpty) {
