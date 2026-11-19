@@ -198,6 +198,7 @@ class ApiService {
     List<Map<String, String>> history = const [],
     String tier = 'free',
     Map<String, dynamic>? studyContext,
+    String? projectId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/platform/chat');
     final body = jsonEncode({
@@ -206,6 +207,8 @@ class ApiService {
       if (history.isNotEmpty) 'history': history,
       'tier': tier,
       if (studyContext != null) 'study_context': studyContext,
+      if (projectId != null && projectId.trim().isNotEmpty)
+        'project_id': projectId.trim(),
     });
     final resp = await _client
         .post(uri, headers: _projectHeaders(includeJson: true), body: body)
@@ -226,6 +229,7 @@ class ApiService {
     List<Map<String, String>> history = const [],
     String tier = 'free',
     Map<String, dynamic>? studyContext,
+    String? projectId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/chat');
     final body = jsonEncode({
@@ -233,6 +237,8 @@ class ApiService {
       if (history.isNotEmpty) 'history': history,
       'tier': tier,
       if (studyContext != null) 'study_context': studyContext,
+      if (projectId != null && projectId.trim().isNotEmpty)
+        'project_id': projectId.trim(),
     });
     final headers = _projectHeaders(includeJson: true);
 
@@ -514,9 +520,7 @@ class ApiService {
       {bool includeArchived = false}) async {
     final uri =
         Uri.parse('$baseUrl/api/v1/projects?include_archived=$includeArchived');
-    final resp = await _client
-        .get(uri, headers: _projectHeaders())
-        .timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
     if (resp.statusCode == 200) {
       final decoded =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
@@ -687,7 +691,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getAnalyticsProfile() async {
     final uri = Uri.parse('$baseUrl/api/v1/analytics/profile');
-    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
@@ -704,7 +708,7 @@ class ApiService {
     };
     final uri = Uri.parse('$baseUrl/api/v1/analytics/summary')
         .replace(queryParameters: q.isEmpty ? null : q);
-    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
@@ -720,7 +724,7 @@ class ApiService {
     };
     final uri = Uri.parse('$baseUrl/api/v1/analytics/regional-comparison')
         .replace(queryParameters: q.isEmpty ? null : q);
-    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
@@ -738,7 +742,7 @@ class ApiService {
     };
     final uri = Uri.parse('$baseUrl/api/v1/analytics/trends')
         .replace(queryParameters: q);
-    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
@@ -921,6 +925,20 @@ class ApiService {
     }
     throw ApiHttpException(
         resp.statusCode, 'Erreur sauvegarde (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> triggerAdminRefreshData(
+      String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/refresh');
+    final resp = await _client.post(uri, headers: {
+      'X-Admin-Token': adminToken.trim()
+    }).timeout(const Duration(seconds: 45));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(
+        resp.statusCode, 'Erreur rechargement données (${resp.statusCode})');
   }
 
   Future<Map<String, dynamic>> refreshAdminData(String adminToken) async {
@@ -1382,6 +1400,7 @@ class ApiService {
     required String filename,
     required Uint8List bytes,
     String? mimeType,
+    String? projectId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/documents/upload');
     final resp = await _client
@@ -1393,6 +1412,8 @@ class ApiService {
             'content_base64': base64Encode(bytes),
             if (mimeType != null && mimeType.trim().isNotEmpty)
               'mime_type': mimeType.trim(),
+            if (projectId != null && projectId.trim().isNotEmpty)
+              'project_id': projectId.trim(),
           }),
         )
         .timeout(const Duration(seconds: 40));
@@ -1404,11 +1425,14 @@ class ApiService {
         _extractErrorDetail(resp, 'Téléversement du document impossible'));
   }
 
-  Future<List<Map<String, dynamic>>> listUserDocuments() async {
-    final uri = Uri.parse('$baseUrl/api/v1/documents');
-    final resp = await _client
-        .get(uri, headers: _projectHeaders())
-        .timeout(const Duration(seconds: 20));
+  Future<List<Map<String, dynamic>>> listUserDocuments(
+      {String? projectId}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/documents').replace(
+      queryParameters: (projectId != null && projectId.trim().isNotEmpty)
+          ? {'project_id': projectId.trim()}
+          : null,
+    );
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
     if (resp.statusCode == 200) {
       final decoded =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;

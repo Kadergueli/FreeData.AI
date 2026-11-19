@@ -231,7 +231,8 @@ class _AuditFakeApiService extends ApiService {
   final List<Map<String, dynamic>> uploadedDocs = [];
 
   @override
-  Future<List<Map<String, dynamic>>> listUserDocuments() async =>
+  Future<List<Map<String, dynamic>>> listUserDocuments(
+          {String? projectId}) async =>
       List<Map<String, dynamic>>.from(uploadedDocs);
 
   @override
@@ -239,9 +240,11 @@ class _AuditFakeApiService extends ApiService {
     required String filename,
     required Uint8List bytes,
     String? mimeType,
+    String? projectId,
   }) async {
     final doc = {
       'doc_id': 'doc-${uploadedDocs.length + 1}',
+      'project_id': projectId,
       'filename': filename,
       'mime_type': mimeType ?? 'application/octet-stream',
       'size_bytes': bytes.length,
@@ -299,6 +302,7 @@ class _AuditFakeApiService extends ApiService {
     List<Map<String, String>> history = const [],
     String tier = 'free',
     Map<String, dynamic>? studyContext,
+    String? projectId,
   }) async {
     lastSentChatMessage = message;
     return {

@@ -287,6 +287,7 @@ class UserDocumentStore:
                 CREATE TABLE IF NOT EXISTS user_documents (
                     doc_id TEXT PRIMARY KEY,
                     owner_id TEXT NOT NULL,
+                    project_id TEXT,
                     filename TEXT NOT NULL,
                     extension TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL,
@@ -302,6 +303,7 @@ class UserDocumentStore:
                     chunk_id TEXT PRIMARY KEY,
                     doc_id TEXT NOT NULL,
                     owner_id TEXT NOT NULL,
+                    project_id TEXT,
                     chunk_index INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     jina_embedding_json TEXT,
@@ -311,6 +313,15 @@ class UserDocumentStore:
                     ON user_document_chunks(owner_id, doc_id, chunk_index);
                 """
             )
+            # Migration douce (idempotente) pour bases existantes
+            for stmt in (
+                "ALTER TABLE user_documents ADD COLUMN project_id TEXT",
+                "ALTER TABLE user_document_chunks ADD COLUMN project_id TEXT",
+            ):
+                try:
+                    conn.execute(stmt)
+                except Exception:
+                    pass
             if self._pg_url:
                 _db.harden_tables(conn)
 
@@ -321,12 +332,15 @@ class UserDocumentStore:
         filename: str,
         content_bytes: bytes,
         mime_type: Optional[str] = None,
+        project_id: Optional[str] = None,
         max_bytes: int = 2 * 1024 * 1024,
         max_docs: int = 10,
     ) -> dict[str, Any]:
         """Validates, extracts text, indexes chunks via Jina (or local fallback), and persists under `owner_id`."""
         if not owner_id:
             raise PermissionError("Authentification requise pour téléverser un document.")
+
+        clean_project_id = project_id.strip()[:80] if isinstance(project_id, str) and project_id.strip() else None
 
         validation = validate_uploaded_document(
             filename,
@@ -357,14 +371,15 @@ class UserDocumentStore:
             conn.execute(
                 """
                 INSERT INTO user_documents (
-                    doc_id, owner_id, filename, extension, size_bytes,
+                    doc_id, owner_id, project_id, filename, extension, size_bytes,
                     page_count, chunks_count, embedding_provider, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc_id,
                     owner_id,
+                    clean_project_id,
                     validation["filename"],
                     validation["extension"],
                     validation["size_bytes"],
@@ -385,16 +400,17 @@ class UserDocumentStore:
                 conn.execute(
                     """
                     INSERT INTO user_document_chunks (
-                        chunk_id, doc_id, owner_id, chunk_index, content, jina_embedding_json, created_at
+                        chunk_id, doc_id, owner_id, project_id, chunk_index, content, jina_embedding_json, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (chunk_id, doc_id, owner_id, idx, piece, vec_json, now),
+                    (chunk_id, doc_id, owner_id, clean_project_id, idx, piece, vec_json, now),
                 )
 
         return {
             "doc_id": doc_id,
             "owner_id": owner_id,
+            "project_id": clean_project_id,
             "filename": validation["filename"],
             "extension": validation["extension"],
             "size_bytes": validation["size_bytes"],
@@ -410,14 +426,21 @@ class UserDocumentStore:
             "created_at": now,
         }
 
-    def list_documents(self, owner_id: str) -> list[dict[str, Any]]:
+    def list_documents(self, owner_id: str, *, project_id: Optional[str] = None) -> list[dict[str, Any]]:
         if not owner_id:
             return []
+        clean_pid = project_id.strip()[:80] if isinstance(project_id, str) and project_id.strip() else None
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM user_documents WHERE owner_id = ? ORDER BY created_at DESC",
-                (owner_id,),
-            ).fetchall()
+            if clean_pid:
+                rows = conn.execute(
+                    "SELECT * FROM user_documents WHERE owner_id = ? AND project_id = ? ORDER BY created_at DESC",
+                    (owner_id, clean_pid),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM user_documents WHERE owner_id = ? ORDER BY created_at DESC",
+                    (owner_id,),
+                ).fetchall()
         return [dict(r) for r in rows]
 
     def delete_document(self, owner_id: str, doc_id: str) -> bool:
@@ -447,15 +470,18 @@ class UserDocumentStore:
         owner_id: str,
         query: str,
         *,
+        project_id: Optional[str] = None,
         top_k: int = 3,
         max_excerpt_chars: int = 440,
         min_score: float = 0.25,
     ) -> list[dict[str, Any]]:
-        """Retrieves top-K chunks strictly belonging to `owner_id`, using Jina cosine + BM25 hybrid scoring.
-        Filters out low-relevance chunks (`score < min_score`) unless the user explicitly refers to their document.
+        """Retrieves top-K chunks strictly belonging to `owner_id` (and scoped to `project_id` when provided),
+        using Jina cosine + BM25 hybrid scoring.
         """
         if not owner_id or not (query or "").strip():
             return []
+
+        clean_pid = project_id.strip()[:80] if isinstance(project_id, str) and project_id.strip() else None
 
         q_clean = _strip_accents(query)
         explicit_doc_ref = bool(_EXPLICIT_DOC_QUERY_RE.search(q_clean))
@@ -467,19 +493,34 @@ class UserDocumentStore:
             return []
 
         with self._connect() as conn:
-            doc_rows = {
-                r["doc_id"]: dict(r)
-                for r in conn.execute(
-                    "SELECT doc_id, filename, extension, embedding_provider FROM user_documents WHERE owner_id = ?",
+            if clean_pid:
+                doc_rows = {
+                    r["doc_id"]: dict(r)
+                    for r in conn.execute(
+                        "SELECT doc_id, filename, extension, embedding_provider, project_id FROM user_documents WHERE owner_id = ? AND project_id = ?",
+                        (owner_id, clean_pid),
+                    ).fetchall()
+                }
+                if not doc_rows:
+                    return []
+                chunk_rows = conn.execute(
+                    "SELECT chunk_id, doc_id, chunk_index, content, jina_embedding_json FROM user_document_chunks WHERE owner_id = ? AND project_id = ?",
+                    (owner_id, clean_pid),
+                ).fetchall()
+            else:
+                doc_rows = {
+                    r["doc_id"]: dict(r)
+                    for r in conn.execute(
+                        "SELECT doc_id, filename, extension, embedding_provider, project_id FROM user_documents WHERE owner_id = ? AND (project_id IS NULL OR project_id = '')",
+                        (owner_id,),
+                    ).fetchall()
+                }
+                if not doc_rows:
+                    return []
+                chunk_rows = conn.execute(
+                    "SELECT chunk_id, doc_id, chunk_index, content, jina_embedding_json FROM user_document_chunks WHERE owner_id = ? AND (project_id IS NULL OR project_id = '')",
                     (owner_id,),
                 ).fetchall()
-            }
-            if not doc_rows:
-                return []
-            chunk_rows = conn.execute(
-                "SELECT chunk_id, doc_id, chunk_index, content, jina_embedding_json FROM user_document_chunks WHERE owner_id = ?",
-                (owner_id,),
-            ).fetchall()
 
         if not chunk_rows:
             return []

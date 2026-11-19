@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/file_picker.dart';
 import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
@@ -54,6 +55,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   String _loadedUserId = '';
   Map<String, dynamic>? _selectedProject;
   List<ConversationThread> _projectConversations = [];
+  List<Map<String, dynamic>> _projectDocuments = [];
+  bool _uploadingDoc = false;
   bool _loadingWorkspace = false;
   final TextEditingController _workspacePromptCtrl = TextEditingController();
 
@@ -182,6 +185,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       final results = await Future.wait([
         widget.apiService.getProject(pid),
         LocalConversationStorage.instance.listProjectConversations(pid),
+        widget.apiService
+            .listUserDocuments(projectId: pid)
+            .catchError((_) => <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
       final liveConvs = widget.conversations != null
@@ -190,6 +196,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       setState(() {
         _selectedProject = results[0] as Map<String, dynamic>;
         _projectConversations = liveConvs;
+        _projectDocuments = results[2] as List<Map<String, dynamic>>;
         _loadingWorkspace = false;
       });
     } catch (e) {
@@ -796,6 +803,36 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     widget.onResumeProject?.call(proj);
   }
 
+  Future<void> _uploadProjectDocument(Map<String, dynamic> proj) async {
+    final pid = proj['project_id']?.toString() ?? '';
+    if (pid.isEmpty || _uploadingDoc) return;
+    final picked = await pickUserDocumentFile();
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingDoc = true);
+    try {
+      await widget.apiService.uploadUserDocument(
+        filename: picked.name,
+        bytes: picked.bytes,
+        mimeType: picked.mimeType,
+        projectId: pid,
+      );
+      if (!mounted) return;
+      await _openWorkspace(proj, silent: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Document « ${picked.name} » indexé dans ce projet.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _uploadingDoc = false);
+    }
+  }
+
   Widget _buildProjectWorkspace(Map<String, dynamic> proj) {
     final name = proj['name']?.toString() ?? 'Projet PRO';
     final desc = proj['description']?.toString().trim() ?? '';
@@ -1116,6 +1153,85 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                 ),
                               ),
                             )),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Text(
+                            'Documents privés du projet (${_projectDocuments.length})',
+                            style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            icon: _uploadingDoc
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.attach_file_rounded,
+                                    size: 18),
+                            label: const Text('Ajouter un PDF/CSV'),
+                            onPressed: _uploadingDoc
+                                ? null
+                                : () => _uploadProjectDocument(proj),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (_projectDocuments.isEmpty)
+                        const FDCard(
+                          child: Text(
+                            'Aucun document privé attaché à ce projet. Ajoutez un devis, contrat ou rapport PDF : seuls les chats de ce projet l’utiliseront.',
+                            style:
+                                TextStyle(fontSize: 13, color: AppColors.muted),
+                          ),
+                        )
+                      else
+                        ..._projectDocuments.map((doc) {
+                          final docId = doc['doc_id']?.toString() ?? '';
+                          final fname =
+                              doc['filename']?.toString() ?? 'Document';
+                          final chunks = doc['chunks_count'] ?? 0;
+                          final prov =
+                              doc['embedding_provider']?.toString() ?? 'jina';
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: FDCard(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.description_outlined,
+                                    color: FDTheme.blue, size: 20),
+                                title: Text(fname,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                                subtitle: Text(
+                                  '$chunks segments · $prov · PDF conservé sur votre appareil',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: AppColors.muted),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded,
+                                      color: FDTheme.danger, size: 20),
+                                  tooltip: 'Supprimer du projet',
+                                  onPressed: () => _guard(() async {
+                                    await widget.apiService
+                                        .deleteUserDocument(docId);
+                                    if (mounted) {
+                                      await _openWorkspace(proj, silent: true);
+                                    }
+                                  }),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
                     ],
                   ),
           ),
@@ -1163,17 +1279,62 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   Widget _buildBody() {
     return _loading
-        ? const Center(child: CircularProgressIndicator())
+        ? const FDLoadingState(message: 'Chargement de vos projets…')
         : _error != null
             ? Center(
                 child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(_error!,
-                        style: const TextStyle(color: FDTheme.danger))))
+                  padding: const EdgeInsets.all(16),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: FDErrorState(
+                      message: _error!.contains('TimeoutException')
+                          ? 'Le serveur met plus de temps que prévu à répondre (démarrage en cours).'
+                          : _error!,
+                      onRetry: _load,
+                    ),
+                  ),
+                ),
+              )
             : _projects.isEmpty
-                ? const Center(
-                    child: Text(
-                        'Aucun projet enregistré. Créez-en un avec « Nouveau projet ».'))
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: FDCard(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.folder_special_outlined,
+                                  size: 36, color: FDTheme.blue),
+                              const SizedBox(height: 10),
+                              const Text(
+                                'Aucun projet enregistré',
+                                style: TextStyle(
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Créez un dossier projet pour conserver vos paramètres métier, vos discussions et vos études PDF versionnées.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 13, color: AppColors.muted),
+                              ),
+                              const SizedBox(height: 14),
+                              FDPrimaryButton(
+                                label: 'Créer mon premier projet',
+                                icon: Icons.add_rounded,
+                                onPressed: _createProjectDialog,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: _projects.length,

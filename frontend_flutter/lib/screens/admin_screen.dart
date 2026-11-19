@@ -364,6 +364,54 @@ class _AdminScreenState extends State<AdminScreen> {
                   ],
                 ),
               ),
+              if (_overview!['providers_health'] is Map ||
+                  _overview!['data_freshness'] is Map) ...[
+                const SizedBox(height: 12),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Santé IA (Groq / Jina) & Fraîcheur Prix',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink)),
+                      const SizedBox(height: 8),
+                      Builder(builder: (_) {
+                        final ph = _overview!['providers_health'] is Map
+                            ? _overview!['providers_health'] as Map
+                            : const {};
+                        final df = _overview!['data_freshness'] is Map
+                            ? _overview!['data_freshness'] as Map
+                            : const {};
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _kpiPill(
+                                'Groq LLM',
+                                ph['groq_llm_configured'] == true
+                                    ? 'Actif (${ph['groq_model'] ?? 'ok'})'
+                                    : 'Non configuré'),
+                            _kpiPill(
+                                'Jina Embed',
+                                ph['jina_embed_configured'] == true
+                                    ? 'Actif (${ph['jina_model'] ?? 'v3'})'
+                                    : 'Fallback local'),
+                            _kpiPill(
+                                'Base Cloud',
+                                ph['supabase_pg_active'] == true
+                                    ? 'Supabase PG'
+                                    : 'SQLite local'),
+                            _kpiPill('Dernier mois',
+                                '${df['latest_observation_month'] ?? '—'} (${df['freshness_status'] ?? '—'})'),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
               if (modelFlags.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 FDCard(

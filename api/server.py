@@ -525,6 +525,7 @@ class ChatRequest(BaseModel):
     history: list[dict] = Field(default_factory=list, max_length=40)
     tier: Literal["free", "premium"] = Field(default="free")
     study_context: Optional[dict] = None
+    project_id: Optional[str] = Field(None, max_length=80)
 
     @field_validator("history")
     @classmethod
@@ -866,7 +867,12 @@ def chat_endpoint(
     private_chunks: list[dict] = []
     if owner_id and isinstance(doc_store, UserDocumentStore):
         try:
-            private_chunks = doc_store.retrieve_for_owner(owner_id, payload.message, top_k=3)
+            private_chunks = doc_store.retrieve_for_owner(
+                owner_id,
+                payload.message,
+                project_id=payload.project_id,
+                top_k=3,
+            )
         except Exception:
             private_chunks = []
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
@@ -2035,7 +2041,12 @@ def platform_chat_endpoint(
     private_chunks: list[dict] = []
     if owner_id and isinstance(doc_store, UserDocumentStore):
         try:
-            private_chunks = doc_store.retrieve_for_owner(owner_id, payload.message, top_k=3)
+            private_chunks = doc_store.retrieve_for_owner(
+                owner_id,
+                payload.message,
+                project_id=payload.project_id,
+                top_k=3,
+            )
         except Exception:
             private_chunks = []
 
@@ -2589,6 +2600,7 @@ class DocumentValidateRequest(BaseModel):
     filename: str = Field(..., min_length=1, max_length=180)
     content_base64: str = Field(..., min_length=1)
     mime_type: Optional[str] = Field(None, max_length=100)
+    project_id: Optional[str] = Field(None, max_length=80)
 
 
 @app.post("/api/v1/documents/validate", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2646,6 +2658,7 @@ def upload_user_document_endpoint(
             filename=payload.filename,
             content_bytes=raw_bytes,
             mime_type=payload.mime_type,
+            project_id=payload.project_id,
             max_bytes=max_bytes,
             max_docs=max_docs,
         )
@@ -2657,10 +2670,11 @@ def upload_user_document_endpoint(
 
 @app.get("/api/v1/documents", dependencies=[Depends(_data_rate_limit_dependency)])
 def list_user_documents_endpoint(
+    project_id: Optional[str] = Query(None, max_length=80),
     owner_id: str = Depends(_require_project_owner),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
 ):
-    docs = doc_store.list_documents(owner_id)
+    docs = doc_store.list_documents(owner_id, project_id=project_id)
     return {"count": len(docs), "documents": docs}
 
 
@@ -2784,10 +2798,23 @@ def admin_overview_endpoint(
         p = u["plan_id"]
         plan_counts[p] = plan_counts.get(p, 0) + 1
 
+    fc_fresh = (state.get("freshness") or {}).get("forecasts") or {}
     return {
         "api_health": {"status": "ok" if "agent" in state else "degraded", "version": app.version, "engine_mode": state.get("mode", "unknown")},
         "api_metrics": api_metrics,
         "ai_infra": _AI_MONITOR.snapshot(_ML_CACHE, _RAG_CACHE),
+        "providers_health": {
+            "groq_llm_configured": bool((settings.llm_api_key or "").strip()),
+            "groq_model": settings.llm_chat_model,
+            "jina_embed_configured": bool((settings.embed_api_key or os.getenv("EMBED_API_KEY", "")).strip()),
+            "jina_model": settings.embed_model,
+            "supabase_pg_active": bool((os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL") or "").strip()),
+        },
+        "data_freshness": {
+            "latest_observation_month": fc_fresh.get("latest_observation_month"),
+            "data_age_months": fc_fresh.get("data_age_months"),
+            "freshness_status": fc_fresh.get("freshness_status", "unavailable"),
+        },
         "model_flags": admin.list_model_flags(),
         "ml_models": _MODEL_REGISTRY.list_models(),
         "users_summary": {"total_known_users": len(users), "by_plan": plan_counts},

@@ -141,6 +141,12 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
+  String? _activeProjectId() {
+    final eff = _effectiveProject();
+    final pid = _thread?.projectId ?? eff?['project_id']?.toString();
+    return (pid != null && pid.trim().isNotEmpty) ? pid.trim() : null;
+  }
+
   Future<void> _loadUserDocuments() async {
     if (!widget.apiService.isAuthenticated &&
         !widget.apiService.hasExplicitPremiumKey) {
@@ -150,7 +156,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     try {
-      final docs = await widget.apiService.listUserDocuments();
+      final docs = await widget.apiService
+          .listUserDocuments(projectId: _activeProjectId());
       if (!mounted) return;
       setState(() => _userDocuments = docs);
     } catch (_) {}
@@ -183,6 +190,7 @@ class _ChatScreenState extends State<ChatScreen> {
         filename: picked.name,
         bytes: picked.bytes,
         mimeType: picked.mimeType,
+        projectId: _activeProjectId(),
       );
       await _loadUserDocuments();
       if (!mounted) return;
@@ -537,12 +545,14 @@ class _ChatScreenState extends State<ChatScreen> {
               })
           .toList();
 
+      final activePid = _activeProjectId();
       final response = _selectedDomain == 'auto'
           ? await widget.apiService.sendChatMessage(
               trimmed,
               history: recentHistory,
               tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
               studyContext: _latestStudyContext(),
+              projectId: activePid,
             )
           : await widget.apiService.sendPlatformChatMessage(
               trimmed,
@@ -550,6 +560,7 @@ class _ChatScreenState extends State<ChatScreen> {
               history: recentHistory,
               tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
               studyContext: _latestStudyContext(),
+              projectId: activePid,
             );
 
       final raw = Map<String, dynamic>.from(response);
@@ -751,23 +762,34 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildEmptyState() {
+    final activeProj = _effectiveProject();
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: const BoxConstraints(maxWidth: 620),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Text(
-                'Que souhaitez-vous analyser ?',
+              Text(
+                activeProj != null
+                    ? 'Projet « ${activeProj['name'] ?? 'PRO'} »'
+                    : 'Que souhaitez-vous analyser ?',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                   color: FDTheme.ink,
                 ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                activeProj != null
+                    ? 'Vos paramètres métier et documents PDF de ce dossier sont automatiquement pris en compte.'
+                    : 'Données terrain certifiées FEWS NET / WFP · Analyses Jina & Groq · Zéro chiffre inventé.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: FDTheme.muted),
               ),
               const SizedBox(height: 18),
               Wrap(
@@ -781,8 +803,68 @@ class _ChatScreenState extends State<ChatScreen> {
                         .map((a) => _buildQuickActionButton(a, isPro: true)),
                 ],
               ),
+              const SizedBox(height: 18),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildRoleStarterChip(
+                    icon: Icons.storefront_outlined,
+                    role: 'Commerçant',
+                    prompt:
+                        'Je veux acheter du mil au Salamat avec 2 000 000 FCFA pour le revendre à N’Djamena. Simule ma marge nette.',
+                  ),
+                  _buildRoleStarterChip(
+                    icon: Icons.account_balance_outlined,
+                    role: 'Microfinance / IMF',
+                    prompt:
+                        'Évalue le Credit Passport et le LTV indicatif pour financer un stock de 5 000 000 FCFA d’arachide au Logone Occidental.',
+                  ),
+                  _buildRoleStarterChip(
+                    icon: Icons.volunteer_activism_outlined,
+                    role: 'ONG / Chercheur',
+                    prompt:
+                        'Quelles sont les alertes de hausse de prix (>15%) et les provinces les plus volatiles ce mois-ci au Tchad ?',
+                  ),
+                ],
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoleStarterChip({
+    required IconData icon,
+    required String role,
+    required String prompt,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => _sendMessage(prompt),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: FDTheme.canvasSoft,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: FDTheme.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: FDTheme.blue),
+            const SizedBox(width: 6),
+            Text(
+              'Mode $role',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: FDTheme.ink,
+              ),
+            ),
+          ],
         ),
       ),
     );

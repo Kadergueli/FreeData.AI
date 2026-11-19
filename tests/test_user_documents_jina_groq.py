@@ -286,4 +286,38 @@ def test_p2_numbers_are_grounded_allows_rounding_and_margin_diff_but_blocks_hall
     assert not numbers_are_grounded("Le prix prévu est de 945 XAF/kg.", source)
 
 
+def test_project_scoped_documents_are_strictly_isolated_between_projects(tmp_path, monkeypatch):
+    doc_store = UserDocumentStore(db_path=str(tmp_path / "docs.db"))
+    monkeypatch.setattr("src.user_documents.compute_jina_embeddings", lambda texts: [[0.5] * 8 for _ in texts])
+    owner_id = "user:" + "u" + "h" * 32
+
+    doc_store.ingest_document(
+        owner_id,
+        filename="devis_salamat.txt",
+        content_bytes="Devis transport mil Salamat 19 XAF/kg pour 80 tonnes.".encode("utf-8"),
+        mime_type="text/plain",
+        project_id="PRJ-A",
+    )
+    doc_store.ingest_document(
+        owner_id,
+        filename="contrat_ouaddai.txt",
+        content_bytes="Contrat sesame Ouaddai 650 XAF/kg pour 40 tonnes.".encode("utf-8"),
+        mime_type="text/plain",
+        project_id="PRJ-B",
+    )
+
+    docs_a = doc_store.list_documents(owner_id, project_id="PRJ-A")
+    docs_b = doc_store.list_documents(owner_id, project_id="PRJ-B")
+    assert [d["filename"] for d in docs_a] == ["devis_salamat.txt"]
+    assert [d["filename"] for d in docs_b] == ["contrat_ouaddai.txt"]
+
+    hits_a = doc_store.retrieve_for_owner(owner_id, "Analyse mon devis", project_id="PRJ-A")
+    hits_b = doc_store.retrieve_for_owner(owner_id, "Analyse mon contrat", project_id="PRJ-B")
+    assert len(hits_a) == 1 and hits_a[0]["filename"] == "devis_salamat.txt"
+    assert len(hits_b) == 1 and hits_b[0]["filename"] == "contrat_ouaddai.txt"
+    # General chat (no project_id) does NOT leak project-scoped documents
+    assert doc_store.retrieve_for_owner(owner_id, "Analyse mon devis", project_id=None) == []
+
+
+
 
