@@ -1,22 +1,26 @@
 """Pipeline fiable et observable de publication des données analytiques FreeData.AI (12 étapes)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import math
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 import requests
 
 from src.anomalies import detect_anomalies, recent_anomalies
+from src.backtest import run_backtest, summarize as summarize_backtest
 from src.config import settings
 from src.credit_passport import compute_credit_passport
 from src.data_loader import load_clean_markets
 from src.forecasting import run_forecasting_pipeline
+from src.ml_engine import ModelRegistry
 from src.season_study import StudyBook
 
 logger = logging.getLogger("freedata.pipeline")
@@ -123,6 +127,204 @@ def _trigger_api_refresh(
     return False, None
 
 
+def _safe_round(val: Any, digits: int = 2) -> Optional[float]:
+    try:
+        f = float(val)
+        return None if (math.isnan(f) or math.isinf(f)) else round(f, digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def register_forecasting_evaluation_in_registry(
+    clean_df: pd.DataFrame,
+    fc_df: pd.DataFrame,
+    *,
+    registry: Optional[ModelRegistry] = None,
+    model_id: str = "ridge_price_regressor",
+    n_origins: int = 6,
+    min_history: int = 12,
+    allow_auto_deploy: bool = False,
+    evaluation_run_key: Optional[str] = None,
+    backtest_fn: Optional[Callable[..., pd.DataFrame]] = None,
+) -> dict[str, Any]:
+    """Evaluates the existing Gold forecasting pipeline via chronological rolling-origin backtest
+    and registers a new versioned candidate in ModelRegistry with real metrics and zero fabricated values.
+
+    Safety guarantees:
+    - Never alters `gold_fast_read` prediction behavior.
+    - Deduplicates repeated runs with the same `evaluation_run_key`.
+    - Registers candidates as `EVALUATION` first; only promotes to `DEPLOYED` if `allow_auto_deploy=True`,
+      the quality gate passes (beats or matches naive baseline), AND no production model is overwritten.
+    - Preserves any existing `DEPLOYED` model if evaluation fails.
+    """
+    reg = registry or ModelRegistry()
+    now = _utc_now_iso()
+
+    latest_month = str(clean_df["year_month"].max()) if ("year_month" in clean_df.columns and not clean_df.empty) else "unknown"
+    content_digest = hashlib.sha256(
+        pd.util.hash_pandas_object(clean_df, index=False).to_numpy(dtype="uint64").tobytes()
+    ).hexdigest()[:16] if not clean_df.empty else "empty"
+    run_key = evaluation_run_key or hashlib.sha256(
+        f"{model_id}|RidgeRegression_L2_Gold|alpha=50.0|{latest_month}|{content_digest}|{len(fc_df)}|{n_origins}|{min_history}".encode("utf-8")
+    ).hexdigest()[:16]
+
+    # Idempotency: do not create duplicate versions for the same evaluation run
+    existing_for_model = [m for m in reg.list_models() if m.get("model_id") == model_id]
+    for m in existing_for_model:
+        cfg = m.get("configuration") or {}
+        if cfg.get("evaluation_run_key") == run_key:
+            return {
+                "status": "deduplicated",
+                "deduplicated": True,
+                "model_id": model_id,
+                "version": m["version"],
+                "lifecycle_status": m.get("lifecycle_status"),
+                "metrics": m.get("evaluation_metrics") or {},
+            }
+
+    # Check if an active production model already exists (must never be overwritten silently)
+    has_active_prod = any(
+        m.get("lifecycle_status") == "DEPLOYED" and m.get("is_active_production") is True
+        for m in existing_for_model
+    )
+
+    # Execute chronological out-of-sample backtest
+    bt_runner = backtest_fn or run_backtest
+    try:
+        bt_df = bt_runner(clean_df, n_origins=n_origins, min_history=min_history)
+        summary = summarize_backtest(bt_df)
+    except Exception as exc:
+        logger.warning("Forecasting registry backtest failed (%s); preserving production model.", type(exc).__name__)
+        return {
+            "status": "evaluation_failed",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "production_preserved": True,
+        }
+
+    methods_df = summary.get("methods")
+    if (
+        bt_df is None
+        or bt_df.empty
+        or summary.get("n_points", 0) <= 0
+        or methods_df is None
+        or methods_df.empty
+        or "model" not in set(methods_df["method"])
+    ):
+        return {
+            "status": "evaluation_failed",
+            "reason": summary.get("verdict") or "Pas assez de données pour un backtest chronologique.",
+            "production_preserved": True,
+        }
+
+    model_row = methods_df[methods_df["method"] == "model"].iloc[0]
+    naive_rows = methods_df[methods_df["method"] == "naive"]
+    naive_mae = _safe_round(naive_rows.iloc[0]["MAE_xaf_kg"]) if not naive_rows.empty else None
+
+    model_bt = bt_df[bt_df["method"] == "model"].dropna(subset=["forecast"])
+    series_count = int(model_bt[["source", "province", "market_name", "commodity_std"]].drop_duplicates().shape[0]) if not model_bt.empty else 0
+    origins_sorted = sorted(model_bt["origin"].dropna().astype(str).unique().tolist()) if not model_bt.empty else []
+    targets_sorted = sorted(model_bt["target"].dropna().astype(str).unique().tolist()) if not model_bt.empty else []
+    eval_period = f"{origins_sorted[0]}..{targets_sorted[-1]}" if (origins_sorted and targets_sorted) else latest_month
+
+    raw_metrics: dict[str, Any] = {
+        "mae_xaf_kg": _safe_round(model_row.get("MAE_xaf_kg")),
+        "rmse_xaf_kg": _safe_round(model_row.get("RMSE_xaf_kg")),
+        "mape_pct": _safe_round(model_row.get("MAPE_pct")),
+        "ic80_coverage_pct": _safe_round(model_row.get("ic80_coverage_pct"), 1),
+        "direction_acc_pct": _safe_round(model_row.get("direction_acc_pct"), 1),
+        "baseline_naive_mae_xaf_kg": naive_mae,
+        "vs_naive_pct": _safe_round(model_row.get("vs_naive_pct"), 2),
+        "evaluated_series_count": series_count,
+        "evaluated_observations_count": int(summary.get("n_points", 0)),
+        "evaluation_origins_count": len(origins_sorted),
+    }
+    # Never store fabricated or null metrics
+    metrics = {k: v for k, v in raw_metrics.items() if v is not None}
+
+    vs_naive = metrics.get("vs_naive_pct")
+    quality_gate_passed = bool(
+        metrics.get("mae_xaf_kg") is not None
+        and metrics.get("evaluated_observations_count", 0) > 0
+        and (vs_naive is None or vs_naive <= 0.0)
+    )
+
+    next_version = max((int(m.get("version", 0)) for m in existing_for_model), default=0) + 1
+    input_schema = {
+        "required_columns": sorted(REQUIRED_CLEAN_COLS),
+        "target_column": "value",
+        "time_column": "year_month",
+        "series_keys": ["source", "province", "market_name", "commodity_std"],
+    }
+    entry = reg.register_model(
+        model_id=model_id,
+        model_name="Gold Ridge Price Forecaster (t+1, Causal Lags + Seasonality)",
+        domain="agriculture",
+        algorithm="RidgeRegression_L2_Gold",
+        task_type="forecasting",
+        version=next_version,
+        description="Modèle de prévision Gold t+1 évalué par backtest chronologique rolling-origin.",
+        training_dataset_ref=f"table_ml_forecasts:{latest_month}",
+        evaluation_dataset_ref=f"rolling_origin_{n_origins}m:{eval_period}",
+        dataset_provenance={
+            "latest_observation_month": latest_month,
+            "clean_observations": int(len(clean_df)),
+            "forecast_series": int(len(fc_df)),
+            "evaluation_period": eval_period,
+            "input_schema": input_schema,
+            "verdict": summary.get("verdict"),
+        },
+        training_date=now,
+        lifecycle_status="EVALUATION",
+        evaluation_metrics=metrics,
+        configuration={
+            "alpha": 50.0,
+            "n_origins": int(n_origins),
+            "min_history": int(min_history),
+            "evaluation_run_key": run_key,
+            "quality_gate_passed": quality_gate_passed,
+            "execution_mode": "gold_fast_read",
+            "input_schema": input_schema,
+        },
+        dependencies=["numpy", "pandas"],
+        enabled=True,
+        set_active=False,
+    )
+
+    # Persist lightweight artifact metadata durably so recovery after restart is complete
+    artifact_bundle = {
+        "name": model_id,
+        "version": next_version,
+        "saved_at_utc": now,
+        "metrics": metrics,
+        "artifact": {
+            "model_type": "RidgeRegression_L2_Gold",
+            "alpha": 50.0,
+            "input_schema": input_schema,
+            "training_dataset_ref": f"table_ml_forecasts:{latest_month}",
+            "evaluation_period": eval_period,
+        },
+    }
+    reg._persist_artifact(model_id, next_version, artifact_bundle)
+
+    final_status = "EVALUATION"
+    if allow_auto_deploy and quality_gate_passed and not has_active_prod:
+        promoted = reg.transition_status(model_id, next_version, "DEPLOYED", set_active=True, enabled=True)
+        final_status = promoted["lifecycle_status"]
+        entry = promoted
+
+    return {
+        "status": "registered",
+        "deduplicated": False,
+        "model_id": model_id,
+        "version": next_version,
+        "lifecycle_status": final_status,
+        "quality_gate_passed": quality_gate_passed,
+        "production_preserved": True,
+        "metrics": metrics,
+        "entry": entry,
+    }
+
+
 def run_publication_pipeline(
     loader_fn: Callable[[], pd.DataFrame] = load_clean_markets,
     publish_fn: Optional[Callable[[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[dict], str], dict[str, int]]] = None,
@@ -134,6 +336,9 @@ def run_publication_pipeline(
     max_refresh_retries: int = 3,
     retry_delay_s: float = 1.0,
     report_path: Optional[str] = None,
+    model_registry: Optional[ModelRegistry] = None,
+    allow_auto_deploy: bool = False,
+    backtest_origins: int = 6,
 ) -> dict:
     """Exécute les 12 étapes du pipeline de publication avec observabilité et arrêt sur erreur critique."""
     execution_id = str(uuid.uuid4())
@@ -146,6 +351,7 @@ def run_publication_pipeline(
     last_successful_publication: Optional[str] = None
     api_refresh_status = "skipped"
     pipeline_status = "failed"
+    ml_registry_evaluation: Optional[dict[str, Any]] = None
 
     def _finalize() -> dict:
         report = {
@@ -159,6 +365,7 @@ def run_publication_pipeline(
             "validation_errors": validation_errors,
             "last_successful_publication": last_successful_publication,
             "API_refresh_status": api_refresh_status,
+            "ml_registry_evaluation": ml_registry_evaluation,
         }
         if report_path:
             p = Path(report_path)
@@ -197,6 +404,24 @@ def run_publication_pipeline(
         validation_errors.append("Aucune prévision générée.")
         return _finalize()
     stages_completed.append("forecasts")
+
+    # 4b. Optional ML Registry chronological evaluation (never blocks gold_fast_read)
+    if model_registry is not None:
+        try:
+            ml_registry_evaluation = register_forecasting_evaluation_in_registry(
+                clean_df,
+                fc_df,
+                registry=model_registry,
+                n_origins=backtest_origins,
+                allow_auto_deploy=allow_auto_deploy,
+            )
+            stages_completed.append("ml_registry_eval")
+        except Exception as exc:
+            ml_registry_evaluation = {
+                "status": "evaluation_failed",
+                "reason": f"{type(exc).__name__}: {exc}",
+                "production_preserved": True,
+            }
 
     # 5. Credit Passport computation
     cp_df = compute_credit_passport(clean_df)

@@ -1032,6 +1032,81 @@ class ApiService {
         _extractErrorDetail(resp, 'Erreur comparaison versions ML'));
   }
 
+  Future<Map<String, dynamic>> launchAdminBenchmark(
+    String adminToken, {
+    required String domain,
+    required String taskType,
+    required List<String> featureColumns,
+    String? targetColumn,
+    String? timeColumn,
+    required String datasetName,
+    String datasetScope = 'platform_public',
+    Map<String, dynamic> datasetProvenance = const {},
+    required String csvBase64,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/benchmark');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'domain': domain,
+            'task_type': taskType,
+            'feature_columns': featureColumns,
+            if (targetColumn != null && targetColumn.isNotEmpty)
+              'target_column': targetColumn,
+            if (timeColumn != null && timeColumn.isNotEmpty)
+              'time_column': timeColumn,
+            'dataset_name': datasetName,
+            'dataset_scope': datasetScope,
+            'dataset_provenance': datasetProvenance,
+            'csv_base64': csvBase64,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (resp.statusCode == 200 || resp.statusCode == 202) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur lancement benchmark ML'));
+  }
+
+  Future<Map<String, dynamic>> getAdminBenchmarkJob(
+    String adminToken,
+    String jobId,
+  ) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/benchmark/$jobId');
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur suivi job benchmark'));
+  }
+
+  Future<List<Map<String, dynamic>>> listAdminBenchmarkJobs(
+    String adminToken, {
+    int limit = 20,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/benchmarks?limit=$limit');
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(resp.bodyBytes)) as Map;
+      return ((decoded['jobs'] as List?) ?? []).cast<Map<String, dynamic>>();
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur historique benchmarks'));
+  }
+
   Future<Map<String, dynamic>> triggerAdminBackup(String adminToken) async {
     final uri = Uri.parse('$baseUrl/api/v1/admin/backup');
     final resp = await _client.post(uri, headers: {

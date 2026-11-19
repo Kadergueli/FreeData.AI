@@ -36,6 +36,7 @@ from src.study_context import StudyContext
 from src.projects import ProjectStore
 from src.governance import LicensingRegistry, PrivacyController, build_default_lineage
 from src.analytics import AnalyticsService
+from src.ml_benchmark import BenchmarkJobManager, DatasetSpec, MAX_CSV_BYTES
 from src.ml_engine import ModelRegistry, build_lag_features, evaluate_ridge_chronological
 from src.rag_engine import HybridRAGEngine
 from src.orchestrator_ml_rag import IntelligenceOrchestrator
@@ -528,6 +529,8 @@ async def limit_body_size(request: Request, call_next):
             return JSONResponse({"detail": "En-tête Content-Length requis."}, status_code=411)
         if request.url.path.startswith("/api/v1/documents"):
             max_allowed = max(settings.max_body_bytes, 12 * 1024 * 1024)
+        elif request.url.path.startswith("/api/v1/admin/ai/benchmark"):
+            max_allowed = max(settings.max_body_bytes, 7 * 1024 * 1024)
         elif request.url.path.startswith("/api/v1/conversations"):
             max_allowed = max(settings.max_body_bytes, 524_288)
         else:
@@ -3011,6 +3014,8 @@ def _probe_providers_health(state: dict, *, live_probe: bool = False) -> dict:
                     json={"model": (settings.embed_model or "jina-embeddings-v3").strip(), "input": ["ping"]},
                     timeout=2.5,
                 )
+                if r.status_code != 200:
+                    logger.warning("Admin probe: Jina Embeddings returned HTTP %s", r.status_code)
                 jina_status = (
                     "Connected"
                     if r.status_code == 200
@@ -3453,6 +3458,119 @@ def admin_ai_rollback_model_endpoint(
         details=f"rollback_to=v{payload.target_version} reason={payload.reason}",
     )
     return rolled
+
+
+_BENCHMARK_JOB_MANAGER = BenchmarkJobManager(max_concurrent=1, timeout_seconds=60.0)
+
+
+class AdminBenchmarkRequest(BaseModel):
+    domain: str = Field(..., min_length=2, max_length=64)
+    task_type: Literal["forecasting", "regression", "classification", "clustering"]
+    feature_columns: list[str] = Field(default_factory=list, max_length=64)
+    target_column: Optional[str] = Field(None, max_length=120)
+    time_column: Optional[str] = Field(None, max_length=120)
+    dataset_name: str = Field("benchmark.csv", min_length=1, max_length=160)
+    dataset_scope: str = Field("platform_public", max_length=40)
+    dataset_provenance: dict = Field(default_factory=dict)
+    csv_base64: Optional[str] = None
+    csv_text: Optional[str] = None
+
+
+@app.post("/api/v1/admin/ai/benchmark", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_launch_benchmark_endpoint(
+    payload: AdminBenchmarkRequest,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    actor, role = actor_info
+    try:
+        admin.check_permission(role, "manage_models")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    # Decode CSV bytes safely (never log raw CSV contents)
+    if payload.csv_base64:
+        import base64 as _b64
+
+        try:
+            csv_bytes = _b64.b64decode(payload.csv_base64.encode("ascii"), validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Encodage base64 CSV invalide.") from exc
+    elif payload.csv_text:
+        csv_bytes = payload.csv_text.encode("utf-8")
+    else:
+        raise HTTPException(status_code=400, detail="Fournissez 'csv_base64' ou 'csv_text'.")
+
+    if len(csv_bytes) > MAX_CSV_BYTES:
+        raise HTTPException(status_code=413, detail="Fichier CSV trop volumineux (limite maximale : 5 Mo).")
+
+    # Sanitize dataset_name (prevent path traversal)
+    from pathlib import Path as _Path
+    safe_name = _Path(payload.dataset_name).name or "benchmark.csv"
+    spec = DatasetSpec(
+        domain=payload.domain.strip(),
+        task_type=payload.task_type,
+        feature_columns=[c.strip() for c in payload.feature_columns if c.strip()],
+        target_column=payload.target_column.strip() if payload.target_column else None,
+        time_column=payload.time_column.strip() if payload.time_column else None,
+        dataset_name=safe_name,
+        dataset_provenance=dict(payload.dataset_provenance or {}),
+        dataset_scope=payload.dataset_scope.strip(),
+    )
+    try:
+        job = _BENCHMARK_JOB_MANAGER.submit(
+            actor=actor,
+            csv_bytes=csv_bytes,
+            spec=spec,
+            registry=_MODEL_REGISTRY,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except OverflowError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    admin.log_action(
+        actor=actor,
+        actor_role=role,
+        action="launch_ml_benchmark",
+        resource_type="ml_benchmark",
+        resource_id=job["job_id"],
+        details=f"domain={spec.domain} task={spec.task_type} dataset={safe_name} hash={job['dataset_hash'][:12]}",
+    )
+    return job
+
+
+@app.get("/api/v1/admin/ai/benchmark/{job_id}", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_get_benchmark_endpoint(
+    job_id: str,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        return _BENCHMARK_JOB_MANAGER.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/admin/ai/benchmarks", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_list_benchmarks_endpoint(
+    limit: int = Query(20, ge=1, le=50),
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"jobs": _BENCHMARK_JOB_MANAGER.list_jobs(limit=limit)}
 
 
 @app.get("/api/v1/admin/ai/models/{model_id}/compare", dependencies=[Depends(_admin_rate_limit_dependency)])

@@ -133,6 +133,7 @@ def summarize(res: pd.DataFrame) -> dict:
         rows.append({
             "method": m, "label": LABELS[m], "n": len(sub),
             "MAE_xaf_kg": sub["abs_err"].mean(),
+            "RMSE_xaf_kg": float(np.sqrt(np.mean(sub["abs_err"] ** 2))) if len(sub) > 0 else np.nan,
             "MAPE_pct": sub["pct_err"].mean(),
             "vs_naive_pct": (sub["abs_err"].mean() / naive_mae - 1.0) * 100.0 if m != "seasonal_naive" else np.nan,
             "direction_acc_pct": sub["direction_ok"].mean() * 100.0,
