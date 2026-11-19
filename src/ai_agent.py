@@ -3224,6 +3224,7 @@ class FreeDataAIAgent(FormattersMixin):
         history: Optional[list[dict]] = None,
         tier: Literal["free", "premium"] = "free",
         study_context: Optional[dict] = None,
+        private_chunks: Optional[list[dict]] = None,
     ) -> dict:
         """
         Point d'entrée unifié :
@@ -3256,7 +3257,7 @@ class FreeDataAIAgent(FormattersMixin):
             or _OVERVIEW_RE.search(q_norm)
         )
         chat_mode = tier == "premium" and bool(settings.llm_api_key)
-        if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request:
+        if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request and not private_chunks:
             pure_greeting = not (
                 _SMALLTALK_HOW_RE.search(q_norm) or _SMALLTALK_IDENTITY_RE.search(q_norm) or _SMALLTALK_THANKS_RE.search(q_norm)
             )
@@ -3274,19 +3275,20 @@ class FreeDataAIAgent(FormattersMixin):
             }
 
         if (entities.get("intent") == "dataset_overview" and not entities.get("commodity") and not entities.get("province")
-                and re.search(r"\bcombien\s+(?:[cç]a|cela)\s+(?:co[uû]te|vaut)\b", user_query.lower())):
+                and re.search(r"\bcombien\s+(?:[cç]a|cela)\s+(?:co[uû]te|vaut)\b", user_query.lower())
+                and not private_chunks):
             prods = ", ".join(self.provider.tracked_commodities_fr(8))
             return {"reply": "Pour vous donner un prix, il me faut le **produit**" + (f" ({prods}…)" if prods else "")
                              + " et, si possible, la **province**. Que souhaitez-vous savoir ?",
                     "intent": "clarification", "entities": entities, "sources": [], "chart": None}
 
         family = families.by_intent(entities.get("intent"))
-        ask = family.clarify(self, entities, bool(history)) if family and family.clarify else None
+        ask = family.clarify(self, entities, bool(history)) if (family and family.clarify and not private_chunks) else None
         if ask:
             return {"reply": ask, "intent": "clarification", "entities": entities, "sources": [], "chart": None}
 
         # Avant l'héritage de l'historique : « et pour le café ? » ne doit pas reprendre le produit précédent.
-        unknown = self._detect_unknown_product(q_norm, entities)
+        unknown = self._detect_unknown_product(q_norm, entities) if not private_chunks else None
         if unknown:
             return self._unknown_product_response(unknown, entities)
 
@@ -3302,12 +3304,117 @@ class FreeDataAIAgent(FormattersMixin):
             _BUSINESS_PLAN_RE.search(q_norm) or _BUSINESS_PLAN_RE.search(hist_user_norm)
         )
 
-        # Demande trop floue : on interroge l'utilisateur plutôt que d'afficher le Mil national.
+        # Demande trop floue : si l'utilisateur a des documents privés pertinents, on analyse ses documents avec Jina + Groq !
         has_context = bool(
             entities.get("province") or entities.get("commodity") or entities.get("volume_kg")
             or entities.get("intent") not in (None, "forecast")
         )
         if not (has_domain_request or has_context or _FORECAST_HINT_RE.search(q_norm)):
+            if private_chunks:
+                doc_text = " ".join(str(c.get("content") or "") for c in private_chunks)
+                doc_provs, doc_comm = _resolve_provinces_and_commodity(doc_text, provider=self.provider)
+                doc_biz = _extract_business_params_with_meta(_normalize_text(doc_text))
+                calc_notes: list[str] = []
+                if doc_comm:
+                    try:
+                        fc = self.provider.get_forecasts(province=doc_provs[0] if doc_provs else None, commodity=doc_comm)
+                        rows = fc.get("records") or []
+                        if rows:
+                            r0 = rows[0]
+                            c_fr = self._fr_commodity(doc_comm)
+                            calc_notes.append(
+                                f"- **Benchmark marché FreeData.AI ({c_fr}, {r0.get('province', 'Tchad')})** : "
+                                f"dernier prix observé **{r0.get('last_observed_price')} XAF/kg** "
+                                f"({r0.get('last_observed_month')}), prévision t+1 **{r0.get('forecast_t1')} XAF/kg** "
+                                f"(IC 80% : {r0.get('ci_low_80')}–{r0.get('ci_high_80')} XAF/kg)."
+                            )
+                    except Exception:
+                        pass
+                if doc_comm and not doc_biz.get("is_default_capital", True):
+                    try:
+                        sim_origin = doc_provs[0] if doc_provs else None
+                        sim_dest = doc_provs[1] if len(doc_provs) >= 2 else None
+                        sim = self.provider.simulate_business(
+                            commodity=doc_comm,
+                            capital_xaf=float(doc_biz["capital_xaf"]),
+                            origin_province=sim_origin,
+                            dest_province=sim_dest,
+                            transport_cost_per_kg=float(doc_biz["transport_cost_per_kg"]),
+                        )
+                        if sim.get("status") == "ok":
+                            calc_notes.append(
+                                f"- **Simulation intégrée FreeData.AI** : capital **{sim.get('capital_xaf')} XAF**, "
+                                f"fret **{sim.get('transport_cost_per_kg')} XAF/kg**, volume estimé **{sim.get('quantity_kg')} kg**, "
+                                f"marge nette estimée **{sim.get('net_profit_xaf')} XAF** (ROI **{sim.get('roi_pct')}%**)."
+                            )
+                    except Exception:
+                        pass
+                if doc_comm and doc_provs:
+                    try:
+                        cp = self.provider.get_credit_passport(province=doc_provs[0], commodity=doc_comm)
+                        cp_rows = cp.get("records") or []
+                        if cp_rows:
+                            c0 = cp_rows[0]
+                            calc_notes.append(
+                                f"- **Repère Stabilité / Credit Passport ({doc_provs[0]})** : "
+                                f"score **{c0.get('credit_score')}/100** (grade **{c0.get('grade')}**, "
+                                f"LTV indicatif **{c0.get('ltv_pct')}%**)."
+                            )
+                    except Exception:
+                        pass
+
+                doc_sources = [
+                    {
+                        "titre": c.get("titre"),
+                        "editeur": c.get("editeur", "Espace personnel"),
+                        "page": c.get("page"),
+                        "title": c.get("titre"),
+                        "source": c.get("editeur", "Espace personnel"),
+                        "details": f"{c.get('editeur', 'Espace personnel')} · p.{c.get('page', 1)}",
+                        "similarity": c.get("similarity"),
+                    }
+                    for c in private_chunks
+                ]
+                calc_block = (
+                    "\n\n**Calculs & Benchmarks certifiés FreeData.AI croisés avec votre document :**\n"
+                    + "\n".join(calc_notes)
+                    if calc_notes
+                    else ""
+                )
+                doc_facts = (
+                    "**Analyse de vos documents personnels (indexation sémantique Jina) :**\n"
+                    + "\n".join(
+                        f"- **{c.get('titre')}** (segment {c.get('page', 1)}) : {c.get('content', '')}"
+                        for c in private_chunks
+                    )
+                    + calc_block
+                )
+                if settings.llm_api_key:
+                    llm_doc_reply = self._synthesize_with_llm(
+                        q,
+                        doc_facts,
+                        private_chunks,
+                        history=history,
+                        client_state=client_state,
+                    )
+                else:
+                    llm_doc_reply = doc_facts
+                return {
+                    "reply": llm_doc_reply,
+                    "intent": "private_document_analysis",
+                    "entities": {
+                        **entities,
+                        "document_commodity": doc_comm,
+                        "document_provinces": doc_provs,
+                    },
+                    "sources": doc_sources,
+                    "chart": None,
+                    "client_state": client_state,
+                    "follow_ups": [
+                        "Simuler la rentabilité complète avec ces paramètres",
+                        "Comparer les prix du document aux marchés officiels du Tchad",
+                    ],
+                }
             return self._clarification_response(
                 entities, self._converse_with_llm(q, history, "demande vague ou hors sujet") if chat_mode else None
             )
@@ -3356,7 +3463,7 @@ class FreeDataAIAgent(FormattersMixin):
         if entities.get("province"):
             rag_terms.append(str(entities["province"]))
         rag_query = " ".join(dict.fromkeys(t for t in rag_terms if t))
-        chunks = self.provider.retrieve_rag_chunks(rag_query)
+        chunks = list(private_chunks or []) + self.provider.retrieve_rag_chunks(rag_query)
 
         sources = [
             {

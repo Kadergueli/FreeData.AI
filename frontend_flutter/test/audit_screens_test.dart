@@ -1,12 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:freedata_ai/core/design_system/fd_design_system.dart';
 import 'package:freedata_ai/core/models/chat_models.dart';
+import 'package:freedata_ai/core/utils/file_picker.dart';
 import 'package:freedata_ai/main.dart';
 import 'package:freedata_ai/screens/account_screen.dart';
 import 'package:freedata_ai/screens/admin_screen.dart';
+import 'package:freedata_ai/screens/chat_screen.dart';
 import 'package:freedata_ai/screens/projects_screen.dart';
 import 'package:freedata_ai/screens/settings_screen.dart';
 import 'package:freedata_ai/screens/subscription_screen.dart';
@@ -224,6 +228,34 @@ class _AuditFakeApiService extends ApiService {
 
   String? lastUpdatedDisplayName;
   String? lastSentChatMessage;
+  final List<Map<String, dynamic>> uploadedDocs = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listUserDocuments() async =>
+      List<Map<String, dynamic>>.from(uploadedDocs);
+
+  @override
+  Future<Map<String, dynamic>> uploadUserDocument({
+    required String filename,
+    required Uint8List bytes,
+    String mimeType = 'application/octet-stream',
+  }) async {
+    final doc = {
+      'doc_id': 'doc-${uploadedDocs.length + 1}',
+      'filename': filename,
+      'mime_type': mimeType,
+      'size_bytes': bytes.length,
+      'chunk_count': 3,
+      'embedding_model': 'jina-embeddings-v3',
+    };
+    uploadedDocs.add(doc);
+    return {'status': 'indexed', 'document': doc};
+  }
+
+  @override
+  Future<void> deleteUserDocument(String docId) async {
+    uploadedDocs.removeWhere((d) => d['doc_id'] == docId);
+  }
 
   @override
   Future<Map<String, dynamic>> loginAccount({
@@ -567,6 +599,50 @@ void main() {
     await tester.scrollUntilVisible(secFinder, 200,
         scrollable: find.byType(Scrollable).first);
     expect(secFinder, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'ChatScreen uploads private PDF via attach button and renders Jina/Groq document chip',
+      (tester) async {
+    final api = _AuditFakeApiService();
+    final thread = ConversationThread(
+      id: 'c-doc',
+      title: 'Étude PDF',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatScreen(
+            apiService: api,
+            conversation: thread,
+            onConversationUpdated: (_) {},
+            onNewConversation: () {},
+            onOpenAuthDialog: () async => true,
+            onPickDocument: () async => PickedUserFile(
+              name: 'rapport_salamat_2026.pdf',
+              bytes: Uint8List.fromList(
+                  'Contrat arachide Salamat 410 XAF'.codeUnits),
+              mimeType: 'application/pdf',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final attachBtn = find.byIcon(Icons.attach_file_rounded);
+    expect(attachBtn, findsOneWidget);
+    await tester.tap(attachBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('rapport_salamat_2026.pdf'), findsOneWidget);
+    expect(api.uploadedDocs.length, 1);
+    expect(api.uploadedDocs.first['embedding_model'], 'jina-embeddings-v3');
     expect(tester.takeException(), isNull);
   });
 }

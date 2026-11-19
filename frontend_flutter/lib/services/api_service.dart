@@ -1377,4 +1377,59 @@ class ApiService {
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Erreur validation paiement'));
   }
+
+  // --- Coffre-fort de documents privés (Jina Embeddings v3 + RAG isolé) ----
+
+  Future<Map<String, dynamic>> uploadUserDocument({
+    required String filename,
+    required Uint8List bytes,
+    String? mimeType,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/documents/upload');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'filename': filename.trim(),
+            'content_base64': base64Encode(bytes),
+            if (mimeType != null && mimeType.trim().isNotEmpty)
+              'mime_type': mimeType.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 40));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Téléversement du document impossible'));
+  }
+
+  Future<List<Map<String, dynamic>>> listUserDocuments() async {
+    final uri = Uri.parse('$baseUrl/api/v1/documents');
+    final resp = await _client
+        .get(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['documents'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement documents'));
+  }
+
+  Future<void> deleteUserDocument(String docId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/documents/$docId');
+    final resp = await _client
+        .delete(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode,
+          _extractErrorDetail(resp, 'Suppression du document impossible'));
+    }
+  }
 }

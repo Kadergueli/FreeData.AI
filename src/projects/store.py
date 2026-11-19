@@ -395,8 +395,9 @@ class ProjectStore:
 
             artifact_path: Optional[str] = None
             if pdf_bytes is not None and self._pg_url:
-                # Postgres : le PDF vit en base (le disque de Render est éphémère).
-                artifact_path = "db:"
+                # Postgres (Supabase) : zéro stockage binaire BLOB en base pour éviter la saturation.
+                # Le PDF est livré à l'appareil de l'utilisateur et régénéré à la volée depuis `dossier_json`.
+                artifact_path = "on_demand:"
             elif pdf_bytes is not None:
                 owner_hash = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:16]
                 owner_dir = self.artifacts_dir / owner_hash
@@ -465,7 +466,7 @@ class ProjectStore:
                     "version_number": r["version_number"],
                     "generation_params": json.loads(r["generation_params_json"]),
                     "validation": json.loads(r["validation_result_json"]),
-                    "artifact_available": bool(art == "db:" or (art and Path(art).is_file())),
+                    "artifact_available": bool(art in ("db:", "on_demand:") or (art and Path(art).is_file())),
                     "created_at": r["created_at"],
                 })
             return out
@@ -473,12 +474,17 @@ class ProjectStore:
     def get_study_version_pdf(self, owner_id: str, project_id: str, study_id: str, version_number: int) -> bytes:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT artifact_path FROM study_versions WHERE owner_id = ? AND project_id = ? AND study_id = ? AND version_number = ?",
+                "SELECT artifact_path, dossier_json FROM study_versions WHERE owner_id = ? AND project_id = ? AND study_id = ? AND version_number = ?",
                 (owner_id, project_id, study_id, version_number),
             ).fetchone()
             if not row:
                 raise KeyError(f"Version introuvable : {study_id} v{version_number}")
             art = row["artifact_path"]
+            if art == "on_demand:":
+                from src.reports.pdf_generator import render_market_study_pdf
+
+                dossier = json.loads(row["dossier_json"])
+                return render_market_study_pdf(dossier)
             if art == "db:":
                 blob = conn.execute(
                     "SELECT a.pdf FROM study_artifacts a JOIN study_versions v ON v.version_id = a.version_id "
@@ -486,7 +492,10 @@ class ProjectStore:
                     (owner_id, project_id, study_id, version_number),
                 ).fetchone()
                 if not blob:
-                    raise FileNotFoundError(f"Artefact PDF manquant ou supprime pour {study_id} v{version_number}.")
+                    from src.reports.pdf_generator import render_market_study_pdf
+
+                    dossier = json.loads(row["dossier_json"])
+                    return render_market_study_pdf(dossier)
                 return bytes(blob["pdf"])
             if not art or not Path(art).is_file():
                 raise FileNotFoundError(f"Artefact PDF manquant ou supprime pour {study_id} v{version_number}.")

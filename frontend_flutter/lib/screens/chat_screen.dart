@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/fd_theme.dart';
 import '../core/models/chat_models.dart';
+import '../core/utils/file_picker.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
@@ -16,6 +17,7 @@ class ChatScreen extends StatefulWidget {
   final String? initialPrompt;
   final VoidCallback? onPromptHandled;
   final Future<bool> Function()? onRequireAuth;
+  final Future<PickedDocumentFile?> Function()? onPickDocument;
 
   const ChatScreen({
     super.key,
@@ -25,6 +27,7 @@ class ChatScreen extends StatefulWidget {
     this.initialPrompt,
     this.onPromptHandled,
     this.onRequireAuth,
+    this.onPickDocument,
   });
 
   @override
@@ -49,6 +52,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   ConversationThread? _thread;
   bool _loading = false;
+  bool _uploadingDoc = false;
+  List<Map<String, dynamic>> _userDocuments = const [];
   String? _lastPrompt;
   String _selectedDomain = 'auto';
 
@@ -131,6 +136,110 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
+  Future<void> _loadUserDocuments() async {
+    if (!widget.apiService.isAuthenticated &&
+        !widget.apiService.hasExplicitPremiumKey) {
+      if (_userDocuments.isNotEmpty && mounted) {
+        setState(() => _userDocuments = const []);
+      }
+      return;
+    }
+    try {
+      final docs = await widget.apiService.listUserDocuments();
+      if (!mounted) return;
+      setState(() => _userDocuments = docs);
+    } catch (_) {}
+  }
+
+  Future<void> _handleAttachDocument() async {
+    if (_uploadingDoc) return;
+    if (widget.onRequireAuth != null &&
+        !widget.apiService.isAuthenticated &&
+        !widget.apiService.hasExplicitPremiumKey) {
+      final ok = await widget.onRequireAuth!();
+      if (!mounted || !ok) return;
+    }
+
+    final picker = widget.onPickDocument ?? pickUserDocumentFile;
+    final picked = await picker();
+    if (picked == null || !mounted) return;
+
+    setState(() => _uploadingDoc = true);
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+              'Indexation sémantique Jina en cours pour « ${picked.name} »…'),
+        ),
+      );
+    try {
+      final uploaded = await widget.apiService.uploadUserDocument(
+        filename: picked.name,
+        bytes: picked.bytes,
+        mimeType: picked.mimeType,
+      );
+      await _loadUserDocuments();
+      if (!mounted) return;
+      final chunksCount = uploaded['chunks_count'] ?? 1;
+      final provider = uploaded['embedding_provider'] ?? 'jina';
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            backgroundColor: FDTheme.greenDark,
+            content: Text(
+              'Document privé « ${picked.name} » indexé ($chunksCount segments · $provider). Posez votre question !',
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      if (_controller.text.trim().isEmpty) {
+        setState(() {
+          _controller.text =
+              'Analyse mon document « ${picked.name} » et résume les points clés.';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            backgroundColor: FDTheme.danger,
+            content: Text(e.toString()),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _uploadingDoc = false);
+    }
+  }
+
+  Future<void> _deleteUserDocument(String docId, String filename) async {
+    try {
+      await widget.apiService.deleteUserDocument(docId);
+      if (!mounted) return;
+      setState(() {
+        _userDocuments =
+            _userDocuments.where((d) => d['doc_id'] != docId).toList();
+      });
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Document privé « $filename » supprimé.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -138,6 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
     widget.apiService.getMetadata().catchError((_) => <String, dynamic>{});
     _loadConversation(widget.conversationId);
     _loadDefaultDomain();
+    _loadUserDocuments();
 
     if (widget.initialPrompt != null && widget.initialPrompt!.isNotEmpty) {
       final promptToSend = widget.initialPrompt!;
@@ -153,6 +263,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     _loadDefaultDomain();
+    _loadUserDocuments();
     if (oldWidget.conversationId != widget.conversationId) {
       _loadConversation(widget.conversationId);
     }
@@ -674,7 +785,66 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 10, 8),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (_userDocuments.isNotEmpty) ...[
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: _userDocuments.take(6).map((doc) {
+                        final docId = doc['doc_id']?.toString() ?? '';
+                        final fname =
+                            doc['filename']?.toString() ?? 'Document.pdf';
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(9, 4, 4, 4),
+                            decoration: BoxDecoration(
+                              color: FDTheme.blueSoft,
+                              borderRadius: BorderRadius.circular(99),
+                              border: Border.all(
+                                  color: FDTheme.blue.withValues(alpha: 0.25)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.description_outlined,
+                                    size: 13.5, color: FDTheme.blue),
+                                const SizedBox(width: 5),
+                                ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 160),
+                                  child: Text(
+                                    fname,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: FDTheme.blueDark,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(99),
+                                  onTap: () =>
+                                      _deleteUserDocument(docId, fname),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(2),
+                                    child: Icon(Icons.close_rounded,
+                                        size: 14, color: FDTheme.blueDark),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
                 TextField(
                   controller: _controller,
                   minLines: 1,
@@ -713,6 +883,57 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
+                    // Bouton Joindre un document privé (PDF / CSV / TXT / MD / JSON -> Jina + Groq)
+                    Tooltip(
+                      message:
+                          'Joindre un document privé (PDF, CSV, TXT, MD — indexé par Jina)',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: _uploadingDoc ? null : _handleAttachDocument,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _userDocuments.isNotEmpty
+                                ? FDTheme.blueSoft
+                                : FDTheme.canvasSoft,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_uploadingDoc)
+                                const SizedBox(
+                                  width: 13,
+                                  height: 13,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              else
+                                Icon(
+                                  Icons.attach_file_rounded,
+                                  size: 15,
+                                  color: _userDocuments.isNotEmpty
+                                      ? FDTheme.blue
+                                      : FDTheme.ink,
+                                ),
+                              if (_userDocuments.isNotEmpty) ...[
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${_userDocuments.length}',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: FDTheme.blue,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     // Sélecteur de domaine compact (style ChatGPT / Claude)
                     PopupMenuButton<String>(
                       tooltip: 'Choisir le domaine IA',

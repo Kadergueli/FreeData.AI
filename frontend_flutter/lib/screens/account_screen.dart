@@ -33,6 +33,7 @@ class _AccountScreenState extends State<AccountScreen> {
   final _newPassCtrl = TextEditingController();
 
   Map<String, dynamic>? _billing;
+  List<Map<String, dynamic>> _myDocs = const [];
   bool _loadingBilling = false;
   bool _savingProfile = false;
   bool _changingPass = false;
@@ -59,13 +60,35 @@ class _AccountScreenState extends State<AccountScreen> {
     setState(() => _loadingBilling = true);
     try {
       final b = await widget.apiService.getMyBilling();
+      List<Map<String, dynamic>> docs = const [];
+      try {
+        docs = await widget.apiService.listUserDocuments();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _billing = b;
+        _myDocs = docs;
         _loadingBilling = false;
       });
     } catch (_) {
       if (mounted) setState(() => _loadingBilling = false);
+    }
+  }
+
+  Future<void> _deleteDoc(String docId, String filename) async {
+    try {
+      await widget.apiService.deleteUserDocument(docId);
+      if (!mounted) return;
+      setState(() {
+        _myDocs = _myDocs.where((d) => d['doc_id'] != docId).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Document privé « $filename » supprimé.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Suppression impossible : $e')));
     }
   }
 
@@ -451,6 +474,62 @@ class _AccountScreenState extends State<AccountScreen> {
                         icon: Icons.lock_reset_rounded,
                         onPressed: _changingPass ? null : _changePassword,
                       ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // Coffre-fort de documents privés (Jina + Groq)
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Mon Coffre-fort de Documents Privés (Jina & Groq)',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Vos documents (PDF, CSV, TXT, MD, JSON) joints depuis le bouton 📎 du chat sont indexés par Jina Embeddings v3 et interprétés par Groq. Ils sont strictement isolés sur votre compte.',
+                        style: TextStyle(fontSize: 13, color: AppColors.muted),
+                      ),
+                      const SizedBox(height: 10),
+                      if (_myDocs.isEmpty)
+                        const Text(
+                          'Aucun document privé téléversé pour le moment.',
+                          style: TextStyle(
+                              fontSize: 12.5, color: AppColors.subtle),
+                        )
+                      else
+                        ..._myDocs.map((d) {
+                          final docId = d['doc_id']?.toString() ?? '';
+                          final fname = d['filename']?.toString() ?? 'Document';
+                          final chunks = d['chunks_count'] ?? 1;
+                          final provider =
+                              d['embedding_provider'] ?? 'jina-embeddings-v3';
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.description_outlined,
+                                color: AppColors.blue, size: 20),
+                            title: Text(fname,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.ink)),
+                            subtitle: Text(
+                                '$chunks segment(s) · Moteur : $provider',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.muted)),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded,
+                                  color: AppColors.danger, size: 19),
+                              tooltip: 'Supprimer ce document',
+                              onPressed: () => _deleteDoc(docId, fname),
+                            ),
+                          );
+                        }),
                     ],
                   ),
                 ),

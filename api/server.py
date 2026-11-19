@@ -45,6 +45,7 @@ from src.domains import DomainRegistry
 from src.entitlements import EntitlementManager
 from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, get_auth_secret
 from src.conversations import ConversationStore
+from src.user_documents import UserDocumentStore
 from src.monetization import (
     DEFAULT_PLANS,
     HmacJsonWebhookAdapter,
@@ -475,11 +476,12 @@ async def limit_body_size(request: Request, call_next):
         raw = request.headers.get("content-length")
         if raw is None:
             return JSONResponse({"detail": "En-tête Content-Length requis."}, status_code=411)
-        max_allowed = (
-            max(settings.max_body_bytes, 524_288)
-            if request.url.path.startswith("/api/v1/conversations")
-            else settings.max_body_bytes
-        )
+        if request.url.path.startswith("/api/v1/documents"):
+            max_allowed = max(settings.max_body_bytes, 12 * 1024 * 1024)
+        elif request.url.path.startswith("/api/v1/conversations"):
+            max_allowed = max(settings.max_body_bytes, 524_288)
+        else:
+            max_allowed = settings.max_body_bytes
         if not raw.isdigit() or int(raw) > max_allowed:
             return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
     return await call_next(request)
@@ -681,6 +683,21 @@ def get_metadata(state: dict = Depends(get_state)):
 _SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
 _AUTH_STORE: Optional[AuthStore] = None
 _CONVERSATION_STORE: Optional[ConversationStore] = None
+_USER_DOCUMENT_STORE: Optional[UserDocumentStore] = None
+
+
+def get_user_document_store() -> UserDocumentStore:
+    global _USER_DOCUMENT_STORE
+    if _USER_DOCUMENT_STORE is None:
+        try:
+            _USER_DOCUMENT_STORE = UserDocumentStore()
+        except Exception as exc:
+            logger.exception("Échec connexion UserDocumentStore (vérifier SUPABASE_DB_URL) : %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Base de données des documents indisponible (vérifiez SUPABASE_DB_URL sur Render) : {type(exc).__name__}",
+            ) from exc
+    return _USER_DOCUMENT_STORE
 
 
 def get_subscription_store() -> SubscriptionStore:
@@ -837,6 +854,7 @@ def chat_endpoint(
     x_user_id: Optional[str] = Header(default=None),
     authorization: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
@@ -845,6 +863,12 @@ def chat_endpoint(
     if tier == "premium" and not _has_pro_access(owner_id, x_premium_key, sub_store):
         tier = "free"
     _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
+    private_chunks: list[dict] = []
+    if owner_id and isinstance(doc_store, UserDocumentStore):
+        try:
+            private_chunks = doc_store.retrieve_for_owner(owner_id, payload.message, top_k=3)
+        except Exception:
+            private_chunks = []
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
     if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
         raise HTTPException(status_code=503, detail="Assistant très sollicité. Réessayez dans un instant.",
@@ -855,6 +879,7 @@ def chat_endpoint(
             history=payload.history,
             tier=tier,
             study_context=payload.study_context,
+            private_chunks=private_chunks,
         )
     finally:
         _CHAT_SLOTS.release()
@@ -1574,18 +1599,45 @@ def governance_admin_decision_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/privacy/export", dependencies=[Depends(_data_rate_limit_dependency)])
+def export_my_privacy_data_endpoint(
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Export RGPD complet de l'espace utilisateur (projets, conversations cloud, documents privés, abonnement)."""
+    projects = store.list_projects(owner_id, include_archived=True, limit=200, offset=0) if isinstance(store, ProjectStore) else []
+    conversations = conv_store.list_conversations(owner_id, include_deleted=True) if isinstance(conv_store, ConversationStore) else []
+    documents = doc_store.list_documents(owner_id) if isinstance(doc_store, UserDocumentStore) else []
+    billing = sub_store.get_usage_summary(owner_id) if isinstance(sub_store, SubscriptionStore) else {}
+    return {
+        "owner_id": owner_id,
+        "exported_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "subscription": billing.get("subscription"),
+        "quotas": billing.get("quotas"),
+        "projects": projects,
+        "conversations": conversations,
+        "documents": documents,
+    }
+
+
 @app.delete("/api/v1/privacy/my-data", dependencies=[Depends(_data_rate_limit_dependency)])
 def delete_my_data_endpoint(
     confirm: bool = Query(False),
     owner_id: str = Depends(_require_project_owner),
     store: ProjectStore = Depends(get_project_store),
     conv_store: ConversationStore = Depends(get_conversation_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
 ):
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation explicite requise (?confirm=true).")
     deleted_convs = conv_store.purge_owner(owner_id) if isinstance(conv_store, ConversationStore) else 0
+    deleted_docs = doc_store.purge_owner(owner_id) if isinstance(doc_store, UserDocumentStore) else 0
     out = PrivacyController.delete_user_data(store, owner_id)
     out["deleted_conversations"] = deleted_convs
+    out["deleted_documents"] = deleted_docs
     return out
 
 
@@ -1969,6 +2021,7 @@ def platform_chat_endpoint(
     svc: AnalyticsService = Depends(get_analytics_service),
     ent: EntitlementManager = Depends(get_entitlement_manager),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
 ):
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
     eff_tier = "premium" if (payload.tier == "premium" and _has_pro_access(owner_id, x_premium_key, sub_store)) else "free"
@@ -1979,6 +2032,13 @@ def platform_chat_endpoint(
     except OverflowError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
+    private_chunks: list[dict] = []
+    if owner_id and isinstance(doc_store, UserDocumentStore):
+        try:
+            private_chunks = doc_store.retrieve_for_owner(owner_id, payload.message, top_k=3)
+        except Exception:
+            private_chunks = []
+
     domain_mod = DomainRegistry.classify_domain(payload.message, explicit_domain=payload.domain)
     agent: FreeDataAIAgent = state["agent"]
 
@@ -1988,6 +2048,7 @@ def platform_chat_endpoint(
             history=payload.history,
             tier=eff_tier,
             study_context=payload.study_context,
+            private_chunks=private_chunks,
         )
         return {**res, "domain": domain_mod.domain_id, "domain_label": domain_mod.label_fr, "quota": quota_info}
 
@@ -2007,7 +2068,9 @@ def platform_chat_endpoint(
             "reply": f"**[{domain_mod.label_fr}]** Outil exécuté : `{out['tool_used']}` (portée : {out['geographic_scope']}, méthodologie : {out['methodology']}).",
             "intent": out["tool_used"],
             "entities": {},
-            "sources": [{"title": str(s)} for s in out.get("sources", [])],
+            "sources": [{"title": str(s)} for s in out.get("sources", [])] + [
+                {"title": c["title"], "source": c["source"], "score": c["similarity"]} for c in private_chunks
+            ],
             "summary": out["result"],
             "domain": domain_mod.domain_id,
             "domain_label": domain_mod.label_fr,
@@ -2015,9 +2078,23 @@ def platform_chat_endpoint(
         }
 
     # General AI, Education, Academic Research, Tech & Programming, Productivity
-    rag_hits = rag.search(payload.message, top_k=3)
-    sources = [{"title": h["title"], "source": h["source"], "score": h["score"]} for h in rag_hits]
-    if eff_tier == "premium" and settings.llm_api_key:
+    rag_hits = list(private_chunks) + rag.search(payload.message, top_k=3)
+    sources = [
+        {"title": h["title"], "source": h["source"], "score": h.get("score") or h.get("similarity")}
+        for h in rag_hits
+    ]
+    if private_chunks and settings.llm_api_key:
+        doc_facts = "**Contexte documentaire privé (indexation Jina) :**\n" + "\n".join(
+            f"- **{c.get('titre')}** (segment {c.get('page', 1)}) : {c.get('content', '')}"
+            for c in private_chunks
+        )
+        reply = agent._synthesize_with_llm(
+            payload.message,
+            doc_facts,
+            private_chunks,
+            history=payload.history,
+        )
+    elif eff_tier == "premium" and settings.llm_api_key:
         llm_reply = agent._converse_with_llm(
             payload.message,
             payload.history,
@@ -2195,6 +2272,7 @@ def auth_delete_account_endpoint(
     auth_store: AuthStore = Depends(get_auth_store),
     conv_store: ConversationStore = Depends(get_conversation_store),
     project_store: ProjectStore = Depends(get_project_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
 ):
     sub_id, tok = _require_bearer_user_id(authorization, auth_store)
     try:
@@ -2206,6 +2284,8 @@ def auth_delete_account_endpoint(
     owner_id = f"user:{sub_id}"
     if isinstance(conv_store, ConversationStore):
         conv_store.purge_owner(owner_id)
+    if isinstance(doc_store, UserDocumentStore):
+        doc_store.purge_owner(owner_id)
     if isinstance(project_store, ProjectStore):
         for p in project_store.list_projects(owner_id, include_archived=True):
             try:
@@ -2530,6 +2610,68 @@ def validate_document_endpoint(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Encodage base64 invalide.") from exc
+
+
+@app.post("/api/v1/documents/upload", dependencies=[Depends(_chat_rate_limit_dependency)])
+def upload_user_document_endpoint(
+    payload: DocumentValidateRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+):
+    """Téléverse, valide, indexe via Jina Embeddings v3 (ou hybride local) et isole un document privé sous `owner_id`."""
+    import base64
+
+    sub = sub_store.get_subscription(owner_id)
+    limits = sub["limits"]
+    if _premium_key_ok(x_premium_key) and sub.get("plan_id") == "free" and sub.get("status") == "active":
+        limits = DEFAULT_PLANS["premium"]
+    max_mb = int(limits.get("max_file_mb", 2))
+    max_bytes = max_mb * 1024 * 1024
+    max_docs = 50 if _has_pro_access(owner_id, x_premium_key, sub_store) else 5
+
+    _consume_user_quota(owner_id, x_premium_key, "daily_rag", sub_store, "Quota journalier d'indexation documentaire RAG atteint.")
+
+    try:
+        raw_bytes = base64.b64decode(payload.content_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Encodage base64 invalide.") from exc
+
+    try:
+        return doc_store.ingest_document(
+            owner_id,
+            filename=payload.filename,
+            content_bytes=raw_bytes,
+            mime_type=payload.mime_type,
+            max_bytes=max_bytes,
+            max_docs=max_docs,
+        )
+    except OverflowError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/documents", dependencies=[Depends(_data_rate_limit_dependency)])
+def list_user_documents_endpoint(
+    owner_id: str = Depends(_require_project_owner),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+):
+    docs = doc_store.list_documents(owner_id)
+    return {"count": len(docs), "documents": docs}
+
+
+@app.delete("/api/v1/documents/{doc_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def delete_user_document_endpoint(
+    doc_id: str,
+    owner_id: str = Depends(_require_project_owner),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+):
+    deleted = doc_store.delete_document(owner_id, doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    return {"deleted": True, "doc_id": doc_id}
 
 
 # ---------------------------------------------------------------------------
