@@ -65,6 +65,16 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    // Clé refusée par le serveur (403) : on la retire aussi du stockage et on redessine l'interface (onglets PRO).
+    _apiService.onPremiumKeyRejected = () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_premiumKeyStorageKey);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {});
+      _showSnackBar(const SnackBar(content: Text('Clé PRO refusée par le serveur : accès PRO désactivé. Saisissez une clé valide.')));
+    };
     _loadPremiumKey();
     _reloadConversations();
   }
@@ -444,7 +454,23 @@ class _MainShellState extends State<MainShell> {
         ProjectsScreen(
           apiService: _apiService,
           onResumeProject: (proj) {
-            _openPromptInChat('Reprendre le projet ${proj['name']}');
+            // Le chat n'a pas de canal « study_context » : on injecte le contexte du projet dans le prompt.
+            final buf = StringBuffer('Reprendre le projet « ${proj['name']} ».');
+            final desc = proj['description']?.toString().trim() ?? '';
+            if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
+            final ctx = proj['study_context'];
+            if (ctx is Map && ctx.isNotEmpty) {
+              final parts = ctx.entries
+                  .where((e) => e.value != null && e.value.toString().trim().isNotEmpty)
+                  .map((e) => '${e.key} = ${e.value}')
+                  .take(12);
+              if (parts.isNotEmpty) buf.write('\nContexte enregistré : ${parts.join(' ; ')}');
+            }
+            final studies = proj['studies'];
+            if (studies is List && studies.isNotEmpty) {
+              buf.write('\nÉtudes existantes : ${studies.length}.');
+            }
+            _openPromptInChat(buf.toString());
           },
         )
       else
@@ -468,7 +494,7 @@ class _MainShellState extends State<MainShell> {
             SizedBox(
               width: 280,
               child: _SidebarContent(
-                currentIndex: _selectedIndex,
+                currentIndex: effectiveIndex,
                 activeConversationId: _activeConversationId,
                 conversations: _conversations,
                 hasPremiumKey: _apiService.hasPremiumKey,
@@ -502,7 +528,7 @@ class _MainShellState extends State<MainShell> {
                     child: Row(
                       children: [
                         Text(
-                          _getTitle(_selectedIndex),
+                          _getTitle(effectiveIndex),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -609,7 +635,7 @@ class _MainShellState extends State<MainShell> {
             const SizedBox(width: 10),
             Flexible(
               child: Text(
-                _getTitle(_selectedIndex),
+                _getTitle(effectiveIndex),
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: FDTheme.ink,
@@ -663,9 +689,11 @@ class _MainShellState extends State<MainShell> {
                   ),
                 );
               } else if (value == 'settings') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)),
-                );
+                Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)))
+                    .then((_) {
+                  if (mounted) setState(() {});
+                });
               } else if (value == 'docs') {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const DocsScreen()),
@@ -744,7 +772,7 @@ class _MainShellState extends State<MainShell> {
         backgroundColor: FDTheme.surface,
         child: SafeArea(
           child: _SidebarContent(
-            currentIndex: _selectedIndex,
+            currentIndex: effectiveIndex,
             activeConversationId: _activeConversationId,
             conversations: _conversations,
             hasPremiumKey: _apiService.hasPremiumKey,

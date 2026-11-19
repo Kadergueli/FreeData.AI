@@ -76,7 +76,7 @@ class _FakeAnalyticsApiService extends ApiService {
         {
           'commodity': 'Millet',
           'province': "N'Djamena",
-          'forecast_t1_xaf_kg': 276.0,
+          'forecast_t1': 276.0,
           'ci_low_80': 245.0,
           'ci_high_80': 308.0,
         },

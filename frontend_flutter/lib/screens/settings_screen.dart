@@ -15,8 +15,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _language = 'fr';
-  String _style = 'concis';
   String _defaultDomain = 'auto';
   final _userCtrl = TextEditingController();
 
@@ -30,8 +28,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _language = prefs.getString('fd_pref_lang') ?? 'fr';
-      _style = prefs.getString('fd_pref_style') ?? 'concis';
       _defaultDomain = prefs.getString('fd_pref_domain') ?? 'auto';
       _userCtrl.text = prefs.getString('fd_pref_user_id') ?? widget.apiService.userId;
     });
@@ -39,8 +35,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('fd_pref_lang', _language);
-    await prefs.setString('fd_pref_style', _style);
     await prefs.setString('fd_pref_domain', _defaultDomain);
     final uid = _userCtrl.text.trim();
     var idRejected = false;
@@ -78,28 +72,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<String>(
-                  initialValue: _language,
-                  decoration: const InputDecoration(labelText: 'Langue des rapports'),
-                  items: const [
-                    DropdownMenuItem(value: 'fr', child: Text('Français')),
-                    DropdownMenuItem(value: 'en', child: Text('English')),
-                  ],
-                  onChanged: (v) => setState(() => _language = v ?? 'fr'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _style,
-                  decoration: const InputDecoration(labelText: 'Style de réponse préféré'),
-                  items: const [
-                    DropdownMenuItem(value: 'concis', child: Text('Concis & opérationnel')),
-                    DropdownMenuItem(value: 'detaille', child: Text('Détaillé & académique')),
-                  ],
-                  onChanged: (v) => setState(() => _style = v ?? 'concis'),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
                   initialValue: _defaultDomain,
-                  decoration: const InputDecoration(labelText: 'Domaine par défaut'),
+                  decoration: const InputDecoration(labelText: 'Domaine par défaut du chat', helperText: 'Appliqué à l’ouverture du chat.'),
                   items: const [
                     DropdownMenuItem(value: 'auto', child: Text('Détection automatique')),
                     DropdownMenuItem(value: 'chad_intelligence', child: Text('Intelligence Tchad')),
@@ -113,7 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _userCtrl,
                   decoration: const InputDecoration(
                     labelText: 'Identifiant espace projets (X-User-Id)',
-                    helperText: 'Utilisé pour isoler vos projets (minimum 3 caractères).',
+                    helperText: 'Isole vos projets : 32 à 80 caractères (lettres, chiffres, - ou _). Le changer donne accès à un autre espace.',
                   ),
                 ),
                 const SizedBox(height: 16),

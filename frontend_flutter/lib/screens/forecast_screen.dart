@@ -509,6 +509,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               ? 'Fourchette indicative (historique court)'
                               : 'Intervalle indicatif 80 %'));
 
+                  // Hors du builder du StatefulBuilder : sinon il est réinitialisé à chaque rebuild et ne se déplie jamais.
+                  bool expanded = false;
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: FDCard(
@@ -587,7 +590,6 @@ class _ForecastScreenState extends State<ForecastScreen> {
                             const SizedBox(height: 6),
                             StatefulBuilder(
                               builder: (ctx, setLocal) {
-                                bool expanded = false;
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [

@@ -52,9 +52,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void didUpdateWidget(covariant LibraryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.conversations != null) {
+    final incoming = widget.conversations;
+    if (incoming != null) {
+      // La liste du parent ne contient que les conversations actives : on conserve la corbeille déjà chargée
+      // (sinon elle est vidée à chaque redessin), sauf les éléments restaurés ou redevenus actifs.
+      final activeIds = incoming.map((c) => c.id).toSet();
+      final keptDeleted = _allConversations.where((c) => c.isDeleted && !activeIds.contains(c.id));
       setState(() {
-        _allConversations = widget.conversations!;
+        _allConversations = [...incoming, ...keptDeleted];
         _loading = false;
       });
     }
