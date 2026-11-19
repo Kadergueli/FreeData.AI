@@ -100,23 +100,24 @@ def test_503_when_data_not_loaded():
 
 
 class TestRefreshProtection:
-    def test_disabled_without_admin_token(self, client):
+    def test_disabled_without_admin_token(self, client, monkeypatch):
+        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="", admin_tokens=""))
         assert client.post("/api/v1/refresh").status_code == 503
 
     def test_rejects_missing_or_wrong_token(self, client, monkeypatch):
-        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret"))
+        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret", admin_tokens=""))
         assert client.post("/api/v1/refresh").status_code == 403
         assert client.post("/api/v1/refresh", headers={"X-Admin-Token": "nope"}).status_code == 403
 
     def test_good_token_reloads(self, client, monkeypatch):
-        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret"))
+        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret", admin_tokens=""))
         calls = []
         monkeypatch.setattr(server, "refresh_engines", lambda: calls.append(1))
         r = client.post("/api/v1/refresh", headers={"X-Admin-Token": "s3cret"})
         assert r.status_code == 200 and calls == [1]
 
     def test_failed_reload_keeps_previous_state(self, client, monkeypatch):
-        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret"))
+        monkeypatch.setattr(server, "settings", dataclasses.replace(server.settings, admin_token="s3cret", admin_tokens=""))
 
         def boom():
             raise RuntimeError("Supabase down")

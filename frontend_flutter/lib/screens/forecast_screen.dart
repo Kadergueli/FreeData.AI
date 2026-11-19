@@ -619,9 +619,11 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Text(
-                                              'Preuve & Détails du calcul',
-                                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                                            const Flexible(
+                                              child: Text(
+                                                'Preuve & Détails du calcul',
+                                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                                              ),
                                             ),
                                             const SizedBox(width: 4),
                                             Icon(
