@@ -242,27 +242,40 @@ def _bootstrap_schema(url: str, schema: str) -> None:
     _BOOTSTRAPPED.add(key)
 
 
+_HARDEN_LOCK = threading.Lock()
+
+
 def harden_tables(conn: PgConnection) -> None:
-    """Active la RLS (sans politique : personne sauf le rôle propriétaire) et retire les droits publics."""
-    cur = conn._conn.cursor()
-    cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
-    names = [r[0] for r in cur.fetchall()]
-    for name in names:
-        cur.execute(f'ALTER TABLE "{name}" ENABLE ROW LEVEL SECURITY')
+    """Active la RLS (sans politique : personne sauf le rôle propriétaire) et retire les droits publics.
+
+    Sérialisé par verrou consultatif + ordre déterministe + filtre `rowsecurity = false` afin
+    d'éviter tout deadlock `AccessExclusiveLock` lors des initialisations concurrentes au démarrage.
+    """
+    with _HARDEN_LOCK:
+        cur = conn._conn.cursor()
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext('harden_' || current_schema()))")
         cur.execute(
-            f"""
-            DO $$
-            DECLARE r text;
-            BEGIN
-              FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
-                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
-                  EXECUTE format('REVOKE ALL ON TABLE "{name}" FROM %I', r);
-                END IF;
-              END LOOP;
-            END $$;
-            """
+            "SELECT tablename FROM pg_tables "
+            "WHERE schemaname = current_schema() AND rowsecurity = false "
+            "ORDER BY tablename"
         )
-    conn._conn.commit()
+        names = [r[0] for r in cur.fetchall()]
+        for name in names:
+            cur.execute(f'ALTER TABLE "{name}" ENABLE ROW LEVEL SECURITY')
+            cur.execute(
+                f"""
+                DO $$
+                DECLARE r text;
+                BEGIN
+                  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+                    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                      EXECUTE format('REVOKE ALL ON TABLE "{name}" FROM %I', r);
+                    END IF;
+                  END LOOP;
+                END $$;
+                """
+            )
+        conn._conn.commit()
 
 
 def pg_connect(url: str, schema: str) -> PgConnection:
