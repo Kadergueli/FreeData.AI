@@ -238,18 +238,18 @@ class _AuditFakeApiService extends ApiService {
   Future<Map<String, dynamic>> uploadUserDocument({
     required String filename,
     required Uint8List bytes,
-    String mimeType = 'application/octet-stream',
+    String? mimeType,
   }) async {
     final doc = {
       'doc_id': 'doc-${uploadedDocs.length + 1}',
       'filename': filename,
-      'mime_type': mimeType,
+      'mime_type': mimeType ?? 'application/octet-stream',
       'size_bytes': bytes.length,
-      'chunk_count': 3,
-      'embedding_model': 'jina-embeddings-v3',
+      'chunks_count': 3,
+      'embedding_provider': 'jina-embeddings-v3',
     };
     uploadedDocs.add(doc);
-    return {'status': 'indexed', 'document': doc};
+    return doc;
   }
 
   @override
@@ -606,12 +606,14 @@ void main() {
       'ChatScreen uploads private PDF via attach button and renders Jina/Groq document chip',
       (tester) async {
     final api = _AuditFakeApiService();
-    final thread = ConversationThread(
-      id: 'c-doc',
-      title: 'Étude PDF',
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      messages: const [],
+    api.setAuthSession(
+      token: 'jwt-doc-test',
+      user: {
+        'user_id': ApiService.generateUserId(),
+        'email': 'amina@freedata.td',
+        'display_name': 'Amina',
+      },
+      isPro: false,
     );
 
     await tester.pumpWidget(
@@ -619,11 +621,9 @@ void main() {
         home: Scaffold(
           body: ChatScreen(
             apiService: api,
-            conversation: thread,
-            onConversationUpdated: (_) {},
-            onNewConversation: () {},
-            onOpenAuthDialog: () async => true,
-            onPickDocument: () async => PickedUserFile(
+            onConversationUpdated: () {},
+            onRequireAuth: () async => true,
+            onPickDocument: () async => PickedDocumentFile(
               name: 'rapport_salamat_2026.pdf',
               bytes: Uint8List.fromList(
                   'Contrat arachide Salamat 410 XAF'.codeUnits),
@@ -642,7 +642,7 @@ void main() {
 
     expect(find.text('rapport_salamat_2026.pdf'), findsOneWidget);
     expect(api.uploadedDocs.length, 1);
-    expect(api.uploadedDocs.first['embedding_model'], 'jina-embeddings-v3');
+    expect(api.uploadedDocs.first['embedding_provider'], 'jina-embeddings-v3');
     expect(tester.takeException(), isNull);
   });
 }
