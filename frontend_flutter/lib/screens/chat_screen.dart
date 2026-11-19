@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/fd_theme.dart';
 import '../core/models/chat_models.dart';
 import '../core/utils/file_picker.dart';
+import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
@@ -18,6 +19,8 @@ class ChatScreen extends StatefulWidget {
   final VoidCallback? onPromptHandled;
   final Future<bool> Function()? onRequireAuth;
   final Future<PickedDocumentFile?> Function()? onPickDocument;
+  final Map<String, dynamic>? activeProject;
+  final VoidCallback? onOpenProjects;
 
   const ChatScreen({
     super.key,
@@ -28,6 +31,8 @@ class ChatScreen extends StatefulWidget {
     this.onPromptHandled,
     this.onRequireAuth,
     this.onPickDocument,
+    this.activeProject,
+    this.onOpenProjects,
   });
 
   @override
@@ -301,6 +306,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final now = DateTime.now();
+    final activePid = widget.activeProject?['project_id']?.toString();
+    final activePname = widget.activeProject?['name']?.toString();
     setState(() {
       _loading = false;
       if (id != null && _thread?.id != id) {
@@ -309,6 +316,8 @@ class _ChatScreenState extends State<ChatScreen> {
           title: 'Nouvelle conversation',
           createdAt: now,
           updatedAt: now,
+          projectId: activePid,
+          projectName: activePname,
         );
       }
     });
@@ -320,7 +329,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (found != null) {
         setState(() => _thread = found);
+        _ensureProjectLoaded(found.projectId);
         _scrollToBottom();
+      } else {
+        _ensureProjectLoaded(activePid);
       }
       return;
     }
@@ -332,11 +344,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (conversations.isNotEmpty) {
       setState(() => _thread = conversations.first);
+      _ensureProjectLoaded(conversations.first.projectId);
     } else {
-      final draft =
-          await LocalConversationStorage.instance.createConversation();
+      final draft = await LocalConversationStorage.instance.createConversation(
+        projectId: activePid,
+        projectName: activePname,
+      );
       if (!mounted || widget.conversationId != null) return;
       setState(() => _thread = draft);
+      _ensureProjectLoaded(activePid);
     }
     _scrollToBottom();
   }
@@ -375,14 +391,77 @@ class _ChatScreenState extends State<ChatScreen> {
     return const [];
   }
 
+  Map<String, dynamic>? _loadedProject;
+  String? _loadedProjectId;
+
+  Future<void> _ensureProjectLoaded(String? projectId) async {
+    final pid = projectId?.trim();
+    if (pid == null || pid.isEmpty) {
+      if (_loadedProject != null && mounted) {
+        setState(() {
+          _loadedProject = null;
+          _loadedProjectId = null;
+        });
+      }
+      return;
+    }
+    if (widget.activeProject != null &&
+        widget.activeProject!['project_id']?.toString() == pid) {
+      if (_loadedProjectId != pid && mounted) {
+        setState(() {
+          _loadedProject = Map<String, dynamic>.from(widget.activeProject!);
+          _loadedProjectId = pid;
+        });
+      }
+      return;
+    }
+    if (_loadedProjectId == pid && _loadedProject != null) return;
+    try {
+      final full = await widget.apiService.getProject(pid);
+      if (!mounted) return;
+      setState(() {
+        _loadedProject = full;
+        _loadedProjectId = pid;
+      });
+    } catch (_) {}
+  }
+
+  Map<String, dynamic>? _effectiveProject() {
+    final threadPid = _thread?.projectId;
+    if (threadPid != null && threadPid.isNotEmpty) {
+      if (_loadedProject != null &&
+          _loadedProject!['project_id']?.toString() == threadPid) {
+        return _loadedProject;
+      }
+      if (widget.activeProject != null &&
+          widget.activeProject!['project_id']?.toString() == threadPid) {
+        return widget.activeProject;
+      }
+      return {
+        'project_id': threadPid,
+        'name': _thread?.projectName ?? 'Projet PRO',
+      };
+    }
+    if (widget.activeProject != null &&
+        (_thread == null || _thread!.messages.isEmpty)) {
+      return widget.activeProject;
+    }
+    return null;
+  }
+
   Map<String, dynamic>? _latestStudyContext() {
     final msgs = _thread?.messages;
-    if (msgs == null) return null;
-    for (var i = msgs.length - 1; i >= 0; i--) {
-      final cs = msgs[i].metadata['client_state'];
-      if (cs is Map && cs['study_context'] is Map) {
-        return Map<String, dynamic>.from(cs['study_context'] as Map);
+    if (msgs != null) {
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        final cs = msgs[i].metadata['client_state'];
+        if (cs is Map && cs['study_context'] is Map) {
+          return Map<String, dynamic>.from(cs['study_context'] as Map);
+        }
       }
+    }
+    final proj = _effectiveProject();
+    if (proj != null && proj['study_context'] is Map) {
+      return Map<String, dynamic>.from(proj['study_context'] as Map);
     }
     return null;
   }
@@ -501,6 +580,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
       await _safeSave(finalThread);
       widget.onConversationUpdated?.call();
+
+      // Resynchroniser automatiquement le StudyContext mis à jour dans le projet actif (silencieux)
+      final effProj = _effectiveProject();
+      final pid = finalThread.projectId ?? effProj?['project_id']?.toString();
+      final newCtx = raw['client_state'] is Map
+          ? (raw['client_state'] as Map)['study_context']
+          : null;
+      if (pid != null &&
+          pid.isNotEmpty &&
+          newCtx is Map &&
+          widget.apiService.hasPremiumKey) {
+        final ctxMap = Map<String, dynamic>.from(newCtx);
+        widget.apiService
+            .updateProject(pid, studyContext: ctxMap)
+            .then((updatedProj) {
+          if (mounted && _loadedProjectId == pid) {
+            setState(() => _loadedProject = updatedProj);
+          }
+        }).catchError((_) {});
+      }
+
       if (!mounted) return;
       if (_thread?.id == targetThreadId) {
         setState(() {
@@ -559,6 +659,77 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildActiveProjectBanner() {
+    final proj = _effectiveProject();
+    if (proj == null) return const SizedBox.shrink();
+    final name = proj['name']?.toString().trim() ?? 'Projet PRO';
+    final ctx = proj['study_context'];
+    final chips = <String>[];
+    if (ctx is Map) {
+      final prod = ctx['product_activity'];
+      if (prod is Map &&
+          (prod['commodity']?.toString().trim().isNotEmpty ?? false)) {
+        chips.add(commodityLabelFr(prod['commodity'].toString()));
+      }
+      final geo = ctx['geography'];
+      if (geo is Map) {
+        final orig = geo['origin_province']?.toString().trim() ?? '';
+        final dest = geo['dest_province']?.toString().trim() ?? '';
+        if (orig.isNotEmpty && dest.isNotEmpty) {
+          chips.add('$orig → $dest');
+        } else if (orig.isNotEmpty) {
+          chips.add(orig);
+        }
+      }
+      final bud = ctx['budget_and_assumptions'];
+      if (bud is Map && bud['capital_xaf'] is num) {
+        chips.add('${formatXaf((bud['capital_xaf'] as num).toDouble())} FCFA');
+      }
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: const BoxDecoration(
+        color: FDTheme.blueSoft,
+        border: Border(bottom: BorderSide(color: FDTheme.line)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.folder_special_rounded,
+              size: 16, color: FDTheme.blue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              chips.isEmpty
+                  ? 'Projet actif : $name'
+                  : 'Projet : $name · ${chips.join(' · ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: FDTheme.ink,
+              ),
+            ),
+          ),
+          if (widget.onOpenProjects != null)
+            TextButton(
+              onPressed: widget.onOpenProjects,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'Ouvrir le dossier',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = _thread?.messages ?? const <ChatMessage>[];
@@ -567,6 +738,7 @@ class _ChatScreenState extends State<ChatScreen> {
       color: Colors.white,
       child: Column(
         children: [
+          _buildActiveProjectBanner(),
           Expanded(
             child: messages.isEmpty
                 ? _buildEmptyState()

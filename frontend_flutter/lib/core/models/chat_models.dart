@@ -9,6 +9,8 @@ class ConversationThread {
   final DateTime updatedAt;
   final bool isSavedInLibrary;
   final bool isDeleted;
+  final String? projectId;
+  final String? projectName;
   final List<ChatMessage> messages;
 
   const ConversationThread({
@@ -18,6 +20,8 @@ class ConversationThread {
     required this.updatedAt,
     this.isSavedInLibrary = false,
     this.isDeleted = false,
+    this.projectId,
+    this.projectName,
     this.messages = const [],
   });
 
@@ -28,6 +32,8 @@ class ConversationThread {
     DateTime? updatedAt,
     bool? isSavedInLibrary,
     bool? isDeleted,
+    String? projectId,
+    String? projectName,
     List<ChatMessage>? messages,
   }) {
     return ConversationThread(
@@ -37,6 +43,8 @@ class ConversationThread {
       updatedAt: updatedAt ?? this.updatedAt,
       isSavedInLibrary: isSavedInLibrary ?? this.isSavedInLibrary,
       isDeleted: isDeleted ?? this.isDeleted,
+      projectId: projectId ?? this.projectId,
+      projectName: projectName ?? this.projectName,
       messages: messages ?? this.messages,
     );
   }
@@ -48,6 +56,9 @@ class ConversationThread {
         'updatedAt': updatedAt.toIso8601String(),
         'isSavedInLibrary': isSavedInLibrary,
         'isDeleted': isDeleted,
+        if (projectId != null && projectId!.isNotEmpty) 'projectId': projectId,
+        if (projectName != null && projectName!.isNotEmpty)
+          'projectName': projectName,
         'messages': messages.map((m) => m.toJson()).toList(),
       };
 
@@ -55,6 +66,9 @@ class ConversationThread {
     final list = (json['messages'] as List? ?? const [])
         .map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
+
+    final rawProjId = json['projectId'] ?? json['project_id'];
+    final rawProjName = json['projectName'] ?? json['project_name'];
 
     return ConversationThread(
       id: json['id']?.toString() ??
@@ -66,6 +80,12 @@ class ConversationThread {
           DateTime.now(),
       isSavedInLibrary: json['isSavedInLibrary'] == true,
       isDeleted: json['isDeleted'] == true,
+      projectId: rawProjId?.toString().trim().isNotEmpty == true
+          ? rawProjId.toString().trim()
+          : null,
+      projectName: rawProjName?.toString().trim().isNotEmpty == true
+          ? rawProjName.toString().trim()
+          : null,
       messages: list,
     );
   }

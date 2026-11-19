@@ -2304,6 +2304,8 @@ class CloudConversationPayload(BaseModel):
     title: str = Field("Nouvelle conversation", max_length=140)
     isSavedInLibrary: bool = False
     isDeleted: bool = False
+    projectId: Optional[str] = Field(None, max_length=80)
+    projectName: Optional[str] = Field(None, max_length=140)
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
     messages: list[dict] = Field(default_factory=list)

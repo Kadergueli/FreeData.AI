@@ -14,7 +14,11 @@ abstract class ConversationRepository {
   Future<ConversationThread?> getConversation(String id);
   Future<void> saveConversation(ConversationThread thread);
   Future<void> saveAll(List<ConversationThread> threads);
-  Future<ConversationThread> createConversation({String? title});
+  Future<ConversationThread> createConversation({
+    String? title,
+    String? projectId,
+    String? projectName,
+  });
   Future<void> renameConversation(String id, String newTitle);
   Future<void> deleteConversation(String id);
   Future<void> restoreConversation(String id);
@@ -159,7 +163,11 @@ class LocalConversationStorage implements ConversationRepository {
   }
 
   @override
-  Future<ConversationThread> createConversation({String? title}) async {
+  Future<ConversationThread> createConversation({
+    String? title,
+    String? projectId,
+    String? projectName,
+  }) async {
     final now = DateTime.now();
     return ConversationThread(
       id: const Uuid().v4(),
@@ -168,8 +176,16 @@ class LocalConversationStorage implements ConversationRepository {
       updatedAt: now,
       isSavedInLibrary: false,
       isDeleted: false,
+      projectId: projectId,
+      projectName: projectName,
       messages: const [],
     );
+  }
+
+  Future<List<ConversationThread>> listProjectConversations(
+      String projectId) async {
+    final all = await loadConversations(includeDeleted: false);
+    return all.where((c) => c.projectId == projectId).toList();
   }
 
   @override

@@ -57,6 +57,8 @@ class ConversationStore:
                     is_saved_in_library INTEGER NOT NULL DEFAULT 0,
                     is_deleted INTEGER NOT NULL DEFAULT 0,
                     messages_json TEXT NOT NULL,
+                    project_id TEXT,
+                    project_name TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (owner_id, conversation_id)
@@ -65,6 +67,12 @@ class ConversationStore:
                     ON user_conversations(owner_id, updated_at DESC);
                 """
             )
+            # Migration douce (idempotente) pour bases SQLite/Postgres existantes sans colonnes project_id / project_name
+            for col_def in ("project_id TEXT", "project_name TEXT"):
+                try:
+                    conn.execute(f"ALTER TABLE user_conversations ADD COLUMN {col_def}")
+                except Exception:
+                    pass
             if self._pg_url:
                 _db.harden_tables(conn)
 
@@ -82,6 +90,8 @@ class ConversationStore:
             "title": d["title"],
             "isSavedInLibrary": bool(d.get("is_saved_in_library")),
             "isDeleted": bool(d.get("is_deleted")),
+            "projectId": d.get("project_id"),
+            "projectName": d.get("project_name"),
             "createdAt": d["created_at"],
             "updatedAt": d["updated_at"],
             "messages": msgs,
@@ -110,6 +120,10 @@ class ConversationStore:
         title = str(thread.get("title") or "Nouvelle conversation").strip()[:140] or "Nouvelle conversation"
         saved_flag = 1 if thread.get("isSavedInLibrary") else 0
         deleted_flag = 1 if thread.get("isDeleted") else 0
+        raw_proj_id = thread.get("projectId") or thread.get("project_id")
+        project_id = str(raw_proj_id).strip()[:80] if raw_proj_id else None
+        raw_proj_name = thread.get("projectName") or thread.get("project_name")
+        project_name = str(raw_proj_name).strip()[:140] if raw_proj_name else None
         now = _utc_now_iso()
         created_at = str(thread.get("createdAt") or now)[:40]
         updated_at = str(thread.get("updatedAt") or now)[:40]
@@ -131,17 +145,30 @@ class ConversationStore:
                 """
                 INSERT INTO user_conversations (
                     owner_id, conversation_id, title, is_saved_in_library, is_deleted,
-                    messages_json, created_at, updated_at
+                    messages_json, project_id, project_name, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (owner_id, conversation_id) DO UPDATE SET
                     title = excluded.title,
                     is_saved_in_library = excluded.is_saved_in_library,
                     is_deleted = excluded.is_deleted,
                     messages_json = excluded.messages_json,
+                    project_id = COALESCE(excluded.project_id, user_conversations.project_id),
+                    project_name = COALESCE(excluded.project_name, user_conversations.project_name),
                     updated_at = excluded.updated_at
                 """,
-                (owner_id, conv_id, title, saved_flag, deleted_flag, raw_msgs, created_at, updated_at),
+                (
+                    owner_id,
+                    conv_id,
+                    title,
+                    saved_flag,
+                    deleted_flag,
+                    raw_msgs,
+                    project_id,
+                    project_name,
+                    created_at,
+                    updated_at,
+                ),
             )
             self._trim_owner_conversations(conn, owner_id)
             row = conn.execute(

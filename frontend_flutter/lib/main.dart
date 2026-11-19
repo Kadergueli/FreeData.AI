@@ -68,6 +68,7 @@ class _MainShellState extends State<MainShell> {
   late final ApiService _apiService = widget.apiService ?? ApiService();
   String? _activeConversationId;
   String? _pendingPrompt;
+  Map<String, dynamic>? _activeProject;
   List<ConversationThread> _conversations = const [];
 
   @override
@@ -333,6 +334,7 @@ class _MainShellState extends State<MainShell> {
       _selectedIndex = 0;
       _visitedTabs.add(0);
       _activeConversationId = newThread.id;
+      _activeProject = null;
       _pendingPrompt = null;
     });
     await _reloadConversations();
@@ -346,7 +348,66 @@ class _MainShellState extends State<MainShell> {
       _selectedIndex = 0;
       _visitedTabs.add(0);
       _activeConversationId = newThread.id;
+      _activeProject = null;
       _pendingPrompt = prompt;
+    });
+    await _reloadConversations();
+  }
+
+  Future<void> _openProjectInChat(
+    Map<String, dynamic> proj, {
+    String? conversationId,
+    String? initialPrompt,
+    bool forceNewConversation = false,
+  }) async {
+    final pid = proj['project_id']?.toString().trim() ?? '';
+    final pname = proj['name']?.toString().trim() ?? 'Projet PRO';
+
+    // 1. Si l'utilisateur rouvre une discussion existante du projet : ZÉRO réinitialisation !
+    if (!forceNewConversation &&
+        conversationId != null &&
+        conversationId.trim().isNotEmpty) {
+      setState(() {
+        _selectedIndex = 0;
+        _visitedTabs.add(0);
+        _activeProject = proj;
+        _activeConversationId = conversationId;
+        _pendingPrompt = initialPrompt;
+      });
+      return;
+    }
+
+    // 2. Si on clique sur "Reprendre" sans forcer une nouvelle discussion et qu'une discussion existe déjà : la rouvrir directement.
+    if (!forceNewConversation && pid.isNotEmpty) {
+      final existing =
+          await LocalConversationStorage.instance.listProjectConversations(pid);
+      if (!mounted) return;
+      if (existing.isNotEmpty) {
+        setState(() {
+          _selectedIndex = 0;
+          _visitedTabs.add(0);
+          _activeProject = proj;
+          _activeConversationId = existing.first.id;
+          _pendingPrompt = initialPrompt;
+        });
+        return;
+      }
+    }
+
+    // 3. Sinon, ouvrir une nouvelle discussion proprement rattachée à ce projet (avec son StudyContext).
+    final newThread =
+        await LocalConversationStorage.instance.createConversation(
+      title: 'Nouvelle conversation',
+      projectId: pid.isEmpty ? null : pid,
+      projectName: pname,
+    );
+    if (!mounted) return;
+    setState(() {
+      _selectedIndex = 0;
+      _visitedTabs.add(0);
+      _activeProject = proj;
+      _activeConversationId = newThread.id;
+      _pendingPrompt = initialPrompt;
     });
     await _reloadConversations();
   }
@@ -691,6 +752,8 @@ class _MainShellState extends State<MainShell> {
       ChatScreen(
         apiService: _apiService,
         conversationId: _activeConversationId,
+        activeProject: _activeProject,
+        onOpenProjects: _apiService.hasPremiumKey ? () => _selectTab(6) : null,
         onConversationUpdated: _reloadConversations,
         initialPrompt: _pendingPrompt,
         onRequireAuth: widget.requireAuthOnChat ? _ensureAuthenticated : null,
@@ -742,48 +805,8 @@ class _MainShellState extends State<MainShell> {
       if (_apiService.hasPremiumKey && _visitedTabs.contains(6))
         ProjectsScreen(
           apiService: _apiService,
-          onResumeProject: (proj) {
-            final name = proj['name']?.toString().trim() ?? 'Projet';
-            final desc = proj['description']?.toString().trim() ?? '';
-            final ctx = proj['study_context'];
-            final details = <String>[];
-            if (ctx is Map) {
-              final prod = ctx['product_activity'];
-              if (prod is Map) {
-                final comm = prod['commodity']?.toString().trim() ?? '';
-                if (comm.isNotEmpty) details.add('Produit : $comm');
-                final qty = prod['quantity_kg'];
-                if (qty != null) details.add('Quantité : $qty kg');
-              }
-              final geo = ctx['geography'];
-              if (geo is Map) {
-                final orig = geo['origin_province']?.toString().trim() ?? '';
-                final dest = geo['dest_province']?.toString().trim() ?? '';
-                if (orig.isNotEmpty && dest.isNotEmpty) {
-                  details.add('Axe : $orig → $dest');
-                } else if (orig.isNotEmpty) {
-                  details.add('Province : $orig');
-                }
-              }
-              final bud = ctx['budget_and_assumptions'];
-              if (bud is Map) {
-                final cap = bud['capital_xaf'];
-                if (cap != null) details.add('Capital : $cap FCFA');
-                final tr = bud['transport_cost_per_kg'];
-                if (tr != null) details.add('Transport : $tr XAF/kg');
-              }
-            }
-            final buf = StringBuffer('Reprendre le projet « $name ».');
-            if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
-            if (details.isNotEmpty) {
-              buf.write('\nParamètres : ${details.join(' · ')}');
-            }
-            final studies = proj['studies'];
-            if (studies is List && studies.isNotEmpty) {
-              buf.write('\nÉtudes existantes : ${studies.length}.');
-            }
-            _openPromptInChat(buf.toString());
-          },
+          onOpenProjectChat: _openProjectInChat,
+          onResumeProject: (proj) => _openProjectInChat(proj),
         )
       else
         const SizedBox.shrink(),
@@ -1352,9 +1375,13 @@ class _SidebarContentState extends State<_SidebarContent> {
           leading: Icon(
             conv.isSavedInLibrary
                 ? Icons.bookmark_rounded
-                : Icons.chat_bubble_outline_rounded,
+                : (conv.projectId != null
+                    ? Icons.folder_special_outlined
+                    : Icons.chat_bubble_outline_rounded),
             size: 18,
-            color: isSelected ? FDTheme.blue : FDTheme.subtle,
+            color: isSelected
+                ? FDTheme.blue
+                : (conv.projectId != null ? FDTheme.blue : FDTheme.subtle),
           ),
           title: Text(
             conv.title,
@@ -1366,6 +1393,18 @@ class _SidebarContentState extends State<_SidebarContent> {
               color: isSelected ? FDTheme.blue : FDTheme.body,
             ),
           ),
+          subtitle: (conv.projectName != null && conv.projectName!.isNotEmpty)
+              ? Text(
+                  conv.projectName!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: FDTheme.blue,
+                    fontWeight: FontWeight.w500,
+                  ),
+                )
+              : null,
           trailing: PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded,
                 size: 16, color: FDTheme.subtle),
