@@ -562,6 +562,42 @@ class _MainShellState extends State<MainShell> {
     return src.substring(0, src.length >= 2 ? 2 : 1).toUpperCase();
   }
 
+  static PopupMenuItem<String> _buildMenuOption({
+    required String value,
+    required IconData icon,
+    required String label,
+    Color? color,
+    bool highlight = false,
+  }) {
+    final fg = color ?? (highlight ? FDTheme.blue : FDTheme.ink);
+    final iconColor = color ?? (highlight ? FDTheme.blue : FDTheme.subtle);
+    return PopupMenuItem<String>(
+      value: value,
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: iconColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: (highlight || color != null)
+                    ? FontWeight.w600
+                    : FontWeight.w500,
+                color: fg,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildUtilityMenu({
     bool includeSubscription = false,
     bool includeAccount = true,
@@ -569,6 +605,14 @@ class _MainShellState extends State<MainShell> {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
       tooltip: 'Plus d\'options',
+      color: FDTheme.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 10,
+      shadowColor: FDTheme.shadow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: FDTheme.line),
+      ),
       onSelected: (value) {
         if (value == 'account') {
           if (_apiService.isAuthenticated) {
@@ -590,67 +634,48 @@ class _MainShellState extends State<MainShell> {
       },
       itemBuilder: (context) => [
         if (includeAccount)
-          PopupMenuItem(
+          _buildMenuOption(
             value: 'account',
-            child: ListTile(
-              leading: Icon(_apiService.isAuthenticated
-                  ? Icons.person_outline_rounded
-                  : Icons.login_rounded),
-              title: Text(_apiService.isAuthenticated
-                  ? 'Mon compte'
-                  : 'Connexion / Compte'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: _apiService.isAuthenticated
+                ? Icons.person_outline_rounded
+                : Icons.login_rounded,
+            label: _apiService.isAuthenticated
+                ? 'Mon compte'
+                : 'Connexion / Compte',
           ),
         if (includeSubscription || !_apiService.hasPremiumKey)
-          const PopupMenuItem(
+          _buildMenuOption(
             value: 'subscription',
-            child: ListTile(
-              leading: Icon(Icons.workspace_premium_outlined),
-              title: Text('Abonnement & Quotas'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.workspace_premium_outlined,
+            label: _apiService.hasPremiumKey
+                ? 'Abonnement & Quotas'
+                : 'Passer à PRO',
+            highlight: !_apiService.hasPremiumKey,
           ),
-        const PopupMenuItem(
-          value: 'support',
-          child: ListTile(
-            leading: Icon(Icons.support_agent_outlined),
-            title: Text('Assistance & Avis'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'docs',
-          child: ListTile(
-            leading: Icon(Icons.menu_book_outlined),
-            title: Text('Documentation'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
-        const PopupMenuItem(
+        _buildMenuOption(
           value: 'settings',
-          child: ListTile(
-            leading: Icon(Icons.tune_rounded),
-            title: Text('Préférences'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-          ),
+          icon: Icons.tune_rounded,
+          label: 'Préférences',
         ),
-        if (includeAccount && _apiService.isAuthenticated)
-          const PopupMenuItem(
+        _buildMenuOption(
+          value: 'support',
+          icon: Icons.support_agent_outlined,
+          label: 'Assistance & Avis',
+        ),
+        _buildMenuOption(
+          value: 'docs',
+          icon: Icons.menu_book_outlined,
+          label: 'Documentation',
+        ),
+        if (includeAccount && _apiService.isAuthenticated) ...[
+          const PopupMenuDivider(height: 8),
+          _buildMenuOption(
             value: 'logout',
-            child: ListTile(
-              leading: Icon(Icons.logout_rounded, color: FDTheme.danger),
-              title: Text('Se déconnecter',
-                  style: TextStyle(color: FDTheme.danger)),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.logout_rounded,
+            label: 'Se déconnecter',
+            color: FDTheme.danger,
           ),
+        ],
       ],
     );
   }
@@ -1564,14 +1589,21 @@ class _SidebarContentState extends State<_SidebarContent> {
       padding: const EdgeInsets.all(10),
       child: PopupMenuButton<String>(
         tooltip: 'Menu du compte',
-        offset: const Offset(0, -290),
+        offset: const Offset(0, -268),
+        color: FDTheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 10,
+        shadowColor: FDTheme.shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: FDTheme.line),
+        ),
+        constraints: const BoxConstraints(minWidth: 252, maxWidth: 260),
         onSelected: (val) {
           if (val == 'account') {
             widget.onOpenAccount();
           } else if (val == 'subscription') {
             widget.onOpenSubscription();
-          } else if (val == 'key') {
-            widget.onConfigurePremiumKey();
           } else if (val == 'settings') {
             widget.onOpenSettings();
           } else if (val == 'support') {
@@ -1583,73 +1615,71 @@ class _SidebarContentState extends State<_SidebarContent> {
           }
         },
         itemBuilder: (_) => [
-          const PopupMenuItem(
+          PopupMenuItem<String>(
+            enabled: false,
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: FDTheme.ink,
+                  ),
+                ),
+                if (email.isNotEmpty && email != displayTitle)
+                  Text(
+                    email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: FDTheme.subtle,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(height: 8),
+          _MainShellState._buildMenuOption(
             value: 'account',
-            child: ListTile(
-              leading: Icon(Icons.person_outline_rounded, size: 18),
-              title: Text('Mon compte & Profil'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.person_outline_rounded,
+            label: 'Mon compte & Profil',
           ),
-          PopupMenuItem(
+          _MainShellState._buildMenuOption(
             value: 'subscription',
-            child: ListTile(
-              leading: const Icon(Icons.workspace_premium_outlined, size: 18),
-              title: Text(widget.hasPremiumKey
-                  ? 'Abonnement & Quotas'
-                  : 'Passer à PRO'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.workspace_premium_outlined,
+            label:
+                widget.hasPremiumKey ? 'Abonnement & Quotas' : 'Passer à PRO',
+            highlight: !widget.hasPremiumKey,
           ),
-          const PopupMenuItem(
-            value: 'key',
-            child: ListTile(
-              leading: Icon(Icons.vpn_key_outlined, size: 18),
-              title: Text('Clé partenaire PRO'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
+          _MainShellState._buildMenuOption(
             value: 'settings',
-            child: ListTile(
-              leading: Icon(Icons.tune_rounded, size: 18),
-              title: Text('Préférences'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.tune_rounded,
+            label: 'Préférences',
           ),
-          const PopupMenuItem(
+          _MainShellState._buildMenuOption(
             value: 'support',
-            child: ListTile(
-              leading: Icon(Icons.support_agent_outlined, size: 18),
-              title: Text('Assistance & Avis'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.support_agent_outlined,
+            label: 'Assistance & Avis',
           ),
-          const PopupMenuItem(
+          _MainShellState._buildMenuOption(
             value: 'docs',
-            child: ListTile(
-              leading: Icon(Icons.menu_book_outlined, size: 18),
-              title: Text('Documentation'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.menu_book_outlined,
+            label: 'Documentation',
           ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
+          const PopupMenuDivider(height: 8),
+          _MainShellState._buildMenuOption(
             value: 'logout',
-            child: ListTile(
-              leading:
-                  Icon(Icons.logout_rounded, size: 18, color: FDTheme.danger),
-              title: Text('Se déconnecter',
-                  style: TextStyle(color: FDTheme.danger)),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-            ),
+            icon: Icons.logout_rounded,
+            label: 'Se déconnecter',
+            color: FDTheme.danger,
           ),
         ],
         child: Container(

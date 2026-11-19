@@ -133,6 +133,21 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 10,
+        shadowColor: AppColors.shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppColors.line),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w500,
+          color: AppColors.ink,
+        ),
+      ),
     );
   }
 }

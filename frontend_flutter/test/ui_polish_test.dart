@@ -787,10 +787,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Une fausse clé saisie manuellement via le menu compte est refusée
-    await tester.tap(find.byTooltip('Menu du compte'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Clé partenaire PRO'));
+    // Une fausse clé saisie manuellement par l'utilisateur connecté est refusée
+    await tester.tap(find.text('Tchad · Marchés et Prix'));
     await tester.pumpAndSettle();
     expect(find.text('Accès Partenaire & Clé Pro'), findsOneWidget);
     await tester.enterText(
