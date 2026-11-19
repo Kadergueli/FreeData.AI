@@ -53,6 +53,9 @@ class Settings:
     embed_model: str = os.getenv("EMBED_MODEL", "jina-embeddings-v3").strip()
     # Jeton exigé (en-tête X-Admin-Token) par POST /api/v1/refresh. Vide = endpoint désactivé.
     admin_token: str = os.getenv("ADMIN_TOKEN", "").strip()
+    # Jetons par personne : "acteur:rôle:jeton" séparés par ";" (rôle : read_only_analyst, support_admin,
+    # platform_admin, super_admin). Le rôle et l'acteur sont déduits du jeton, jamais des en-têtes.
+    admin_tokens: str = os.getenv("ADMIN_TOKENS", "").strip()
     # Clés des clients premium (séparées par des virgules), envoyées dans l'en-tête X-Premium-Key.
     # Vide = offre premium DÉSACTIVÉE (chat : repli sur le niveau gratuit ; études avancées : 503).
     # Jamais ADMIN_TOKEN ni une clé générique : le jeton administrateur ne doit pas circuler côté client.

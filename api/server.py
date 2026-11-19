@@ -564,10 +564,7 @@ def health_check():
 @app.post("/api/v1/refresh", dependencies=[Depends(_admin_rate_limit_dependency)])
 def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
     """Recharge la mémoire de l'API après une mise à jour mensuelle des tables Gold. Protégé par jeton."""
-    if not settings.admin_token:
-        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
-    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    _require_admin_token(x_admin_token, "manage_system")
     try:
         refresh_engines()
     except Exception:
@@ -579,10 +576,7 @@ def manual_refresh(x_admin_token: Optional[str] = Header(default=None)):
 @app.get("/api/v1/diag/client-ip", dependencies=[Depends(_admin_rate_limit_dependency)])
 def diag_client_ip(request: Request, x_admin_token: Optional[str] = Header(default=None)):
     """Aide au réglage de TRUSTED_PROXY_HOPS : montre la chaîne X-Forwarded-For vue par l'API et l'IP retenue."""
-    if not settings.admin_token:
-        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
-    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    _require_admin_token(x_admin_token, "manage_system")
     return {
         "x_forwarded_for": request.headers.get("x-forwarded-for"),
         "peer": request.client.host if request.client else None,
@@ -1243,10 +1237,7 @@ def get_report_job_manager() -> ReportJobManager:
 
 @app.get("/api/v1/metrics", dependencies=[Depends(_admin_rate_limit_dependency)])
 def get_metrics(x_admin_token: Optional[str] = Header(default=None)):
-    if not settings.admin_token:
-        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
-    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    _require_admin_token(x_admin_token, "read_overview")
     with _METRICS_LOCK:
         snap = dict(_METRICS)
     total = max(1, snap["total_requests"])
@@ -1366,8 +1357,7 @@ def governance_admin_decision_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     registry: LicensingRegistry = Depends(get_licensing_registry),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis pour les décisions de gouvernance.")
+    _require_admin_token(x_admin_token, "manage_data_governance", detail="Jeton administrateur requis pour les décisions de gouvernance.")
     try:
         return registry.admin_decision(
             dataset_id,
@@ -1699,8 +1689,7 @@ def issue_developer_key_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     km: ApiKeyManager = Depends(get_api_key_manager),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis.")
+    _require_admin_token(x_admin_token, "manage_system", detail="Jeton administrateur requis.")
     return km.issue_key(payload.owner_id, label=payload.label, daily_quota=payload.daily_quota)
 
 
@@ -1710,8 +1699,7 @@ def revoke_developer_key_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     km: ApiKeyManager = Depends(get_api_key_manager),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis.")
+    _require_admin_token(x_admin_token, "manage_system", detail="Jeton administrateur requis.")
     try:
         return km.revoke_key(key_id)
     except KeyError as exc:
@@ -1723,8 +1711,7 @@ def list_developer_keys_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     km: ApiKeyManager = Depends(get_api_key_manager),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis.")
+    _require_admin_token(x_admin_token, "manage_system", detail="Jeton administrateur requis.")
     return {"keys": km.list_keys()}
 
 
@@ -1883,8 +1870,7 @@ def admin_activate_subscription_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis.")
+    _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
     return sub_store.admin_update_subscription(
         actor="admin",
         target_user_id=payload.target_user_id,
@@ -1934,8 +1920,7 @@ def billing_cost_simulation_endpoint(
     payload: CostSimulationRequest,
     x_admin_token: Optional[str] = Header(default=None),
 ):
-    if not settings.admin_token or not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur requis.")
+    _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
     return simulate_unit_economics(**payload.model_dump())
 
 
@@ -1964,10 +1949,7 @@ def ai_route_preview_endpoint(payload: AIRouteRequest):
 
 @app.get("/api/v1/ai/infra-metrics", dependencies=[Depends(_admin_rate_limit_dependency)])
 def ai_infra_metrics_endpoint(x_admin_token: Optional[str] = Header(default=None)):
-    if not settings.admin_token:
-        raise HTTPException(status_code=503, detail="Endpoint désactivé : ADMIN_TOKEN non configuré.")
-    if not x_admin_token or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
-        raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
+    _require_admin_token(x_admin_token, "read_overview")
     return _AI_MONITOR.snapshot(_ML_CACHE, _RAG_CACHE)
 
 
@@ -2013,18 +1995,62 @@ def get_admin_service() -> AdminService:
     return _ADMIN_SERVICE
 
 
+_ADMIN_TOKEN_MIN_LEN = 16
+_ADMIN_ACTOR_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,60}$")
+
+
+def _admin_credentials() -> list[tuple[str, str, str]]:
+    """Identifiants admin valides : (acteur, rôle, jeton). ADMIN_TOKENS puis ADMIN_TOKEN (super_admin, hérité)."""
+    creds: list[tuple[str, str, str]] = []
+    for raw in re.split(r"[;\n]", settings.admin_tokens or ""):
+        raw = raw.strip()
+        if not raw:
+            continue
+        parts = raw.split(":", 2)
+        if len(parts) != 3:
+            continue
+        actor, role, token = (x.strip() for x in parts)
+        if role in ROLE_PERMISSIONS and _ADMIN_ACTOR_RE.match(actor) and len(token) >= _ADMIN_TOKEN_MIN_LEN:
+            creds.append((actor, role, token))
+    if settings.admin_token:
+        creds.append(("root_admin", "super_admin", settings.admin_token))
+    return creds
+
+
+def _resolve_admin(token: Optional[str]) -> Optional[tuple[str, str]]:
+    """Retrouve (acteur, rôle) à partir du jeton, en temps constant (tous les jetons sont comparés)."""
+    if not isinstance(token, str) or not token:
+        return None
+    found: Optional[tuple[str, str]] = None
+    cand = token.encode()
+    for actor, role, secret in _admin_credentials():
+        if hmac.compare_digest(cand, secret.encode()) and found is None:
+            found = (actor, role)
+    return found
+
+
+def _require_admin_token(token: Optional[str], permission: str, detail: str = "Jeton administrateur invalide.") -> tuple[str, str]:
+    if not _admin_credentials():
+        raise HTTPException(status_code=503, detail="Administration désactivée : ADMIN_TOKEN / ADMIN_TOKENS non configuré.")
+    ident = _resolve_admin(token)
+    if ident is None:
+        raise HTTPException(status_code=403, detail=detail)
+    if permission not in ROLE_PERMISSIONS.get(ident[1], set()):
+        raise HTTPException(status_code=403, detail=f"Rôle '{ident[1]}' non autorisé pour '{permission}'.")
+    return ident
+
+
+
 def _require_admin_actor(
     x_admin_token: Optional[str] = Header(default=None),
-    x_admin_actor: Optional[str] = Header(default=None),
-    x_admin_role: Optional[str] = Header(default=None),
 ) -> tuple[str, str]:
-    if not settings.admin_token:
-        raise HTTPException(status_code=503, detail="Administration désactivée : ADMIN_TOKEN non configuré.")
-    if not isinstance(x_admin_token, str) or not hmac.compare_digest(x_admin_token.encode(), settings.admin_token.encode()):
+    # Acteur et rôle viennent du jeton ; X-Admin-Actor / X-Admin-Role sont ignorés (anti-falsification).
+    if not _admin_credentials():
+        raise HTTPException(status_code=503, detail="Administration désactivée : ADMIN_TOKEN / ADMIN_TOKENS non configuré.")
+    ident = _resolve_admin(x_admin_token)
+    if ident is None:
         raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
-    actor = x_admin_actor.strip()[:80] if isinstance(x_admin_actor, str) and x_admin_actor.strip() else "root_admin"
-    role = x_admin_role.strip() if isinstance(x_admin_role, str) and x_admin_role.strip() in ROLE_PERMISSIONS else "super_admin"
-    return actor, role
+    return ident
 
 
 @app.get("/api/v1/admin/overview", dependencies=[Depends(_admin_rate_limit_dependency)])
