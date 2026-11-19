@@ -806,9 +806,7 @@ void main() {
     expect(shellApi.hasPremiumKey, isFalse);
 
     // Saisie de la vraie clé configurée sur Render -> activée après vérification serveur
-    await tester.tap(find.byTooltip('Menu du compte'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Clé partenaire PRO'));
+    await tester.tap(find.text('Tchad · Marchés et Prix'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
