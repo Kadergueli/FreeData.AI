@@ -69,7 +69,10 @@ class _PassportScreenState extends State<PassportScreen> {
     }
   }
 
+  int _requestToken = 0;
+
   Future<void> _load() async {
+    final token = ++_requestToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -79,13 +82,13 @@ class _PassportScreenState extends State<PassportScreen> {
         commodity: _commodity,
         loanAmount: _loanAmount,
       );
-      if (mounted) setState(() => _passports = items);
+      if (mounted && token == _requestToken) setState(() => _passports = items);
     } catch (_) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         setState(() => _error = 'Les données Credit Passport ne sont pas accessibles pour le moment.');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _requestToken) setState(() => _loading = false);
     }
   }
 

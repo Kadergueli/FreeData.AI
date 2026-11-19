@@ -70,10 +70,15 @@ class LocalConversationStorage implements ConversationRepository {
     final prefs = await SharedPreferences.getInstance();
     final nonEmpty = threads.where((c) => c.messages.isNotEmpty).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    final payload = nonEmpty
-        .take(maxStoredConversations)
-        .map((c) => c.toJson())
-        .toList();
+    // Préserver les conversations enregistrées en Library lors du plafonnement à maxStoredConversations.
+    final pinned = nonEmpty.where((c) => c.isSavedInLibrary && !c.isDeleted).toList();
+    final others = nonEmpty.where((c) => !(c.isSavedInLibrary && !c.isDeleted)).toList();
+    final remainingSlots = (maxStoredConversations - pinned.length).clamp(0, maxStoredConversations);
+    final kept = <ConversationThread>[
+      ...pinned,
+      ...others.take(remainingSlots),
+    ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final payload = kept.map((c) => c.toJson()).toList();
     await prefs.setString(storageKey, jsonEncode(payload));
   }
 

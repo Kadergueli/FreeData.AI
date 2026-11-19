@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/fd_theme.dart';
 import '../core/models/chat_models.dart';
 import '../core/utils/pdf_download.dart';
@@ -47,10 +48,11 @@ class _ChatScreenState extends State<ChatScreen> {
   ConversationThread? _thread;
   bool _loading = false;
   String? _lastPrompt;
-  String? _selectedDomain;
+  String _selectedDomain = 'auto';
 
-  static const List<Map<String, String?>> _domainChoices = [
-    {'id': null, 'label': 'Auto'},
+  static const List<Map<String, String>> _domainChoices = [
+    // « auto » (et non null) : un PopupMenuItem de valeur null n'appelle jamais onSelected.
+    {'id': 'auto', 'label': 'Auto'},
     {'id': 'chad_intelligence', 'label': 'Tchad'},
     {'id': 'business_entrepreneurship', 'label': 'Business'},
     {'id': 'finance', 'label': 'Finance'},
@@ -97,19 +99,46 @@ class _ChatScreenState extends State<ChatScreen> {
     ),
   ];
 
+  /// Sauvegarde locale tolérante : si le stockage du navigateur est plein ou indisponible, la conversation reste
+  /// affichée en mémoire et l'envoi n'est jamais bloqué (sinon le spinner tournerait indéfiniment).
+  Future<void> _safeSave(ConversationThread thread) async {
+    try {
+      await LocalConversationStorage.instance.saveConversation(thread);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(const SnackBar(
+          content: Text('Stockage local plein ou indisponible : cette conversation n’a pas pu être sauvegardée.'),
+        ));
+    }
+  }
+
+  Future<void> _loadDefaultDomain() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('fd_pref_domain');
+      if (!mounted || saved == null) return;
+      if (_domainChoices.any((d) => d['id'] == saved)) {
+        setState(() => _selectedDomain = saved);
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     // Pré-réveil silencieux Render (partagé via le cache getMetadata)
     widget.apiService.getMetadata().catchError((_) => <String, dynamic>{});
     _loadConversation(widget.conversationId);
+    _loadDefaultDomain();
 
     if (widget.initialPrompt != null && widget.initialPrompt!.isNotEmpty) {
       final promptToSend = widget.initialPrompt!;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         widget.onPromptHandled?.call();
-        _sendMessage(promptToSend);
+        _sendOrKeep(promptToSend);
       });
     }
   }
@@ -127,7 +156,7 @@ class _ChatScreenState extends State<ChatScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         widget.onPromptHandled?.call();
-        _sendMessage(promptToSend);
+        _sendOrKeep(promptToSend);
       });
     }
   }
@@ -234,6 +263,16 @@ class _ChatScreenState extends State<ChatScreen> {
     return null;
   }
 
+  /// Si une réponse est en cours, le prompt entrant est placé dans le champ de saisie
+  /// au lieu d'être abandonné en silence.
+  void _sendOrKeep(String prompt) {
+    if (_loading) {
+      setState(() => _controller.text = prompt);
+      return;
+    }
+    _sendMessage(prompt);
+  }
+
   Future<void> _sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _loading) return;
@@ -266,7 +305,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _loading = true;
     });
     _scrollToBottom();
-    await LocalConversationStorage.instance.saveConversation(updatedThread);
+    await _safeSave(updatedThread);
     widget.onConversationUpdated?.call();
 
     try {
@@ -283,7 +322,7 @@ class _ChatScreenState extends State<ChatScreen> {
               })
           .toList();
 
-      final response = _selectedDomain == null
+      final response = _selectedDomain == 'auto'
           ? await widget.apiService.sendChatMessage(
               trimmed,
               history: recentHistory,
@@ -323,7 +362,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: [...updatedMessages, assistantMessage],
       );
 
-      await LocalConversationStorage.instance.saveConversation(finalThread);
+      await _safeSave(finalThread);
       widget.onConversationUpdated?.call();
       if (!mounted) return;
       if (_thread?.id == targetThreadId) {
@@ -350,7 +389,7 @@ class _ChatScreenState extends State<ChatScreen> {
         messages: [...updatedMessages, errorMessage],
       );
 
-      await LocalConversationStorage.instance.saveConversation(finalThread);
+      await _safeSave(finalThread);
       widget.onConversationUpdated?.call();
       if (!mounted) return;
       if (_thread?.id == targetThreadId) {
@@ -632,12 +671,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 Row(
                   children: [
                     // Sélecteur de domaine compact (style ChatGPT / Claude)
-                    PopupMenuButton<String?>(
+                    PopupMenuButton<String>(
                       tooltip: 'Choisir le domaine IA',
                       onSelected: (val) => setState(() => _selectedDomain = val),
                       itemBuilder: (_) => _domainChoices
-                          .map((d) => PopupMenuItem<String?>(
-                                value: d['id'],
+                          .map((d) => PopupMenuItem<String>(
+                                value: d['id']!,
                                 child: Row(
                                   children: [
                                     Icon(
@@ -739,7 +778,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ],
                 ),
-                if (_selectedDomain != null &&
+                if (_selectedDomain != 'auto' &&
                     _selectedDomain != 'agriculture' &&
                     _selectedDomain != 'chad_intelligence') ...[
                   const SizedBox(height: 4),

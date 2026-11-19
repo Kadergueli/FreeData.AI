@@ -673,6 +673,60 @@ def get_subscription_store() -> SubscriptionStore:
     return _SUBSCRIPTION_STORE
 
 
+_STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
+
+
+def _resolve_owner_id_optional(
+    x_user_id: Optional[str] = None,
+    x_premium_key: Optional[str] = None,
+    authorization: Optional[str] = None,
+) -> Optional[str]:
+    """Résout un owner_id canonique unique (partagé entre chat, PDF, projets, support et /billing/me)."""
+    auth_secret = os.getenv("AUTH_SECRET", "").strip()
+    if isinstance(authorization, str) and authorization.lower().startswith("bearer "):
+        tok = authorization.split(" ", 1)[1].strip()
+        sub = verify_signed_user_token(tok, auth_secret)
+        if sub:
+            return f"user:{sub}"
+        raise HTTPException(status_code=401, detail="Jeton Bearer invalide ou expiré.")
+
+    require_signed = os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() in ("1", "true", "yes")
+    uid = x_user_id.strip() if isinstance(x_user_id, str) else ""
+    pkey = x_premium_key if isinstance(x_premium_key, str) else None
+    strong = _STRONG_UID_RE.fullmatch(uid) is not None
+    # Isoler chaque utilisateur par son identifiant fort même en mode PRO (évite le partage entre détenteurs d'une même clé).
+    if strong and (not require_signed or _premium_key_ok(pkey)):
+        return f"user:{uid}"
+    if not require_signed and uid and settings.allow_weak_user_id and len(uid) >= 3:
+        return f"user:{uid[:80]}"
+    if pkey and _premium_key_ok(pkey):
+        import hashlib
+        digest = hashlib.sha256(pkey.strip().encode("utf-8")).hexdigest()[:16]
+        return f"key:{digest}"
+    return None
+
+
+def _consume_user_quota(
+    owner_id: Optional[str],
+    x_premium_key: Optional[str],
+    metric: str,
+    sub_store: Any,
+    limit_message: str,
+) -> None:
+    if not owner_id or not isinstance(sub_store, SubscriptionStore):
+        return
+    pkey = x_premium_key if isinstance(x_premium_key, str) else None
+    sub = sub_store.get_subscription(owner_id)
+    limits = sub["limits"]
+    if _premium_key_ok(pkey) and sub.get("plan_id") == "free" and sub.get("status") == "active":
+        limits = DEFAULT_PLANS["premium"]
+    limit_val = int(limits.get(f"{metric}_limit", 0))
+    try:
+        sub_store.consume_usage_atomic(owner_id, metric, limit_val)
+    except OverflowError as exc:
+        raise HTTPException(status_code=429, detail=limit_message) from exc
+
+
 @app.post(
     "/api/v1/chat",
     response_model=ChatResponse,
@@ -683,6 +737,7 @@ def chat_endpoint(
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
     x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
@@ -690,18 +745,8 @@ def chat_endpoint(
     # Le niveau « premium » (LLM payant) exige une clé valide : sans clé configurée ou fournie, repli sur le gratuit.
     if tier == "premium" and not _premium_key_ok(x_premium_key):
         tier = "free"
-    if x_user_id and x_user_id.strip():
-        uid = x_user_id.strip()
-        if _premium_key_ok(x_premium_key):
-            cur = sub_store.get_usage_summary(uid)["subscription"]
-            if cur.get("effective_plan_id") == "free":
-                sub_store.admin_update_subscription(
-                    actor="premium_key", target_user_id=uid, plan_id="premium", status="active",
-                    period_days=365, provider="key", reason="Active X-Premium-Key",
-                )
-        quota = sub_store.check_and_increment(uid, "daily_chat")
-        if not quota["allowed"]:
-            raise HTTPException(status_code=429, detail="Quota journalier de messages atteint.")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
     if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
         raise HTTPException(status_code=503, detail="Assistant très sollicité. Réessayez dans un instant.",
@@ -956,6 +1001,7 @@ def generate_market_study_pdf(
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
     x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Génère et retourne le rapport PDF professionnel d'étude de marché PRO."""
@@ -970,18 +1016,8 @@ def generate_market_study_pdf(
                 "validation": validation,
             },
         )
-    if x_user_id and x_user_id.strip():
-        uid = x_user_id.strip()
-        if _premium_key_ok(x_premium_key):
-            cur = sub_store.get_usage_summary(uid)["subscription"]
-            if cur.get("effective_plan_id") == "free":
-                sub_store.admin_update_subscription(
-                    actor="premium_key", target_user_id=uid, plan_id="premium", status="active",
-                    period_days=365, provider="key", reason="Active X-Premium-Key",
-                )
-        quota = sub_store.check_and_increment(uid, "monthly_pdf")
-        if not quota["allowed"]:
-            raise HTTPException(status_code=429, detail="Quota mensuel de PDF atteint.")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
     pdf_bytes = render_market_study_pdf(dossier)
     safe_slug = "".join(c if c.isalnum() else "_" for c in dossier["commodity"].lower()).strip("_") or "marche"
     return Response(
@@ -1012,25 +1048,20 @@ def _require_project_owner(
     x_premium_key: Optional[str] = Header(default=None),
     authorization: Optional[str] = Header(default=None),
 ) -> str:
-    auth_secret = os.getenv("AUTH_SECRET", "").strip()
-    if isinstance(authorization, str) and authorization.lower().startswith("bearer "):
-        tok = authorization.split(" ", 1)[1].strip()
-        sub = verify_signed_user_token(tok, auth_secret)
-        if sub:
-            return f"user:{sub}"
-        raise HTTPException(status_code=401, detail="Jeton Bearer invalide ou expiré.")
-    if x_premium_key and _premium_key_ok(x_premium_key):
-        import hashlib
-        digest = hashlib.sha256(x_premium_key.strip().encode("utf-8")).hexdigest()[:16]
-        return f"key:{digest}"
+    owner_id = _resolve_owner_id_optional(
+        x_user_id=x_user_id,
+        x_premium_key=x_premium_key,
+        authorization=authorization,
+    )
+    if owner_id:
+        return owner_id
     require_signed = os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() in ("1", "true", "yes")
-    uid = (x_user_id or "").strip()
-    if not require_signed and uid:
-        strong = len(uid) >= 32 and re.fullmatch(r"[A-Za-z0-9_-]{32,80}", uid) is not None
-        if strong or (settings.allow_weak_user_id and len(uid) >= 3):
-            return f"user:{uid[:80]}"
-        raise HTTPException(status_code=401, detail="Identifiant d'espace trop faible : mettez à jour l'application "
-                                                    "(identifiant aléatoire d'au moins 32 caractères requis).")
+    if not require_signed and (x_user_id or "").strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Identifiant d'espace trop faible : mettez à jour l'application "
+                   "(identifiant aléatoire d'au moins 32 caractères requis).",
+        )
     raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id).")
 
 
@@ -1178,8 +1209,11 @@ def create_project_study_version_endpoint(
     payload: ProjectStudyCreateRequest,
     state: dict = Depends(get_state),
     owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
     store: ProjectStore = Depends(get_project_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
+    _require_premium_key(x_premium_key, "Génération d'études PDF dans un projet PRO")
     try:
         proj = store.get_project(owner_id, project_id)
     except KeyError as exc:
@@ -1204,14 +1238,19 @@ def create_project_study_version_endpoint(
         raise HTTPException(status_code=422, detail={"message": "Validation QA échouée.", "validation": validation})
 
     pdf_bytes = render_market_study_pdf(dossier)
-    return store.create_study_version(
-        owner_id,
-        project_id,
-        study_id=payload.study_id,
-        dossier=dossier,
-        generation_params=payload.model_dump(exclude={"study_context"}),
-        pdf_bytes=pdf_bytes,
-    )
+    try:
+        created = store.create_study_version(
+            owner_id,
+            project_id,
+            study_id=payload.study_id,
+            dossier=dossier,
+            generation_params=payload.model_dump(exclude={"study_context"}),
+            pdf_bytes=pdf_bytes,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
+    return created
 
 
 @app.get("/api/v1/projects/{project_id}/studies/{study_id}/versions", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -1788,11 +1827,15 @@ def platform_chat_endpoint(
     state: dict = Depends(get_state),
     x_user_id: Optional[str] = Header(default=None),
     x_premium_key: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     rag: HybridRAGEngine = Depends(get_hybrid_rag),
     svc: AnalyticsService = Depends(get_analytics_service),
     ent: EntitlementManager = Depends(get_entitlement_manager),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     eff_tier = "premium" if (payload.tier == "premium" and _premium_key_ok(x_premium_key)) else "free"
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
     uid = (x_user_id or "anonymous").strip()[:80]
     try:
         quota_info = ent.consume_chat_quota(eff_tier, uid)
@@ -1884,17 +1927,18 @@ def get_my_billing_endpoint(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     summary = sub_store.get_usage_summary(owner_id)
-    if _premium_key_ok(x_premium_key) and summary["subscription"].get("effective_plan_id") == "free":
-        sub_store.admin_update_subscription(
-            actor="premium_key",
-            target_user_id=owner_id,
-            plan_id="premium",
-            status="active",
-            period_days=365,
-            provider="key",
-            reason="Active X-Premium-Key",
-        )
-        summary = sub_store.get_usage_summary(owner_id)
+    sub = summary["subscription"]
+    # Lecture seule (aucun effet de bord en base) : une clé partenaire ne réactive jamais un compte suspendu/résilié.
+    if _premium_key_ok(x_premium_key) and sub.get("plan_id") == "free" and sub.get("status") == "active":
+        prem = DEFAULT_PLANS["premium"]
+        sub = {**sub, "effective_plan_id": "premium", "provider": "key", "limits": prem}
+        quotas = {}
+        for metric, q in summary.get("quotas", {}).items():
+            lim_key = f"{metric}_limit"
+            limit_val = int(prem.get(lim_key, q.get("limit", 0)))
+            used_val = int(q.get("used", 0))
+            quotas[metric] = {**q, "limit": limit_val, "remaining": max(0, limit_val - used_val)}
+        return {**summary, "subscription": sub, "quotas": quotas}
     return summary
 
 
@@ -2094,6 +2138,18 @@ def _require_admin_actor(
     if ident is None:
         raise HTTPException(status_code=403, detail="Jeton administrateur invalide.")
     return ident
+
+
+@app.get("/api/v1/admin/me", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_me_endpoint(
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+):
+    actor, role = actor_info
+    return {
+        "actor": actor,
+        "role": role,
+        "permissions": sorted(ROLE_PERMISSIONS.get(role, set())),
+    }
 
 
 @app.get("/api/v1/admin/overview", dependencies=[Depends(_admin_rate_limit_dependency)])

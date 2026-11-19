@@ -41,7 +41,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _loadMetadata() async {
     try {
       final meta = await widget.apiService.getMetadata();
-      final legacy = meta['legacy'];
+      final legacy = meta['legacy_fields'] ?? meta['legacy'];
       final rawComms = meta['products'] ??
           meta['commodities'] ??
           meta['passport_products'] ??
@@ -64,7 +64,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     } catch (_) {}
   }
 
+  int _loadSeq = 0;
+
   Future<void> _load() async {
+    // Jeton de requête : une réponse ancienne ne doit pas écraser la plus récente.
+    final seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
@@ -72,7 +76,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     try {
       final benchComm = _selectedCommodity ?? 'Millet';
       final benchProv = _selectedProvince ?? "N'Djamena";
-      final results = await Future.wait([
+      // Les 4 blocs principaux sont obligatoires ; benchmark et prévision sont facultatifs
+      // (404 / série trop courte) et ne doivent pas faire disparaître tout le tableau de bord.
+      final core = Future.wait([
         widget.apiService.getAnalyticsProfile(),
         widget.apiService.getAnalyticsSummary(commodity: _selectedCommodity),
         widget.apiService.getRegionalComparison(commodity: _selectedCommodity),
@@ -81,33 +87,40 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           province: _selectedProvince,
           limit: 24,
         ),
-        widget.apiService.getForecastBenchmark(
-          commodity: benchComm,
-          province: benchProv,
-        ),
       ]);
+      final benchFuture = widget.apiService
+          .getForecastBenchmark(commodity: benchComm, province: benchProv)
+          .then<Map<String, dynamic>?>((v) => v)
+          .catchError((_) => null);
       Map<String, dynamic>? forecastSample;
       try {
         final fcList = await widget.apiService.getForecasts(
           commodity: benchComm,
-          province: _selectedProvince,
+          province: _selectedProvince ?? benchProv,
         );
-        if (fcList.isNotEmpty && fcList.first is Map) {
-          forecastSample = Map<String, dynamic>.from(fcList.first as Map);
-        }
+        // Cohérent avec les filtres : on préfère une prévision de la province choisie.
+        final maps = fcList.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+        final wantedProv = (_selectedProvince ?? benchProv).toLowerCase();
+        forecastSample = maps.firstWhere(
+          (m) => (m['province'] ?? '').toString().toLowerCase() == wantedProv,
+          orElse: () => maps.isNotEmpty ? maps.first : <String, dynamic>{},
+        );
+        if (forecastSample.isEmpty) forecastSample = null;
       } catch (_) {}
-      if (!mounted) return;
+      final results = await core;
+      final bench = await benchFuture;
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _profile = results[0];
         _summary = results[1];
         _regional = results[2];
         _trends = results[3];
-        _benchmark = results[4];
+        _benchmark = bench;
         _latestForecast = forecastSample;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -295,7 +308,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             const SizedBox(height: 12),
                             _PriceTrendLineChart(
                               records: trendRecords,
-                              forecastT1: double.tryParse(_latestForecast?['forecast_t1_xaf_kg']?.toString() ?? ''),
+                              forecastT1: double.tryParse(_latestForecast?['forecast_t1']?.toString() ?? ''),
                               ciLow80: double.tryParse(_latestForecast?['ci_low_80']?.toString() ?? ''),
                               ciHigh80: double.tryParse(_latestForecast?['ci_high_80']?.toString() ?? ''),
                             ),

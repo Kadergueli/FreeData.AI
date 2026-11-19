@@ -28,6 +28,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _includeArchived = false;
   String? _error;
 
+  String _loadedUserId = '';
+
   @override
   void initState() {
     super.initState();
@@ -35,10 +37,37 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant ProjectsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // L'identifiant d'espace a changé (Réglages) : la liste affichée appartient à l'ancien espace.
+    if (_loadedUserId != widget.apiService.userId && !_loading) {
+      _load();
+    }
+  }
+
+  /// Exécute une action réseau et affiche l'erreur au lieu de l'avaler en silence.
+  Future<void> _guard(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Action impossible : $msg')));
+    }
+  }
+
+  /// Accepte « 2 000 000 », « 2,000,000 », « 2000000 » ; null si illisible ou ≤ 0.
+  double? _parseCapital(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[\s\u00A0\u202F,]'), '');
+    final v = double.tryParse(cleaned);
+    return (v == null || v <= 0) ? null : v;
+  }
+
   Future<void> _loadMetadata() async {
     try {
       final meta = await widget.apiService.getMetadata();
-      final legacy = meta['legacy'];
+      final legacy = meta['legacy_fields'] ?? meta['legacy'];
       final rawComms = meta['products'] ??
           meta['commodities'] ??
           meta['passport_products'] ??
@@ -66,11 +95,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       _loading = true;
       _error = null;
     });
+    final uid = widget.apiService.userId;
     try {
       final list = await widget.apiService.listProjects(includeArchived: _includeArchived);
-      if (!mounted) return;
+      if (!mounted || uid != widget.apiService.userId) return;
       setState(() {
         _projects = list;
+        _loadedUserId = uid;
         _loading = false;
       });
     } catch (e) {
@@ -85,46 +116,77 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _createProjectDialog() async {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Nouveau Projet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom du projet')),
-            const SizedBox(height: 8),
-            TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description / Objectif')),
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nouveau Projet'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom du projet (min. 2 car.)')),
+                const SizedBox(height: 8),
+                TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description / Objectif')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
-        ],
-      ),
-    );
-    if (ok == true && nameCtrl.text.trim().length >= 2) {
-      await widget.apiService.createProject(name: nameCtrl.text.trim(), description: descCtrl.text.trim());
-      _load();
+      );
+      if (ok != true) return;
+      final name = nameCtrl.text.trim();
+      if (name.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Le nom du projet doit contenir au moins 2 caractères.')),
+          );
+        }
+        return;
+      }
+      await _guard(() async {
+        await widget.apiService.createProject(name: name, description: descCtrl.text.trim());
+        await _load();
+      });
+    } finally {
+      nameCtrl.dispose();
+      descCtrl.dispose();
     }
   }
 
   Future<void> _renameProject(Map<String, dynamic> proj) async {
     final ctrl = TextEditingController(text: proj['name']?.toString() ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Renommer le projet'),
-        content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nouveau nom')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
-        ],
-      ),
-    );
-    if (ok == true && ctrl.text.trim().length >= 2) {
-      await widget.apiService.updateProject(proj['project_id'].toString(), name: ctrl.text.trim());
-      _load();
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Renommer le projet'),
+          content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nouveau nom (min. 2 car.)')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      final name = ctrl.text.trim();
+      if (name.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Le nouveau nom doit contenir au moins 2 caractères.')),
+          );
+        }
+        return;
+      }
+      await _guard(() async {
+        await widget.apiService.updateProject(proj['project_id'].toString(), name: name);
+        await _load();
+      });
+    } finally {
+      ctrl.dispose();
     }
   }
 
@@ -145,8 +207,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       ),
     );
     if (ok == true) {
-      await widget.apiService.deleteProject(proj['project_id'].toString());
-      _load();
+      await _guard(() async {
+        await widget.apiService.deleteProject(proj['project_id'].toString());
+        await _load();
+      });
     }
   }
 
@@ -155,127 +219,201 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     String origin = _provinces.contains('Lac') ? 'Lac' : _provinces.first;
     String dest = _provinces.contains("N'Djamena") ? "N'Djamena" : _provinces.first;
     final capCtrl = TextEditingController(text: '2000000');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Nouvelle étude PDF — ${proj['name']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<String>(
-              initialValue: commodity,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Produit / Céréale'),
-              items: _commodities
-                  .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (v) => commodity = v ?? commodity,
+    try {
+      // Études déjà présentes : permet de créer une NOUVELLE VERSION (historique + comparaison).
+      List<Map<String, dynamic>> existing = const [];
+      try {
+        final full = await widget.apiService.getProject(proj['project_id'].toString());
+        existing = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      } catch (_) {}
+      if (!mounted) return;
+      String? targetStudyId; // null = nouvelle étude
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Nouvelle étude PDF — ${proj['name']}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (existing.isNotEmpty) ...[
+                  DropdownButtonFormField<String?>(
+                    initialValue: null,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Étude cible'),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('Nouvelle étude')),
+                      ...existing.map((st) => DropdownMenuItem<String?>(
+                            value: st['study_id'].toString(),
+                            child: Text(
+                              'Nouvelle version de : ${st['title'] ?? st['study_id']}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )),
+                    ],
+                    onChanged: (v) => targetStudyId = v,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                DropdownButtonFormField<String>(
+                  initialValue: commodity,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Produit / Céréale'),
+                  items: _commodities
+                      .map((c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (v) => commodity = v ?? commodity,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: origin,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Province d\'origine'),
+                  items: _provinces
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: (v) => origin = v ?? origin,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: dest,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Province de destination'),
+                  items: _provinces
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: (v) => dest = v ?? dest,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: capCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Capital (XAF)'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: origin,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Province d\'origine'),
-              items: _provinces
-                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
-                  .toList(),
-              onChanged: (v) => origin = v ?? origin,
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: dest,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Province de destination'),
-              items: _provinces
-                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
-                  .toList(),
-              onChanged: (v) => dest = v ?? dest,
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: capCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Capital (XAF)'),
-            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final cap = double.tryParse(capCtrl.text.trim()) ?? 2000000;
-    try {
-      final created = await widget.apiService.createProjectStudy(
-        proj['project_id'].toString(),
-        commodity: commodity,
-        originProvince: origin.trim().isEmpty ? 'Lac' : origin.trim(),
-        destProvince: dest.trim(),
-        capitalXaf: cap,
       );
-      await _load();
-      if (!mounted) return;
-      final studyId = created['study_id']?.toString() ?? '';
-      final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Étude enregistrée dans le projet (v$vNum).')),
-      );
-      if (studyId.isNotEmpty) {
-        final bytes = await widget.apiService.downloadStudyVersionPdf(
-          proj['project_id'].toString(),
-          studyId,
-          vNum,
-        );
-        triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+      if (ok != true) return;
+      final cap = _parseCapital(capCtrl.text);
+      if (cap == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Capital invalide : saisissez un nombre positif (ex. 2 000 000).')),
+          );
+        }
+        return;
       }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      try {
+        final created = await widget.apiService.createProjectStudy(
+          proj['project_id'].toString(),
+          studyId: targetStudyId,
+          commodity: commodity,
+          originProvince: origin.trim().isEmpty ? 'Lac' : origin.trim(),
+          destProvince: dest.trim(),
+          capitalXaf: cap,
+        );
+        await _load();
+        if (!mounted) return;
+        final studyId = created['study_id']?.toString() ?? '';
+        final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Étude enregistrée dans le projet (v$vNum).')),
+        );
+        if (studyId.isNotEmpty) {
+          final bytes = await widget.apiService.downloadStudyVersionPdf(
+            proj['project_id'].toString(),
+            studyId,
+            vNum,
+          );
+          triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      capCtrl.dispose();
     }
   }
 
   Future<void> _openStudiesAndVersions(Map<String, dynamic> proj) async {
-    final full = await widget.apiService.getProject(proj['project_id'].toString());
+    Map<String, dynamic> full;
+    try {
+      full = await widget.apiService.getProject(proj['project_id'].toString());
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+      return;
+    }
     if (!mounted) return;
-    final studies = (full['studies'] as List? ?? []).cast<Map<String, dynamic>>();
+    final studies = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Études & Versions — ${full['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            if (studies.isEmpty)
-              const Text('Aucune étude générée pour ce projet.')
-            else
-              ...studies.map((s) => ListTile(
-                    title: Text(s['title']?.toString() ?? s['study_id'].toString()),
-                    subtitle: Text('Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
-                    trailing: TextButton(
-                      onPressed: () async {
-                        final versions = await widget.apiService.listStudyVersions(
-                          full['project_id'].toString(),
-                          s['study_id'].toString(),
-                        );
-                        if (!ctx.mounted) return;
-                        _showVersionHistoryDialog(full['project_id'].toString(), s['study_id'].toString(), versions);
-                      },
-                      child: const Text('Historique'),
-                    ),
-                  )),
-          ],
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Études & Versions — ${full['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                if (studies.isEmpty)
+                  const Text('Aucune étude générée pour ce projet.')
+                else
+                  ...studies.map((s) => ListTile(
+                        title: Text(s['title']?.toString() ?? s['study_id'].toString()),
+                        subtitle: Text('Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
+                        trailing: TextButton(
+                          onPressed: () => _guard(() async {
+                            final versions = await widget.apiService.listStudyVersions(
+                              full['project_id'].toString(),
+                              s['study_id'].toString(),
+                            );
+                            if (!ctx.mounted) return;
+                            _showVersionHistoryDialog(full['project_id'].toString(), s['study_id'].toString(), versions);
+                          }),
+                          child: const Text('Historique'),
+                        ),
+                      )),
+              ],
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  /// Rend la différence de métriques lisible (une ligne par métrique) au lieu d'un Map brut.
+  String _formatDiff(dynamic raw) {
+    if (raw is! Map || raw.isEmpty) return 'Aucune différence de métrique détectée.';
+    final lines = <String>[];
+    raw.forEach((k, v) {
+      if (v is Map) {
+        final before = v['from'] ?? v['old'] ?? v['before'] ?? v['a'];
+        final after = v['to'] ?? v['new'] ?? v['after'] ?? v['b'];
+        if (before != null || after != null) {
+          lines.add('• $k : ${before ?? '—'} → ${after ?? '—'}');
+        } else {
+          lines.add('• $k : ${v.entries.map((e) => '${e.key}=${e.value}').join(', ')}');
+        }
+      } else {
+        lines.add('• $k : $v');
+      }
+    });
+    return lines.join('\n');
   }
 
   void _showVersionHistoryDialog(String projectId, String studyId, List<Map<String, dynamic>> versions) {
@@ -285,53 +423,55 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         title: Text('Versions — $studyId'),
         content: SizedBox(
           width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...versions.map((v) {
-                final vNum = v['version_number'] as int;
-                final qaStatus = (v['validation'] as Map?)?['overall_status'] ?? '—';
-                final avail = v['artifact_available'] == true;
-                return ListTile(
-                  dense: true,
-                  title: Text('Version $vNum · QA: $qaStatus'),
-                  subtitle: Text(v['created_at']?.toString() ?? ''),
-                  trailing: avail
-                      ? IconButton(
-                          icon: const Icon(Icons.picture_as_pdf_rounded, color: FDTheme.blue),
-                          onPressed: () async {
-                            final bytes = await widget.apiService.downloadStudyVersionPdf(projectId, studyId, vNum);
-                            triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
-                          },
-                        )
-                      : const Text('PDF absent', style: TextStyle(fontSize: 11, color: FDTheme.muted)),
-                );
-              }),
-              if (versions.length >= 2) ...[
-                const Divider(),
-                TextButton.icon(
-                  icon: const Icon(Icons.compare_arrows_rounded),
-                  label: Text('Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
-                  onPressed: () async {
-                    final diff = await widget.apiService.compareStudyVersions(
-                      projectId,
-                      studyId,
-                      versions[1]['version_number'] as int,
-                      versions[0]['version_number'] as int,
-                    );
-                    if (!ctx.mounted) return;
-                    showDialog(
-                      context: ctx,
-                      builder: (c2) => AlertDialog(
-                        title: const Text('Comparaison de versions'),
-                        content: Text(diff['metrics_diff'].toString()),
-                        actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Fermer'))],
-                      ),
-                    );
-                  },
-                ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...versions.map((v) {
+                  final vNum = (v['version_number'] as num).toInt();
+                  final qaStatus = (v['validation'] as Map?)?['overall_status'] ?? '—';
+                  final avail = v['artifact_available'] == true;
+                  return ListTile(
+                    dense: true,
+                    title: Text('Version $vNum · QA: $qaStatus'),
+                    subtitle: Text(v['created_at']?.toString() ?? ''),
+                    trailing: avail
+                        ? IconButton(
+                            icon: const Icon(Icons.picture_as_pdf_rounded, color: FDTheme.blue),
+                            onPressed: () => _guard(() async {
+                              final bytes = await widget.apiService.downloadStudyVersionPdf(projectId, studyId, vNum);
+                              triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+                            }),
+                          )
+                        : const Text('PDF absent', style: TextStyle(fontSize: 11, color: FDTheme.muted)),
+                  );
+                }),
+                if (versions.length >= 2) ...[
+                  const Divider(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.compare_arrows_rounded),
+                    label: Text('Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
+                    onPressed: () => _guard(() async {
+                      final diff = await widget.apiService.compareStudyVersions(
+                        projectId,
+                        studyId,
+                        (versions[1]['version_number'] as num).toInt(),
+                        (versions[0]['version_number'] as num).toInt(),
+                      );
+                      if (!ctx.mounted) return;
+                      showDialog(
+                        context: ctx,
+                        builder: (c2) => AlertDialog(
+                          title: const Text('Comparaison de versions'),
+                          content: SingleChildScrollView(child: Text(_formatDiff(diff['metrics_diff']))),
+                          actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Fermer'))],
+                        ),
+                      );
+                    }),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer'))],
@@ -341,28 +481,45 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Pas d'AppBar ici : MainShell affiche déjà le titre (sinon deux barres empilées).
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Espace Projets'),
-        actions: [
-          FilterChip(
-            label: const Text('Archivés'),
-            selected: _includeArchived,
-            onSelected: (v) {
-              setState(() => _includeArchived = v);
-              _load();
-            },
+      backgroundColor: Colors.transparent,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                FilterChip(
+                  label: const Text('Archivés'),
+                  selected: _includeArchived,
+                  onSelected: (v) {
+                    setState(() => _includeArchived = v);
+                    _load();
+                  },
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Nouveau projet'),
+                  onPressed: _createProjectDialog,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
-          IconButton(icon: const Icon(Icons.add_rounded), tooltip: 'Nouveau projet', onPressed: _createProjectDialog),
+          Expanded(child: _buildBody()),
         ],
       ),
-      body: _loading
+    );
+  }
+
+  Widget _buildBody() {
+    return _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: FDTheme.danger)))
+              ? Center(child: Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: const TextStyle(color: FDTheme.danger))))
               : _projects.isEmpty
-                  ? const Center(child: Text('Aucun projet enregistré. Créez-en un avec le bouton +.'))
+                  ? const Center(child: Text('Aucun projet enregistré. Créez-en un avec « Nouveau projet ».'))
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: _projects.length,
@@ -372,59 +529,62 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         final isArchived = p['status'] == 'archived';
                         return FDCard(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          child: ListTile(
+                          child: Column(children: [ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(p['name']?.toString() ?? 'Projet', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
                             subtitle: Text(
                               'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
                               style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
                             ),
-                            trailing: Wrap(
-                              spacing: 4,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.picture_as_pdf_outlined, color: FDTheme.green),
-                                  tooltip: 'Générer & sauvegarder PDF',
-                                  onPressed: () => _generateStudyDialog(p),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.play_arrow_rounded, color: FDTheme.blue),
-                                  tooltip: 'Reprendre',
-                                  onPressed: () async {
-                                    final full = await widget.apiService.getProject(p['project_id'].toString());
-                                    widget.onResumeProject?.call(full);
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.history_rounded),
-                                  tooltip: 'Études & Versions',
-                                  onPressed: () => _openStudiesAndVersions(p),
-                                ),
-                                PopupMenuButton<String>(
-                                  onSelected: (act) async {
-                                    if (act == 'rename') await _renameProject(p);
-                                    if (act == 'archive') {
-                                      await widget.apiService.updateProject(
-                                        p['project_id'].toString(),
-                                        status: isArchived ? 'active' : 'archived',
-                                      );
-                                      _load();
-                                    }
-                                    if (act == 'delete') await _confirmDelete(p);
-                                  },
-                                  itemBuilder: (_) => [
-                                    const PopupMenuItem(value: 'rename', child: Text('Renommer')),
-                                    PopupMenuItem(value: 'archive', child: Text(isArchived ? 'Restaurer' : 'Archiver')),
-                                    const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
-                                  ],
-                                ),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (act) => _guard(() async {
+                                if (act == 'rename') await _renameProject(p);
+                                if (act == 'archive') {
+                                  await widget.apiService.updateProject(
+                                    p['project_id'].toString(),
+                                    status: isArchived ? 'active' : 'archived',
+                                  );
+                                  await _load();
+                                }
+                                if (act == 'delete') await _confirmDelete(p);
+                              }),
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(value: 'rename', child: Text('Renommer')),
+                                PopupMenuItem(value: 'archive', child: Text(isArchived ? 'Restaurer' : 'Archiver')),
+                                const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
                               ],
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 4,
+                            runSpacing: 0,
+                            children: [
+                              TextButton.icon(
+                                icon: const Icon(Icons.picture_as_pdf_outlined, color: FDTheme.green, size: 18),
+                                label: const Text('Étude PDF'),
+                                onPressed: () => _guard(() => _generateStudyDialog(p)),
+                              ),
+                              TextButton.icon(
+                                icon: const Icon(Icons.play_arrow_rounded, color: FDTheme.blue, size: 18),
+                                label: const Text('Reprendre'),
+                                onPressed: () => _guard(() async {
+                                  final full = await widget.apiService.getProject(p['project_id'].toString());
+                                  widget.onResumeProject?.call(full);
+                                }),
+                              ),
+                              TextButton.icon(
+                                icon: const Icon(Icons.history_rounded, size: 18),
+                                label: const Text('Versions'),
+                                onPressed: () => _openStudiesAndVersions(p),
+                              ),
+                            ],
+                          ),
+                          ],
+                          ),
                         );
                       },
-                    ),
-    );
+                    );
   }
 }
 

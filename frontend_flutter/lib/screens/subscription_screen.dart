@@ -51,14 +51,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  static String _quotaLabel(String key) {
+    switch (key) {
+      case 'daily_chat':
+        return 'Messages IA / jour';
+      case 'monthly_pdf':
+        return 'Rapports PDF / mois';
+      case 'daily_ml':
+        return 'Prévisions ML / jour';
+      case 'daily_rag':
+        return 'Recherches RAG / jour';
+      default:
+        return key;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sub = _me?['subscription'] as Map? ?? {};
-    final quotas = _me?['quotas'] as Map? ?? {};
+    final sub = _me?['subscription'] is Map ? _me!['subscription'] as Map : const {};
+    final quotas = _me?['quotas'] is Map ? _me!['quotas'] as Map : const {};
+    final canPop = Navigator.of(context).canPop();
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Abonnement & Quotas', style: TextStyle(fontWeight: FontWeight.w700))),
+      appBar: canPop
+          ? AppBar(title: const Text('Abonnement & Quotas', style: TextStyle(fontWeight: FontWeight.w700)))
+          : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -106,7 +124,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
                     ),
                     const SizedBox(height: 8),
-                    ...quotas.entries.map((e) {
+                    ...quotas.entries.where((e) => e.value is Map).map((e) {
                       final q = e.value as Map;
                       final used = (q['used'] as num?)?.toInt() ?? 0;
                       final limit = (q['limit'] as num?)?.toInt() ?? 0;
@@ -121,7 +139,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                                  Text(
+                                    _quotaLabel(e.key.toString()),
+                                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
+                                  ),
                                   Text('$used / $limit', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.blue)),
                                 ],
                               ),

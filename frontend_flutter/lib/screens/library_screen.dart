@@ -52,11 +52,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void didUpdateWidget(covariant LibraryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.conversations != null) {
-      setState(() {
-        _allConversations = widget.conversations!;
-        _loading = false;
-      });
+    final incoming = widget.conversations;
+    if (incoming != null && incoming != oldWidget.conversations) {
+      // Recharger le stockage complet (y compris corbeille) pour capter les suppressions faites depuis la barre latérale.
+      _load();
     }
   }
 

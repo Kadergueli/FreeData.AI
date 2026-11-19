@@ -65,6 +65,16 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    // Clé refusée par le serveur (403) : on la retire aussi du stockage et on redessine l'interface (onglets PRO).
+    _apiService.onPremiumKeyRejected = () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_premiumKeyStorageKey);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {});
+      _showSnackBar(const SnackBar(content: Text('Clé PRO refusée par le serveur : accès PRO désactivé. Saisissez une clé valide.')));
+    };
     _loadPremiumKey();
     _reloadConversations();
   }
@@ -385,6 +395,75 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  Widget _buildUtilityMenu({bool includeSubscription = false}) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
+      tooltip: 'Plus d\'options',
+      onSelected: (value) {
+        if (value == 'support') {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
+          );
+        } else if (value == 'subscription') {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
+            ),
+          );
+        } else if (value == 'settings') {
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)))
+              .then((_) {
+            if (mounted) setState(() {});
+          });
+        } else if (value == 'docs') {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DocsScreen()),
+          );
+        }
+      },
+      itemBuilder: (context) => [
+        if (includeSubscription && _apiService.hasPremiumKey)
+          const PopupMenuItem(
+            value: 'subscription',
+            child: ListTile(
+              leading: Icon(Icons.workspace_premium_outlined),
+              title: Text('Abonnement & Quotas'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'support',
+          child: ListTile(
+            leading: Icon(Icons.support_agent_outlined),
+            title: Text('Assistance & Avis'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'docs',
+          child: ListTile(
+            leading: Icon(Icons.menu_book_outlined),
+            title: Text('Documentation'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'settings',
+          child: ListTile(
+            leading: Icon(Icons.tune_rounded),
+            title: Text('Préférences'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
@@ -444,7 +523,23 @@ class _MainShellState extends State<MainShell> {
         ProjectsScreen(
           apiService: _apiService,
           onResumeProject: (proj) {
-            _openPromptInChat('Reprendre le projet ${proj['name']}');
+            // Le chat n'a pas de canal « study_context » : on injecte le contexte du projet dans le prompt.
+            final buf = StringBuffer('Reprendre le projet « ${proj['name']} ».');
+            final desc = proj['description']?.toString().trim() ?? '';
+            if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
+            final ctx = proj['study_context'];
+            if (ctx is Map && ctx.isNotEmpty) {
+              final parts = ctx.entries
+                  .where((e) => e.value != null && e.value.toString().trim().isNotEmpty)
+                  .map((e) => '${e.key} = ${e.value}')
+                  .take(12);
+              if (parts.isNotEmpty) buf.write('\nContexte enregistré : ${parts.join(' ; ')}');
+            }
+            final studies = proj['studies'];
+            if (studies is List && studies.isNotEmpty) {
+              buf.write('\nÉtudes existantes : ${studies.length}.');
+            }
+            _openPromptInChat(buf.toString());
           },
         )
       else
@@ -468,7 +563,7 @@ class _MainShellState extends State<MainShell> {
             SizedBox(
               width: 280,
               child: _SidebarContent(
-                currentIndex: _selectedIndex,
+                currentIndex: effectiveIndex,
                 activeConversationId: _activeConversationId,
                 conversations: _conversations,
                 hasPremiumKey: _apiService.hasPremiumKey,
@@ -502,7 +597,7 @@ class _MainShellState extends State<MainShell> {
                     child: Row(
                       children: [
                         Text(
-                          _getTitle(_selectedIndex),
+                          _getTitle(effectiveIndex),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
@@ -548,6 +643,8 @@ class _MainShellState extends State<MainShell> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        _buildUtilityMenu(),
                       ],
                     ),
                   ),
@@ -609,7 +706,7 @@ class _MainShellState extends State<MainShell> {
             const SizedBox(width: 10),
             Flexible(
               child: Text(
-                _getTitle(_selectedIndex),
+                _getTitle(effectiveIndex),
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: FDTheme.ink,
@@ -648,70 +745,7 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
-            tooltip: 'Plus d\'options',
-            onSelected: (value) {
-              if (value == 'support') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
-                );
-              } else if (value == 'subscription') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
-                  ),
-                );
-              } else if (value == 'settings') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)),
-                );
-              } else if (value == 'docs') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DocsScreen()),
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              if (_apiService.hasPremiumKey)
-                const PopupMenuItem(
-                  value: 'subscription',
-                  child: ListTile(
-                    leading: Icon(Icons.workspace_premium_outlined),
-                    title: Text('Abonnement & Quotas'),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'support',
-                child: ListTile(
-                  leading: Icon(Icons.support_agent_outlined),
-                  title: Text('Assistance & Avis'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'docs',
-                child: ListTile(
-                  leading: Icon(Icons.menu_book_outlined),
-                  title: Text('Documentation'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  leading: Icon(Icons.tune_rounded),
-                  title: Text('Préférences'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
-          ),
+          _buildUtilityMenu(includeSubscription: true),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(
@@ -744,7 +778,7 @@ class _MainShellState extends State<MainShell> {
         backgroundColor: FDTheme.surface,
         child: SafeArea(
           child: _SidebarContent(
-            currentIndex: _selectedIndex,
+            currentIndex: effectiveIndex,
             activeConversationId: _activeConversationId,
             conversations: _conversations,
             hasPremiumKey: _apiService.hasPremiumKey,

@@ -25,6 +25,8 @@ class ApiService {
 
   final http.Client _client;
   String? _runtimePremiumKey;
+  /// Appelé quand le serveur refuse la clé PRO (403) : l'interface doit se mettre à jour.
+  Future<void> Function()? onPremiumKeyRejected;
   // Identifiant d'espace : aléatoire et propre à ce navigateur (un identifiant partagé donnerait les mêmes projets à tous).
   String _userId = generateUserId();
   Future<Map<String, dynamic>>? _metadataCache;
@@ -345,6 +347,10 @@ class ApiService {
     }
     if (resp.statusCode == 403) {
       _runtimePremiumKey = null;
+      final cb = onPremiumKeyRejected;
+      if (cb != null) {
+        cb();
+      }
       throw const ApiHttpException(
         403,
         'Clé Premium requise ou invalide pour consulter les études saisonnières.',
@@ -514,6 +520,7 @@ class ApiService {
     String? destProvince,
     required double capitalXaf,
     String? promoterName,
+    String? studyId,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/projects/$projectId/studies');
     final resp = await _client
@@ -521,6 +528,7 @@ class ApiService {
           uri,
           headers: _projectHeaders(includeJson: true),
           body: jsonEncode({
+            if (studyId != null && studyId.trim().isNotEmpty) 'study_id': studyId.trim(),
             'commodity': commodity,
             'origin_province': originProvince,
             if (destProvince != null && destProvince.trim().isNotEmpty) 'dest_province': destProvince.trim(),
@@ -642,6 +650,17 @@ class ApiService {
       return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
     }
     throw ApiHttpException(resp.statusCode, 'Erreur chargement abonnement (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getAdminMe(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/me');
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 15));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Accès admin refusé (${resp.statusCode})');
   }
 
   Future<Map<String, dynamic>> getAdminOverview(String adminToken) async {
