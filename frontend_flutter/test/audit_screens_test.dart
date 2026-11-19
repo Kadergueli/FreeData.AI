@@ -347,8 +347,12 @@ void main() {
     expect(find.text('Messages IA / jour'), findsOneWidget);
     expect(find.text('4 / 30'), findsOneWidget);
     expect(find.text('Rapports PDF / mois'), findsOneWidget);
-    expect(find.textContaining('Tarif mensuel PRO : 15 000 XAF / mois'),
-        findsOneWidget);
+
+    final priceFinder =
+        find.textContaining('Tarif mensuel PRO : 15 000 XAF / mois');
+    await tester.scrollUntilVisible(priceFinder, 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(priceFinder, findsOneWidget);
 
     final phoneField =
         find.widgetWithText(TextField, 'Numéro payeur ou référence compte');
@@ -544,16 +548,25 @@ void main() {
     expect(find.text('Amina'), findsWidgets);
     expect(find.text('amina@freedata.td'), findsOneWidget);
     expect(find.text('PLAN GRATUIT'), findsOneWidget);
-    expect(find.text('Sécurité du compte'), findsOneWidget);
 
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Nom ou organisation affichée'),
-      'Amina Agri-Tchad',
-    );
-    await tester.tap(find.text('Enregistrer le profil'));
+    final nameField =
+        find.widgetWithText(TextField, 'Nom ou organisation affichée');
+    await tester.scrollUntilVisible(nameField, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.enterText(nameField, 'Amina Agri-Tchad');
+
+    final saveBtn = find.text('Enregistrer le profil');
+    await tester.scrollUntilVisible(saveBtn, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(saveBtn);
     await tester.pumpAndSettle();
 
     expect(api.lastUpdatedDisplayName, 'Amina Agri-Tchad');
+
+    final secFinder = find.text('Sécurité du compte');
+    await tester.scrollUntilVisible(secFinder, 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(secFinder, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

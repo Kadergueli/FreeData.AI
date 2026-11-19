@@ -796,7 +796,7 @@ class _MainShellState extends State<MainShell> {
                 children: [
                   Container(
                     height: 56,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: const BoxDecoration(
                       color: FDTheme.surface,
                       border: Border(
@@ -805,15 +805,19 @@ class _MainShellState extends State<MainShell> {
                     ),
                     child: Row(
                       children: [
-                        Text(
-                          _getTitle(effectiveIndex),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: FDTheme.ink,
+                        Expanded(
+                          child: Text(
+                            _getTitle(effectiveIndex),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: FDTheme.ink,
+                            ),
                           ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: 8),
                         Semantics(
                           button: true,
                           label: _apiService.hasPremiumKey
@@ -861,7 +865,7 @@ class _MainShellState extends State<MainShell> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         if (_apiService.isAuthenticated)
                           InkWell(
                             onTap: _openAccountScreen,
@@ -923,15 +927,15 @@ class _MainShellState extends State<MainShell> {
                               foregroundColor: FDTheme.ink,
                               side: const BorderSide(color: FDTheme.line),
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                              minimumSize: const Size(0, 34),
+                                  horizontal: 10, vertical: 6),
+                              minimumSize: const Size(0, 32),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(99)),
                             ),
                             child: const Text('Se connecter',
                                 style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600)),
+                                    fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
                           const SizedBox(width: 6),
                           FilledButton(
@@ -940,17 +944,16 @@ class _MainShellState extends State<MainShell> {
                               backgroundColor: FDTheme.ink,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
-                              minimumSize: const Size(0, 34),
+                                  horizontal: 10, vertical: 6),
+                              minimumSize: const Size(0, 32),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(99)),
                             ),
                             child: const Text('S’inscrire',
                                 style: TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600)),
+                                    fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
-                          const SizedBox(width: 4),
                           _buildUtilityMenu(includeAccount: false),
                         ],
                       ],
