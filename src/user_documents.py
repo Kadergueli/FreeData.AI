@@ -375,19 +375,28 @@ class UserDocumentStore:
                 """
             )
             # Migration douce (idempotente) pour bases existantes
-            for stmt in (
-                "ALTER TABLE user_documents ADD COLUMN project_id TEXT",
-                "ALTER TABLE user_documents ADD COLUMN total_chunks INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE user_documents ADD COLUMN indexing_status TEXT NOT NULL DEFAULT 'complete'",
-                "ALTER TABLE user_documents ADD COLUMN content_hash TEXT",
-                "ALTER TABLE user_document_chunks ADD COLUMN project_id TEXT",
+            # PostgreSQL avorte la transaction courante sur DuplicateColumn : utiliser IF NOT EXISTS + SAVEPOINT.
+            alter_kw = "ADD COLUMN IF NOT EXISTS" if self._pg_url else "ADD COLUMN"
+            for idx_i, stmt in enumerate((
+                f"ALTER TABLE user_documents {alter_kw} project_id TEXT",
+                f"ALTER TABLE user_documents {alter_kw} total_chunks INTEGER NOT NULL DEFAULT 0",
+                f"ALTER TABLE user_documents {alter_kw} indexing_status TEXT NOT NULL DEFAULT 'complete'",
+                f"ALTER TABLE user_documents {alter_kw} content_hash TEXT",
+                f"ALTER TABLE user_document_chunks {alter_kw} project_id TEXT",
                 "CREATE INDEX IF NOT EXISTS idx_user_documents_owner_project ON user_documents(owner_id, project_id, created_at DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_user_doc_chunks_owner_project ON user_document_chunks(owner_id, project_id)",
-            ):
+            )):
+                sp = f"sp_doc_mig_{idx_i}"
                 try:
+                    if self._pg_url:
+                        conn.execute(f"SAVEPOINT {sp}")
                     conn.execute(stmt)
+                    if self._pg_url:
+                        conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
-                    pass
+                    if self._pg_url:
+                        conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                        conn.execute(f"RELEASE SAVEPOINT {sp}")
             if self._pg_url:
                 _db.harden_tables(conn)
 

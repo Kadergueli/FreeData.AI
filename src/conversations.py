@@ -68,18 +68,25 @@ class ConversationStore:
                 """
             )
             # Migration douce (idempotente) pour bases SQLite/Postgres existantes sans colonnes project_id / project_name
-            for col_def in ("project_id TEXT", "project_name TEXT"):
+            # PostgreSQL avorte la transaction courante sur DuplicateColumn : utiliser IF NOT EXISTS + SAVEPOINT.
+            alter_kw = "ADD COLUMN IF NOT EXISTS" if self._pg_url else "ADD COLUMN"
+            for idx_i, stmt in enumerate((
+                f"ALTER TABLE user_conversations {alter_kw} project_id TEXT",
+                f"ALTER TABLE user_conversations {alter_kw} project_name TEXT",
+                "CREATE INDEX IF NOT EXISTS idx_user_conversations_owner_project "
+                "ON user_conversations(owner_id, project_id, updated_at DESC)",
+            )):
+                sp = f"sp_conv_mig_{idx_i}"
                 try:
-                    conn.execute(f"ALTER TABLE user_conversations ADD COLUMN {col_def}")
+                    if self._pg_url:
+                        conn.execute(f"SAVEPOINT {sp}")
+                    conn.execute(stmt)
+                    if self._pg_url:
+                        conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
-                    pass
-            try:
-                conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_user_conversations_owner_project "
-                    "ON user_conversations(owner_id, project_id, updated_at DESC)"
-                )
-            except Exception:
-                pass
+                    if self._pg_url:
+                        conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                        conn.execute(f"RELEASE SAVEPOINT {sp}")
             if self._pg_url:
                 _db.harden_tables(conn)
 
