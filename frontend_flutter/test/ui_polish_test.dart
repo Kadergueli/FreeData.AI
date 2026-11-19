@@ -1630,6 +1630,7 @@ class _DelayedChatFakeApi extends ApiService {
     List<Map<String, String>> history = const [],
     String tier = 'free',
     Map<String, dynamic>? studyContext,
+    String? projectId,
   }) =>
       completer.future;
 }
