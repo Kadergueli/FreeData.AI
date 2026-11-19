@@ -120,3 +120,65 @@ def test_register_unique_violation_maps_to_conflict(stores):
     with pytest.raises(HTTPException) as exc:
         _register(auth, "DUP@example.td")
     assert exc.value.status_code == 409
+
+
+def test_password_change_invalidates_old_tokens_and_returns_fresh_session(stores):
+    auth, _ = stores
+    reg = _register(auth, "pw@example.td")
+    old = f"Bearer {reg['token']}"
+    assert server._resolve_owner_id_optional(authorization=old)
+    time.sleep(1.1)  # iat a une granularité d'une seconde
+    out = server.auth_change_password_endpoint(
+        server.AuthChangePasswordRequest(current_password="Password123!", new_password="NewPassword456!"),
+        authorization=old,
+        auth_store=auth,
+    )
+    with pytest.raises(HTTPException) as exc:
+        server._resolve_owner_id_optional(authorization=old)
+    assert exc.value.status_code == 401
+    new = f"Bearer {out['session']['token']}"
+    assert server._resolve_owner_id_optional(authorization=new) == f"user:{reg['user']['user_id']}"
+
+
+def test_refresh_is_bounded_by_original_login_date(stores, monkeypatch):
+    from src.security import issue_signed_user_token
+    auth, _ = stores
+    reg = _register(auth, "rf@example.td")
+    uid = reg["user"]["user_id"]
+    # Session ouverte il y a 31 jours puis renouvelée : le renouvellement doit être refusé.
+    ancient = int(time.time()) - 31 * 24 * 3600
+    tok = issue_signed_user_token(uid, SECRET, ttl_seconds=3600, original_iat=ancient)
+    with pytest.raises(HTTPException) as exc:
+        server.auth_refresh_endpoint(authorization=f"Bearer {tok}", auth_store=auth)
+    assert exc.value.status_code == 401
+    # Renouvellement normal : conserve la date d'origine
+    fresh = server.auth_refresh_endpoint(authorization=f"Bearer {reg['token']}", auth_store=auth)
+    from src.security import token_claims
+    assert token_claims(fresh["token"])["oiat"] == token_claims(reg["token"])["oiat"]
+
+
+def test_delete_account_purges_subscription_payments_and_tickets(stores, tmp_path, monkeypatch):
+    from src.conversations import ConversationStore
+    from src.projects import ProjectStore
+    from src.support_feedback import SupportFeedbackStore
+    from src.user_documents import UserDocumentStore
+    auth, _ = stores
+    reg = _register(auth, "del@example.td")
+    uid = reg["user"]["user_id"]
+    owner = f"user:{uid}"
+    subs = SubscriptionStore(db_path=str(tmp_path / "s.db"))
+    sup = SupportFeedbackStore(db_path=str(tmp_path / "sup.db"))
+    subs.create_payment_request(owner, provider="airtel_money", phone_or_ref="+23566000000", transaction_ref="TX-DEL-1")
+    sup.create_ticket(owner, category="technical_bug", subject="Bug", description="Description du bug")
+    monkeypatch.setattr(server, "_SUPPORT_STORE", sup)
+    server.auth_delete_account_endpoint(
+        server.AuthDeleteAccountRequest(password="Password123!"),
+        authorization=f"Bearer {reg['token']}",
+        auth_store=auth,
+        conv_store=ConversationStore(db_path=str(tmp_path / "c.db")),
+        project_store=ProjectStore(db_path=str(tmp_path / "p.db"), artifacts_dir=str(tmp_path / "art")),
+        doc_store=UserDocumentStore(db_path=str(tmp_path / "d.db")),
+        sub_store=subs,
+    )
+    assert subs.list_payment_requests(user_id=owner) == []
+    assert sup.list_user_tickets(owner) == []

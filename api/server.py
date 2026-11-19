@@ -44,7 +44,7 @@ from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.entitlements import EntitlementManager
-from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, get_auth_secret
+from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, MAX_SESSION_LIFETIME_SECONDS, get_auth_secret
 from src.conversations import ConversationStore
 from src.user_documents import UserDocumentStore
 from src.monetization import (
@@ -866,6 +866,8 @@ def _resolve_owner_id_optional(
             # Compte supprimé : un jeton encore valide ne doit plus ouvrir d'espace (identifiants émis par /auth/*).
             if _ACCOUNT_ID_RE.fullmatch(sub) and auth_store.get_user(sub) is None:
                 raise HTTPException(status_code=401, detail="Compte introuvable ou supprimé. Veuillez vous reconnecter.")
+            if _ACCOUNT_ID_RE.fullmatch(sub) and auth_store.is_token_stale(tok, sub):
+                raise HTTPException(status_code=401, detail="Session expirée (mot de passe modifié). Veuillez vous reconnecter.")
             owner = f"user:{sub}"
             _assert_not_suspended(owner)
             return owner
@@ -2393,8 +2395,11 @@ def auth_refresh_endpoint(
         raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
     if _ADMIN_SERVICE is not None and _ADMIN_SERVICE.is_user_suspended(f"user:{sub_id}"):
         raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    if auth_store.session_age_seconds(old_tok) > MAX_SESSION_LIFETIME_SECONDS:
+        raise HTTPException(status_code=401, detail="Session trop ancienne : reconnectez-vous avec votre mot de passe.")
+    from src.security import token_claims as _claims
     try:
-        new_session = auth_store.issue_session(user)
+        new_session = auth_store.issue_session(user, original_iat=int(_claims(old_tok).get("oiat") or 0) or None)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     auth_store.revoke_token(old_tok)
@@ -2421,6 +2426,8 @@ def _require_bearer_user_id(authorization: Optional[str], auth_store: AuthStore)
     sub_id = auth_store.verify_session_token(tok)
     if not sub_id:
         raise HTTPException(status_code=401, detail="Session invalide, révoquée ou expirée.")
+    if _ACCOUNT_ID_RE.fullmatch(sub_id) and auth_store.is_token_stale(tok, sub_id):
+        raise HTTPException(status_code=401, detail="Session expirée (mot de passe modifié). Veuillez vous reconnecter.")
     return sub_id, tok
 
 
@@ -2457,7 +2464,9 @@ def auth_change_password_endpoint(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"updated": True, "user": user}
+    # Les anciens jetons sont invalidés : on renvoie une session neuve pour l'appareil courant.
+    secret = get_auth_secret()
+    return {"updated": True, "user": user, "session": auth_store.issue_session(user, secret=secret)}
 
 
 @app.post("/api/v1/auth/delete-account", dependencies=[Depends(_chat_rate_limit_dependency)])
@@ -2468,6 +2477,7 @@ def auth_delete_account_endpoint(
     conv_store: ConversationStore = Depends(get_conversation_store),
     project_store: ProjectStore = Depends(get_project_store),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     sub_id, tok = _require_bearer_user_id(authorization, auth_store)
     try:
@@ -2481,6 +2491,12 @@ def auth_delete_account_endpoint(
         conv_store.purge_owner(owner_id)
     if isinstance(doc_store, UserDocumentStore):
         doc_store.purge_owner(owner_id)
+    # Effacement complet (RGPD) : abonnement, usages, demandes de paiement, tickets et avis.
+    for purge in (lambda: sub_store.purge_user(owner_id), lambda: get_support_store().purge_owner(owner_id)):
+        try:
+            purge()
+        except Exception as exc:
+            logger.warning("Purge partielle lors de la suppression de compte : %s", exc)
     if isinstance(project_store, ProjectStore):
         for p in project_store.list_projects(owner_id, include_archived=True):
             try:
