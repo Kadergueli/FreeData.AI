@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
-import '../core/models/chat_models.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
@@ -17,12 +16,16 @@ class ProjectsScreen extends StatefulWidget {
     String? initialPrompt,
     bool forceNewConversation,
   })? onOpenProjectChat;
+  final int refreshToken;
+  final List<ConversationThread>? conversations;
 
   const ProjectsScreen({
     super.key,
     required this.apiService,
     this.onResumeProject,
     this.onOpenProjectChat,
+    this.refreshToken = 0,
+    this.conversations,
   });
 
   @override
@@ -73,6 +76,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     // L'identifiant d'espace a changé (Réglages) : la liste affichée appartient à l'ancien espace.
     if (_loadedUserId != widget.apiService.userId && !_loading) {
       _load();
+    }
+    if (oldWidget.refreshToken != widget.refreshToken ||
+        oldWidget.conversations != widget.conversations) {
+      if (_selectedProject != null) {
+        _openWorkspace(_selectedProject!, silent: true);
+      } else if (oldWidget.refreshToken != widget.refreshToken) {
+        _load();
+      }
     }
   }
 
@@ -157,29 +168,37 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
   }
 
-  Future<void> _openWorkspace(Map<String, dynamic> projSummary) async {
+  Future<void> _openWorkspace(Map<String, dynamic> projSummary,
+      {bool silent = false}) async {
     final pid = projSummary['project_id']?.toString() ?? '';
     if (pid.isEmpty) return;
-    setState(() {
-      _loadingWorkspace = true;
-      _selectedProject = Map<String, dynamic>.from(projSummary);
-    });
+    if (!silent) {
+      setState(() {
+        _loadingWorkspace = true;
+        _selectedProject = Map<String, dynamic>.from(projSummary);
+      });
+    }
     try {
       final results = await Future.wait([
         widget.apiService.getProject(pid),
         LocalConversationStorage.instance.listProjectConversations(pid),
       ]);
       if (!mounted) return;
+      final liveConvs = widget.conversations != null
+          ? widget.conversations!.where((c) => c.projectId == pid).toList()
+          : (results[1] as List<ConversationThread>);
       setState(() {
         _selectedProject = results[0] as Map<String, dynamic>;
-        _projectConversations = results[1] as List<ConversationThread>;
+        _projectConversations = liveConvs;
         _loadingWorkspace = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _loadingWorkspace = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+      if (!silent) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+      }
     }
   }
 

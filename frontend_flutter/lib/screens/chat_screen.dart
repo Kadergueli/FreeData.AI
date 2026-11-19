@@ -867,28 +867,58 @@ class _ChatScreenState extends State<ChatScreen> {
     final cap = (kp['capital_xaf'] as num?)?.toDouble() ?? 0;
     if (comm.isEmpty || orig.isEmpty || cap <= 0) return;
 
+    final effProj = _effectiveProject();
+    final activePid = _thread?.projectId ?? effProj?['project_id']?.toString();
+
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      ..showSnackBar(const SnackBar(
-          content: Text('Génération du dossier PDF PRO en cours...')));
+      ..showSnackBar(SnackBar(
+          content: Text(activePid != null && activePid.isNotEmpty
+              ? 'Génération et enregistrement du PDF PRO dans le projet...'
+              : 'Génération du dossier PDF PRO en cours...')));
     try {
-      final bytes = await widget.apiService.downloadMarketStudyPdf(
-        commodity: comm,
-        originProvince: orig,
-        destProvince: kp['dest_province']?.toString(),
-        capitalXaf: cap,
-        transportCostPerKg: (kp['transport_cost_per_kg'] as num?)?.toDouble(),
-        promoterName: kp['promoter_name']?.toString(),
-        userInstructions: instructions,
-        studyContext: _latestStudyContext(),
-      );
-      final slug = comm.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-      triggerPdfDownload(bytes, 'freedata_etude_$slug.pdf');
-      if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)
-        ?..clearSnackBars()
-        ..showSnackBar(
-            const SnackBar(content: Text('Étude PDF PRO téléchargée.')));
+      if (activePid != null && activePid.isNotEmpty) {
+        final created = await widget.apiService.createProjectStudy(
+          activePid,
+          commodity: comm,
+          originProvince: orig,
+          destProvince: kp['dest_province']?.toString(),
+          capitalXaf: cap,
+          promoterName: kp['promoter_name']?.toString(),
+        );
+        final studyId = created['study_id']?.toString() ?? '';
+        final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
+        if (studyId.isNotEmpty) {
+          final bytes = await widget.apiService
+              .downloadStudyVersionPdf(activePid, studyId, vNum);
+          triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+        }
+        widget.onConversationUpdated?.call();
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)
+          ?..clearSnackBars()
+          ..showSnackBar(SnackBar(
+              content: Text(
+                  'Étude PDF enregistrée dans le projet (v$vNum) et téléchargée.')));
+      } else {
+        final bytes = await widget.apiService.downloadMarketStudyPdf(
+          commodity: comm,
+          originProvince: orig,
+          destProvince: kp['dest_province']?.toString(),
+          capitalXaf: cap,
+          transportCostPerKg: (kp['transport_cost_per_kg'] as num?)?.toDouble(),
+          promoterName: kp['promoter_name']?.toString(),
+          userInstructions: instructions,
+          studyContext: _latestStudyContext(),
+        );
+        final slug = comm.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+        triggerPdfDownload(bytes, 'freedata_etude_$slug.pdf');
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(context)
+          ?..clearSnackBars()
+          ..showSnackBar(
+              const SnackBar(content: Text('Étude PDF PRO téléchargée.')));
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)

@@ -69,6 +69,7 @@ class _MainShellState extends State<MainShell> {
   String? _activeConversationId;
   String? _pendingPrompt;
   Map<String, dynamic>? _activeProject;
+  int _projectsRefreshToken = 0;
   List<ConversationThread> _conversations = const [];
 
   @override
@@ -291,6 +292,9 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _selectedIndex = index;
       _visitedTabs.add(index);
+      if (index == 6) {
+        _projectsRefreshToken++;
+      }
     });
   }
 
@@ -805,6 +809,8 @@ class _MainShellState extends State<MainShell> {
       if (_apiService.hasPremiumKey && _visitedTabs.contains(6))
         ProjectsScreen(
           apiService: _apiService,
+          refreshToken: _projectsRefreshToken,
+          conversations: _conversations,
           onOpenProjectChat: _openProjectInChat,
           onResumeProject: (proj) => _openProjectInChat(proj),
         )
