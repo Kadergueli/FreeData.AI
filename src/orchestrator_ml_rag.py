@@ -103,8 +103,9 @@ class IntelligenceOrchestrator:
                 & (hist_df.get("province", pd.Series(dtype=str)).astype(str).str.lower() == prov.lower())
             ] if (hist_df is not None and not hist_df.empty) else pd.DataFrame()
             ridge_res = {"status": "insufficient_history"}
-            if not sub.empty and "price" in sub.columns:
-                prices = pd.to_numeric(sub["price"], errors="coerce").dropna().to_numpy(dtype=float)
+            price_col = "price" if (not sub.empty and "price" in sub.columns) else ("value" if (not sub.empty and "value" in sub.columns) else None)
+            if price_col is not None:
+                prices = pd.to_numeric(sub[price_col], errors="coerce").dropna().to_numpy(dtype=float)
                 ridge_res = evaluate_ridge_chronological(prices)
                 ridge_res.pop("model", None)
             return {

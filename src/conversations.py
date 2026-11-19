@@ -73,6 +73,13 @@ class ConversationStore:
                     conn.execute(f"ALTER TABLE user_conversations ADD COLUMN {col_def}")
                 except Exception:
                     pass
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_user_conversations_owner_project "
+                    "ON user_conversations(owner_id, project_id, updated_at DESC)"
+                )
+            except Exception:
+                pass
             if self._pg_url:
                 _db.harden_tables(conn)
 
@@ -210,6 +217,18 @@ class ConversationStore:
                 except ValueError:
                     continue
         return self.list_conversations(owner_id, include_deleted=True, limit=MAX_CLOUD_CONVERSATIONS)
+
+    def detach_project(self, owner_id: str, project_id: str) -> int:
+        """Detaches conversations from a deleted project while preserving the user's message history."""
+        if not owner_id or not project_id:
+            return 0
+        clean_pid = project_id.strip()[:80]
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE user_conversations SET project_id = NULL, project_name = NULL WHERE owner_id = ? AND project_id = ?",
+                (owner_id, clean_pid),
+            )
+            return int(cur.rowcount or 0)
 
     def delete_conversation(self, owner_id: str, conversation_id: str) -> bool:
         with self._connect() as conn:

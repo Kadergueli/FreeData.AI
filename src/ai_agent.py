@@ -2379,7 +2379,9 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             text = (choices[0]["message"]["content"] if choices else "").strip()
         except Exception as exc:
-            logger.warning("Conversation LLM indisponible, réponse déterministe : %s", exc)
+            from src.security import redact_secrets
+
+            logger.warning("Conversation LLM indisponible, réponse déterministe : %s", redact_secrets(exc))
             return None
         if not text or len(text) > 1500 or _ungrounded_numbers(text, "\n".join(allowed_numbers)):
             return None
@@ -2467,7 +2469,9 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             data = json.loads((choices[0]["message"]["content"] if choices else "") or "{}")
         except Exception as exc:
-            logger.warning("Routage LLM indisponible, règles utilisées : %s", exc)
+            from src.security import redact_secrets
+
+            logger.warning("Routage LLM indisponible, règles utilisées : %s", redact_secrets(exc))
             return None
         if not isinstance(data, dict) or data.get("intent") not in self._ROUTER_INTENTS:
             return None
@@ -2910,8 +2914,8 @@ class FreeDataAIAgent(FormattersMixin):
                 "Authorization": f"Bearer {settings.llm_api_key}",
                 "Content-Type": "application/json",
             }
-            req_timeout = 35 if business_plan_blueprint else 20
-            max_toks = 1600 if business_plan_blueprint else 1100
+            req_timeout = 30 if business_plan_blueprint else 12
+            max_toks = 1500 if business_plan_blueprint else 750
             model_attempts = [settings.llm_chat_model]
             # Si le modèle principal Groq est en rate-limit (429/503), bascule automatique sur un modèle léger rapide
             if (
@@ -2933,11 +2937,12 @@ class FreeDataAIAgent(FormattersMixin):
                     },
                     timeout=req_timeout,
                 )
-                if resp.status_code in (429, 502, 503, 504) and attempt_idx + 1 < len(model_attempts):
+                status = getattr(resp, "status_code", 200)
+                if status in (429, 502, 503, 504) and attempt_idx + 1 < len(model_attempts):
                     logger.warning(
                         "LLM %s returned HTTP %s, retrying with fallback model %s.",
                         model_name,
-                        resp.status_code,
+                        status,
                         model_attempts[attempt_idx + 1],
                     )
                     continue
@@ -2958,7 +2963,9 @@ class FreeDataAIAgent(FormattersMixin):
                 ungrounded = sorted(_ungrounded_numbers(candidate, allowed_context))
                 logger.warning("LLM fallback triggered: ungrounded numbers %s", ungrounded)
         except Exception as exc:
-            logger.warning("LLM fallback triggered: %s", exc)
+            from src.security import redact_secrets
+
+            logger.warning("LLM fallback triggered: %s", redact_secrets(exc))
 
         return structured_facts
 
@@ -3263,6 +3270,79 @@ class FreeDataAIAgent(FormattersMixin):
             }
         return {"reply": "Données analytiques insuffisantes pour cette requête.", "data": reg, "period": period, "unit": "XAF/kg", "source": sources}
 
+    def _append_secondary_intents(
+        self,
+        q_norm: str,
+        primary_intent: str,
+        entities: dict,
+        structured_facts: str,
+    ) -> tuple[str, list[str]]:
+        """Multi-intent decomposition: if the user combines multiple distinct analytical requests in one turn
+        (e.g. price forecast + Credit Passport + alerts), executes the secondary deterministic tools and
+        appends grounded, concise sections so no part of the question is silently dropped.
+        """
+        extra_blocks: list[str] = []
+        secondary_intents: list[str] = []
+        comm = entities.get("commodity")
+        prov = entities.get("province") or entities.get("origin_province")
+
+        # 1. Secondary Credit Passport request
+        if primary_intent != "credit_passport" and _CREDIT_RE.search(q_norm):
+            try:
+                cp = self.provider.get_credit_passport(province=prov, commodity=comm)
+                recs = cp.get("records") or []
+                if recs:
+                    r0 = recs[0]
+                    extra_blocks.append(
+                        f"### Complément — Credit Passport ({r0.get('commodity_fr', comm or 'Filière')} · {r0.get('province', 'Tchad')})\n"
+                        f"- Score de stabilité : **{r0.get('credit_score')}/100** (Grade **{r0.get('grade')}**)\n"
+                        f"- LTV indicatif : **{r0.get('ltv_pct')}%** · Volatilité CV : **{r0.get('cv_pct')}%**"
+                    )
+                    secondary_intents.append("credit_passport")
+            except Exception:
+                pass
+
+        # 2. Secondary Market Alerts request
+        if primary_intent != "alerts" and _ALERT_RE.search(q_norm):
+            try:
+                al = self.provider.get_alerts(province=prov, commodity=comm, threshold_pct=15.0)
+                recs = al.get("records") or []
+                if recs:
+                    lines = [
+                        f"- **{r.get('commodity_fr', r.get('commodity_std'))}** à **{r.get('market_name', r.get('province'))}** : "
+                        f"**+{r.get('deviation_pct')}%** ({r.get('observed_price')} XAF/kg)"
+                        for r in recs[:3]
+                    ]
+                    extra_blocks.append("### Complément — Alertes de hausse (>15%)\n" + "\n".join(lines))
+                    secondary_intents.append("alerts")
+            except Exception:
+                pass
+
+        # 3. Secondary Price Forecast request
+        if (
+            primary_intent not in ("forecast", "business_simulator", "route_revenue")
+            and _FORECAST_HINT_RE.search(q_norm)
+            and (comm or prov)
+        ):
+            try:
+                fc = self.provider.get_forecasts(province=prov, commodity=comm)
+                recs = fc.get("records") or []
+                if recs:
+                    r0 = recs[0]
+                    extra_blocks.append(
+                        f"### Complément — Prévision de prix ({r0.get('commodity_fr', comm)} · {r0.get('province')})\n"
+                        f"- Dernier prix observé : **{r0.get('last_observed_price')} XAF/kg** ({r0.get('last_observed_month')})\n"
+                        f"- Prévision t+1 ({r0.get('forecast_month')}) : **{r0.get('forecast_t1')} XAF/kg** "
+                        f"(IC 80% : {r0.get('ci_low_80')}–{r0.get('ci_high_80')} XAF/kg)"
+                    )
+                    secondary_intents.append("forecast")
+            except Exception:
+                pass
+
+        if not extra_blocks:
+            return structured_facts, []
+        return structured_facts + "\n\n" + "\n\n".join(extra_blocks), secondary_intents
+
     def answer(
         self,
         user_query: str,
@@ -3460,6 +3540,23 @@ class FreeDataAIAgent(FormattersMixin):
                         "Comparer les prix du document aux marchés officiels du Tchad",
                     ],
                 }
+            from src.study_context import classify_user_turn
+
+            if classify_user_turn(q, has_history=bool(history)) == "file_analysis":
+                return {
+                    "reply": (
+                        "Je n'ai trouvé aucun passage suffisamment pertinent dans vos documents privés indexés pour "
+                        "répondre à cette question. Vérifiez que le document concerné est bien importé dans cet espace "
+                        "(bouton 📎) ou précisez le passage ou le mot-clé recherché — je préfère signaler cette absence "
+                        "plutôt que d'inventer un contenu."
+                    ),
+                    "intent": "document_not_found",
+                    "entities": entities,
+                    "sources": [],
+                    "chart": None,
+                    "client_state": client_state,
+                    "follow_ups": ["Importer un document PDF/CSV (📎)", "Résumer les points clés de mon document"],
+                }
             return self._clarification_response(
                 entities, self._converse_with_llm(q, history, "demande vague ou hors sujet") if chat_mode else None
             )
@@ -3502,6 +3599,9 @@ class FreeDataAIAgent(FormattersMixin):
 
         structured_facts, intent, meta = self._run_deterministic_tools(q, entities=entities)
         entities = meta["entities"]
+        structured_facts, secondary_intents = self._append_secondary_intents(q_norm, intent, entities, structured_facts)
+        if secondary_intents:
+            entities = {**entities, "secondary_intents": secondary_intents}
         rag_terms = [_strip_list_prefixes(q).strip()]
         if entities.get("commodity"):
             rag_terms.append(self._fr_commodity(entities["commodity"]))

@@ -398,6 +398,11 @@ async def lifespan(app: FastAPI):
             "L'API lit Supabase avec la clé service_role (SUPABASE_KEY absente). "
             "Utiliser une clé publique (anon) en lecture seule : voir sql/04_rls_policies.sql."
         )
+    if os.getenv("RENDER") and os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() not in ("1", "true", "yes"):
+        logger.warning(
+            "SÉCURITÉ PRODUCTION : REQUIRE_SIGNED_USER_AUTH n'est pas activé (=1) sur Render. "
+            "Activez REQUIRE_SIGNED_USER_AUTH=1 et AUTH_SECRET (>= 32 car.) en production."
+        )
     logger.info("Premium : %d clé(s) configurée(s)%s ; proxys de confiance : %s ; chat simultané max : %d.",
                 len(settings.premium_keys), "" if settings.premium_keys else " (offre premium DÉSACTIVÉE)",
                 settings.trusted_proxy_hops if settings.trusted_proxy_hops is not None else "non défini (IP falsifiable)",
@@ -430,10 +435,33 @@ _METRICS: dict = {
     "qa_blocked": 0,
     "ml_inference_requests": 0,
     "rag_requests": 0,
+    "document_indexing_requests": 0,
     "rate_limit_violations": 0,
+    "error_categories": {
+        "auth_failure": 0,
+        "authorization_failure": 0,
+        "quota_violation": 0,
+        "validation_error": 0,
+        "server_error": 0,
+    },
+    "recent_errors": [],
     "endpoints": {},
     "total_latency_ms": 0.0,
 }
+
+
+def _classify_http_error(status_code: int) -> Optional[str]:
+    if status_code == 401:
+        return "auth_failure"
+    if status_code == 403:
+        return "authorization_failure"
+    if status_code == 429:
+        return "quota_violation"
+    if status_code in (400, 422):
+        return "validation_error"
+    if status_code >= 500:
+        return "server_error"
+    return None
 
 
 @app.middleware("http")
@@ -464,8 +492,30 @@ async def observability_middleware(request: Request, call_next):
             _METRICS["ml_inference_requests"] += 1
         elif "/rag/" in path:
             _METRICS["rag_requests"] += 1
+        elif path.startswith("/api/v1/documents/upload"):
+            _METRICS["document_indexing_requests"] += 1
+
+        err_cat = _classify_http_error(response.status_code)
+        if err_cat:
+            cats = _METRICS["error_categories"]
+            cats[err_cat] = cats.get(err_cat, 0) + 1
+            recent = _METRICS["recent_errors"]
+            recent.append({
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "request_id": req_id,
+                "category": err_cat,
+                "status_code": response.status_code,
+                "path": path,
+            })
+            if len(recent) > 20:
+                del recent[:-20]
     response.headers["X-Request-Id"] = req_id
     response.headers["X-Process-Time-Ms"] = str(elapsed_ms)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.url.path.startswith(("/api/v1/auth", "/api/v1/admin", "/api/v1/privacy")):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -492,8 +542,17 @@ app.add_middleware(
     allow_origins=settings.cors_origins_list,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?" if settings.allow_localhost_cors else None,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "X-User-Id",
+        "X-Premium-Key",
+        "X-Api-Key",
+        "X-Admin-Token",
+        "X-Request-Id",
+    ],
 )
 
 
@@ -743,6 +802,16 @@ def get_conversation_store() -> ConversationStore:
     return _CONVERSATION_STORE
 
 
+_PROJECT_STORE: Optional[ProjectStore] = None
+
+
+def get_project_store() -> ProjectStore:
+    global _PROJECT_STORE
+    if _PROJECT_STORE is None:
+        _PROJECT_STORE = ProjectStore()
+    return _PROJECT_STORE
+
+
 _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
 
 
@@ -779,8 +848,9 @@ def _resolve_owner_id_optional(
     uid = x_user_id.strip() if isinstance(x_user_id, str) else ""
     pkey = x_premium_key if isinstance(x_premium_key, str) else None
     strong = _STRONG_UID_RE.fullmatch(uid) is not None
-    # Isoler chaque utilisateur par son identifiant fort même en mode PRO (évite le partage entre détenteurs d'une même clé).
-    if strong and (not require_signed or _premium_key_ok(pkey)):
+    # En mode strict (REQUIRE_SIGNED_USER_AUTH=1), un en-tête X-User-Id non signé ne doit JAMAIS
+    # permettre d'usurper l'espace `user:<uid>` d'un autre utilisateur, même avec une clé PRO partagée.
+    if not require_signed and strong:
         owner = f"user:{uid}"
         _assert_not_suspended(owner)
         return owner
@@ -793,6 +863,26 @@ def _resolve_owner_id_optional(
         digest = hashlib.sha256(pkey.strip().encode("utf-8")).hexdigest()[:16]
         return f"key:{digest}"
     return None
+
+
+def _assert_project_owned(owner_id: Optional[str], project_id: Optional[str], project_store: Any) -> Optional[str]:
+    """Vérifie qu'un `project_id` soumis existe et appartient strictement à `owner_id`.
+    Lève HTTP 404 si inexistant ou détenu par un autre utilisateur (évite l'énumération d'IDs et les documents orphelins).
+    """
+    if not isinstance(project_id, str) or not project_id.strip():
+        return None
+    clean_pid = project_id.strip()[:80]
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Authentification requise pour associer un projet.")
+    if isinstance(project_store, ProjectStore):
+        try:
+            project_store.get_project(owner_id, clean_pid)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Projet introuvable ou accès non autorisé.",
+            ) from exc
+    return clean_pid
 
 
 def _has_pro_access(
@@ -856,9 +946,11 @@ def chat_endpoint(
     authorization: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    verified_project_id = _assert_project_owned(owner_id, payload.project_id, project_store)
     tier = payload.tier
     # Le niveau « premium » (LLM payant) exige une clé valide ou un abonnement PRO actif : sinon repli sur le gratuit.
     if tier == "premium" and not _has_pro_access(owner_id, x_premium_key, sub_store):
@@ -870,7 +962,7 @@ def chat_endpoint(
             private_chunks = doc_store.retrieve_for_owner(
                 owner_id,
                 payload.message,
-                project_id=payload.project_id,
+                project_id=verified_project_id,
                 top_k=3,
             )
         except Exception:
@@ -1174,14 +1266,6 @@ def generate_market_study_pdf(
 # ---------------------------------------------------------------------------
 # Phase 5 — Persistent Projects, Conversations & Study Version Management
 # ---------------------------------------------------------------------------
-_PROJECT_STORE: Optional[ProjectStore] = None
-
-
-def get_project_store() -> ProjectStore:
-    global _PROJECT_STORE
-    if _PROJECT_STORE is None:
-        _PROJECT_STORE = ProjectStore()
-    return _PROJECT_STORE
 
 
 def _require_project_owner(
@@ -1203,6 +1287,8 @@ def _require_project_owner(
             detail="Identifiant d'espace trop faible : mettez à jour l'application "
                    "(identifiant aléatoire d'au moins 32 caractères requis).",
         )
+    if require_signed:
+        raise HTTPException(status_code=401, detail="Authentification requise (Bearer token).")
     raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id).")
 
 
@@ -1313,12 +1399,29 @@ def delete_project_endpoint(
     confirm: bool = Query(False),
     owner_id: str = Depends(_require_project_owner),
     store: ProjectStore = Depends(get_project_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+    conv_store: ConversationStore = Depends(get_conversation_store),
 ):
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation explicite requise (?confirm=true).")
     try:
         store.delete_project(owner_id, project_id)
-        return {"deleted": True, "project_id": project_id}
+        deleted_docs = (
+            doc_store.delete_project_documents(owner_id, project_id)
+            if isinstance(doc_store, UserDocumentStore)
+            else 0
+        )
+        detached_convs = (
+            conv_store.detach_project(owner_id, project_id)
+            if isinstance(conv_store, ConversationStore)
+            else 0
+        )
+        return {
+            "deleted": True,
+            "project_id": project_id,
+            "deleted_documents": deleted_docs,
+            "detached_conversations": detached_convs,
+        }
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1417,6 +1520,23 @@ def list_study_versions_endpoint(
 ):
     try:
         return {"versions": store.list_study_versions(owner_id, project_id, study_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/projects/{project_id}/studies/{study_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def delete_study_endpoint(
+    project_id: str,
+    study_id: str,
+    confirm: bool = Query(False),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Confirmation explicite requise (?confirm=true).")
+    try:
+        store.delete_study(owner_id, project_id, study_id)
+        return {"deleted": True, "project_id": project_id, "study_id": study_id}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1746,6 +1866,7 @@ def analytics_forecast_benchmark_endpoint(
 # Phase 10B — ML Registry, Hybrid RAG & Intelligence Orchestration API
 # ---------------------------------------------------------------------------
 _MODEL_REGISTRY = ModelRegistry()
+_MODEL_REGISTRY.seed_builtin_models(data_ready=False)
 _HYBRID_RAG: Optional[HybridRAGEngine] = None
 
 
@@ -2028,8 +2149,10 @@ def platform_chat_endpoint(
     ent: EntitlementManager = Depends(get_entitlement_manager),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    verified_project_id = _assert_project_owned(owner_id, payload.project_id, project_store)
     eff_tier = "premium" if (payload.tier == "premium" and _has_pro_access(owner_id, x_premium_key, sub_store)) else "free"
     _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
     uid = (owner_id or x_user_id or "anonymous").strip()[:80]
@@ -2044,16 +2167,27 @@ def platform_chat_endpoint(
             private_chunks = doc_store.retrieve_for_owner(
                 owner_id,
                 payload.message,
-                project_id=payload.project_id,
+                project_id=verified_project_id,
                 top_k=3,
             )
         except Exception:
             private_chunks = []
 
     domain_mod = DomainRegistry.classify_domain(payload.message, explicit_domain=payload.domain)
+    if not DomainRegistry.is_domain_active(domain_mod.domain_id):
+        raise HTTPException(
+            status_code=503,
+            detail=f"Le domaine '{domain_mod.label_fr}' est actuellement désactivé par l'administrateur.",
+        )
+    if domain_mod.required_tier == "premium" and eff_tier != "premium":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Le domaine '{domain_mod.label_fr}' nécessite un abonnement Partenaire PRO.",
+        )
+    DomainRegistry.record_usage(domain_mod.domain_id)
     agent: FreeDataAIAgent = state["agent"]
 
-    if domain_mod.domain_id in ("chad_intelligence", "agriculture", "business_entrepreneurship", "finance"):
+    if domain_mod.execution_pipeline == "chad_agent":
         res = agent.answer(
             payload.message,
             history=payload.history,
@@ -2063,7 +2197,7 @@ def platform_chat_endpoint(
         )
         return {**res, "domain": domain_mod.domain_id, "domain_label": domain_mod.label_fr, "quota": quota_info}
 
-    if domain_mod.domain_id == "data_science":
+    if domain_mod.execution_pipeline == "ml_orchestrator":
         orch = IntelligenceOrchestrator(analytics=svc, rag=rag)
         anom_df = state.get("anomalies")
         if anom_df is None or (isinstance(anom_df, pd.DataFrame) and anom_df.empty):
@@ -2217,6 +2351,27 @@ def auth_logout_endpoint(
     return {"logged_out": True}
 
 
+@app.post("/api/v1/auth/refresh", dependencies=[Depends(_chat_rate_limit_dependency)])
+def auth_refresh_endpoint(
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    sub_id, old_tok = _require_bearer_user_id(authorization, auth_store)
+    user = auth_store.get_user(sub_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Compte introuvable.")
+    if user.get("status") == "suspended":
+        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    if _ADMIN_SERVICE is not None and _ADMIN_SERVICE.is_user_suspended(f"user:{sub_id}"):
+        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    try:
+        new_session = auth_store.issue_session(user)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    auth_store.revoke_token(old_tok)
+    return new_session
+
+
 class AuthProfileUpdateRequest(BaseModel):
     display_name: str = Field(..., max_length=80)
 
@@ -2342,9 +2497,14 @@ def upsert_cloud_conversation_endpoint(
     payload: CloudConversationPayload,
     owner_id: str = Depends(_require_project_owner),
     conv_store: ConversationStore = Depends(get_conversation_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
+    verified_pid = _assert_project_owned(owner_id, payload.projectId, project_store)
     data = payload.model_dump()
     data["id"] = conversation_id
+    data["projectId"] = verified_pid
+    if verified_pid is None:
+        data["projectName"] = None
     try:
         saved = conv_store.upsert_conversation(owner_id, data)
     except ValueError as exc:
@@ -2357,8 +2517,26 @@ def sync_cloud_conversations_endpoint(
     payload: CloudConversationSyncRequest,
     owner_id: str = Depends(_require_project_owner),
     conv_store: ConversationStore = Depends(get_conversation_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
-    merged = conv_store.sync_conversations(owner_id, payload.conversations)
+    owned_pids: set[str] = set()
+    if isinstance(project_store, ProjectStore):
+        owned_pids = {
+            str(p["project_id"])
+            for p in project_store.list_projects(owner_id, include_archived=True, limit=200, offset=0)
+        }
+    sanitized_incoming: list[dict] = []
+    for item in payload.conversations or []:
+        if not isinstance(item, dict):
+            continue
+        clean_item = dict(item)
+        raw_pid = clean_item.get("projectId") or clean_item.get("project_id")
+        if raw_pid and str(raw_pid).strip() not in owned_pids:
+            # Detach deleted or unauthorized project IDs instead of allowing cross-tenant association
+            clean_item["projectId"] = None
+            clean_item["projectName"] = None
+        sanitized_incoming.append(clean_item)
+    merged = conv_store.sync_conversations(owner_id, sanitized_incoming)
     return {"count": len(merged), "conversations": merged}
 
 
@@ -2369,7 +2547,9 @@ def delete_cloud_conversation_endpoint(
     conv_store: ConversationStore = Depends(get_conversation_store),
 ):
     deleted = conv_store.delete_conversation(owner_id, conversation_id)
-    return {"deleted": deleted, "conversation_id": conversation_id}
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation introuvable.")
+    return {"deleted": True, "conversation_id": conversation_id}
 
 
 @app.get("/api/v1/billing/plans", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2601,6 +2781,7 @@ class DocumentValidateRequest(BaseModel):
     content_base64: str = Field(..., min_length=1)
     mime_type: Optional[str] = Field(None, max_length=100)
     project_id: Optional[str] = Field(None, max_length=80)
+    chunk_offset: int = Field(0, ge=0, le=5000)
 
 
 @app.post("/api/v1/documents/validate", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2633,9 +2814,12 @@ def upload_user_document_endpoint(
     x_premium_key: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
     """Téléverse, valide, indexe via Jina Embeddings v3 (ou hybride local) et isole un document privé sous `owner_id`."""
     import base64
+
+    verified_project_id = _assert_project_owned(owner_id, payload.project_id, project_store)
 
     sub = sub_store.get_subscription(owner_id)
     limits = sub["limits"]
@@ -2658,9 +2842,10 @@ def upload_user_document_endpoint(
             filename=payload.filename,
             content_bytes=raw_bytes,
             mime_type=payload.mime_type,
-            project_id=payload.project_id,
+            project_id=verified_project_id,
             max_bytes=max_bytes,
             max_docs=max_docs,
+            chunk_offset=payload.chunk_offset,
         )
     except OverflowError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -2673,8 +2858,10 @@ def list_user_documents_endpoint(
     project_id: Optional[str] = Query(None, max_length=80),
     owner_id: str = Depends(_require_project_owner),
     doc_store: UserDocumentStore = Depends(get_user_document_store),
+    project_store: ProjectStore = Depends(get_project_store),
 ):
-    docs = doc_store.list_documents(owner_id, project_id=project_id)
+    verified_project_id = _assert_project_owned(owner_id, project_id, project_store)
+    docs = doc_store.list_documents(owner_id, project_id=verified_project_id)
     return {"count": len(docs), "documents": docs}
 
 
@@ -2773,8 +2960,173 @@ def admin_me_endpoint(
     }
 
 
+def _probe_providers_health(state: dict, *, live_probe: bool = False) -> dict:
+    """Rapporte l'état réel des services externes et moteurs internes avec catégories explicites :
+    `Connected`, `Configured`, `Degraded`, `Unavailable`, `Not configured`.
+    Ne retourne jamais de clés API ni de corps d'erreur sensibles.
+    """
+    groq_key = (settings.llm_api_key or "").strip()
+    jina_key = (settings.embed_api_key or os.getenv("EMBED_API_KEY", "")).strip()
+    pg_url = (os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL") or "").strip()
+
+    groq_status = "Configured" if groq_key else "Not configured"
+    jina_status = "Configured" if jina_key else "Not configured"
+    supabase_status = "Configured" if pg_url else "Not configured"
+
+    if live_probe:
+        if pg_url:
+            try:
+                from src import db as _db
+                with _db.pg_connect(pg_url, _db.DEFAULT_SCHEMA) as conn:
+                    conn.execute("SELECT 1").fetchone()
+                supabase_status = "Connected"
+            except Exception as exc:
+                logger.warning("Admin probe: Supabase PG unavailable (%s)", type(exc).__name__)
+                supabase_status = "Unavailable"
+        if groq_key:
+            try:
+                models_url = f"{settings.llm_base_url.rstrip('/')}/models"
+                r = requests.get(
+                    models_url,
+                    headers={"Authorization": f"Bearer {groq_key}"},
+                    timeout=2.5,
+                )
+                groq_status = (
+                    "Connected"
+                    if r.status_code == 200
+                    else (
+                        "Degraded"
+                        if r.status_code == 429
+                        else ("Error" if 400 <= r.status_code < 500 else "Unavailable")
+                    )
+                )
+            except Exception as exc:
+                logger.warning("Admin probe: Groq LLM unreachable (%s)", type(exc).__name__)
+                groq_status = "Unavailable"
+        if jina_key:
+            try:
+                r = requests.post(
+                    (settings.embed_base_url or "https://api.jina.ai/v1/embeddings").strip(),
+                    headers={"Authorization": f"Bearer {jina_key}", "Content-Type": "application/json"},
+                    json={"model": (settings.embed_model or "jina-embeddings-v3").strip(), "input": ["ping"]},
+                    timeout=2.5,
+                )
+                jina_status = (
+                    "Connected"
+                    if r.status_code == 200
+                    else (
+                        "Degraded"
+                        if r.status_code == 429
+                        else ("Error" if 400 <= r.status_code < 500 else "Unavailable")
+                    )
+                )
+            except Exception as exc:
+                logger.warning("Admin probe: Jina Embeddings unreachable (%s)", type(exc).__name__)
+                jina_status = "Unavailable"
+
+    fc_df = state.get("forecast_df")
+    ml_status = "Connected" if (fc_df is not None and not getattr(fc_df, "empty", True)) else "Unavailable"
+    rag_status = "Connected" if "agent" in state else "Degraded"
+    doc_indexing_status = "Connected" if jina_status in ("Connected", "Configured") else "Degraded"
+    bg_status = "Connected" if _REPORT_JOB_MANAGER is not None else "Unavailable"
+
+    def _norm_enum(s: str) -> str:
+        return s.strip().upper().replace(" ", "_")
+
+    checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return {
+        "checked_at_utc": checked_at,
+        "live_probe_executed": bool(live_probe),
+        "supabase_status": supabase_status,
+        "groq_status": groq_status,
+        "jina_status": jina_status,
+        "ml_engine_status": ml_status,
+        "rag_engine_status": rag_status,
+        "document_indexing_status": doc_indexing_status,
+        "background_jobs_status": bg_status,
+        "services": {
+            "supabase": _norm_enum(supabase_status),
+            "groq": _norm_enum(groq_status),
+            "jina": _norm_enum(jina_status),
+            "ml_engine": _norm_enum(ml_status),
+            "rag_engine": _norm_enum(rag_status),
+            "document_indexing": _norm_enum(doc_indexing_status),
+            "background_jobs": _norm_enum(bg_status),
+        },
+        "groq_llm_configured": bool(groq_key),
+        "groq_model": settings.llm_chat_model,
+        "jina_embed_configured": bool(jina_key),
+        "jina_model": settings.embed_model,
+        "supabase_pg_active": bool(pg_url),
+        "require_signed_user_auth": os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower() in ("1", "true", "yes"),
+    }
+
+
+def _build_operational_warnings(
+    providers_health: dict,
+    api_metrics: dict,
+    freshness: dict,
+) -> list[dict[str, str]]:
+    """Computes lightweight, zero-cost operational warnings from real counters and probe results."""
+    warnings: list[dict[str, str]] = []
+    services = providers_health.get("services") or {}
+    for svc_name, status in services.items():
+        if status in ("UNAVAILABLE", "ERROR"):
+            warnings.append({"severity": "high", "code": f"{svc_name.upper()}_UNAVAILABLE", "message": f"Service {svc_name} indisponible ({status})."})
+        elif status == "DEGRADED":
+            warnings.append({"severity": "medium", "code": f"{svc_name.upper()}_DEGRADED", "message": f"Service {svc_name} dégradé ({status})."})
+
+    total_req = max(1, int(api_metrics.get("total_requests", 0)))
+    err_5xx = int(api_metrics.get("error_5xx", 0))
+    if total_req >= 10 and (err_5xx / total_req) > 0.05:
+        warnings.append({
+            "severity": "high",
+            "code": "HIGH_5XX_RATE",
+            "message": f"Taux d'erreurs serveur 5xx élevé ({err_5xx}/{total_req}).",
+        })
+    if float(api_metrics.get("avg_latency_ms", 0.0)) > 3000.0:
+        warnings.append({
+            "severity": "medium",
+            "code": "HIGH_LATENCY",
+            "message": f"Latence moyenne API élevée ({api_metrics.get('avg_latency_ms')} ms).",
+        })
+    if freshness.get("freshness_status") in ("stale", "unavailable"):
+        warnings.append({
+            "severity": "medium",
+            "code": "STALE_MARKET_DATA",
+            "message": f"Données marché non fraîches (statut : {freshness.get('freshness_status')}).",
+        })
+    if os.getenv("RENDER") and not providers_health.get("require_signed_user_auth"):
+        warnings.append({
+            "severity": "high",
+            "code": "UNSIGNED_AUTH_ENABLED",
+            "message": "REQUIRE_SIGNED_USER_AUTH=1 n'est pas activé sur Render.",
+        })
+    return warnings
+
+
+_APP_STARTED_AT_UTC = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _safe_dir_size_bytes(path) -> int:
+    from pathlib import Path as _Path
+
+    root = _Path(path)
+    if not root.is_dir():
+        return 0
+    total = 0
+    try:
+        for p in root.rglob("*"):
+            if p.is_file():
+                total += p.stat().st_size
+    except OSError:
+        return total
+    return total
+
+
 @app.get("/api/v1/admin/overview", dependencies=[Depends(_admin_rate_limit_dependency)])
 def admin_overview_endpoint(
+    live_probe: bool = Query(False),
     actor_info: tuple[str, str] = Depends(_require_admin_actor),
     state: dict = Depends(get_state),
     admin: AdminService = Depends(get_admin_service),
@@ -2790,6 +3142,8 @@ def admin_overview_endpoint(
 
     with _METRICS_LOCK:
         api_metrics = dict(_METRICS)
+        api_metrics["error_categories"] = dict(_METRICS.get("error_categories", {}))
+        api_metrics["recent_errors"] = list(_METRICS.get("recent_errors", []))
     api_metrics["avg_latency_ms"] = round(api_metrics.pop("total_latency_ms", 0.0) / max(1, api_metrics.get("total_requests", 1)), 2)
 
     users = admin.list_users(sub_store, auth_store=auth_store, limit=500, offset=0)
@@ -2799,22 +3153,50 @@ def admin_overview_endpoint(
         plan_counts[p] = plan_counts.get(p, 0) + 1
 
     fc_fresh = (state.get("freshness") or {}).get("forecasts") or {}
+    providers_health = _probe_providers_health(state, live_probe=live_probe)
+    freshness_summary = {
+        "latest_observation_month": fc_fresh.get("latest_observation_month"),
+        "data_age_months": fc_fresh.get("data_age_months"),
+        "freshness_status": fc_fresh.get("freshness_status", "unavailable"),
+    }
+    svc_map = providers_health.get("services") or {}
+    ai_infrastructure = {
+        "ml_engine": svc_map.get("ml_engine", "UNAVAILABLE"),
+        "rag_engine": svc_map.get("rag_engine", "DEGRADED"),
+        "llm_provider": svc_map.get("groq", "NOT_CONFIGURED"),
+        "embedding_provider": svc_map.get("jina", "NOT_CONFIGURED"),
+        "analytics_engine": "CONNECTED" if "forecast_df" in state else "UNAVAILABLE",
+        "tool_orchestrator": "CONNECTED" if "agent" in state else "DEGRADED",
+        "background_jobs": svc_map.get("background_jobs", "UNAVAILABLE"),
+        "model_registry": "CONNECTED" if _MODEL_REGISTRY is not None else "UNAVAILABLE",
+    }
+    from pathlib import Path as _Path
+
+    data_root = _Path("data")
+    storage_summary = {
+        "data_dir_bytes": _safe_dir_size_bytes(data_root),
+        "models_dir_bytes": _safe_dir_size_bytes(data_root / "models"),
+        "persistence_backend": "supabase_postgresql" if providers_health.get("supabase_pg_active") else "local_sqlite",
+    }
+    deployment_info = {
+        "environment": os.getenv("FREEDATA_ENV") or ("production" if os.getenv("RENDER") else "development"),
+        "version": app.version,
+        "git_commit": (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GITHUB_SHA") or "")[:12] or None,
+        "started_at_utc": _APP_STARTED_AT_UTC,
+    }
     return {
         "api_health": {"status": "ok" if "agent" in state else "degraded", "version": app.version, "engine_mode": state.get("mode", "unknown")},
+        "deployment_info": deployment_info,
         "api_metrics": api_metrics,
         "ai_infra": _AI_MONITOR.snapshot(_ML_CACHE, _RAG_CACHE),
-        "providers_health": {
-            "groq_llm_configured": bool((settings.llm_api_key or "").strip()),
-            "groq_model": settings.llm_chat_model,
-            "jina_embed_configured": bool((settings.embed_api_key or os.getenv("EMBED_API_KEY", "")).strip()),
-            "jina_model": settings.embed_model,
-            "supabase_pg_active": bool((os.getenv("SUPABASE_DB_URL") or os.getenv("DATABASE_URL") or "").strip()),
-        },
-        "data_freshness": {
-            "latest_observation_month": fc_fresh.get("latest_observation_month"),
-            "data_age_months": fc_fresh.get("data_age_months"),
-            "freshness_status": fc_fresh.get("freshness_status", "unavailable"),
-        },
+        "ai_infrastructure": ai_infrastructure,
+        "providers_health": providers_health,
+        "background_jobs_summary": _REPORT_JOB_MANAGER.summary() if _REPORT_JOB_MANAGER is not None else {"total_tracked_jobs": 0},
+        "storage_summary": storage_summary,
+        "operational_warnings": _build_operational_warnings(providers_health, api_metrics, freshness_summary),
+        "data_freshness": freshness_summary,
+        "domains_summary": DomainRegistry.admin_summary(),
+        "ml_registry_summary": _MODEL_REGISTRY.summary(),
         "model_flags": admin.list_model_flags(),
         "ml_models": _MODEL_REGISTRY.list_models(),
         "users_summary": {"total_known_users": len(users), "by_plan": plan_counts},
@@ -2923,6 +3305,171 @@ def admin_toggle_model_endpoint(
         return admin.set_model_enabled(actor=actor, actor_role=role, profile_id=profile_id, enabled=payload.enabled, reason=payload.reason)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+class AdminDomainStatusRequest(BaseModel):
+    active: bool
+    reason: str = Field("", max_length=300)
+
+
+class AdminMLModelStatusRequest(BaseModel):
+    version: int = Field(1, ge=1)
+    lifecycle_status: Literal[
+        "REGISTERED",
+        "TRAINING",
+        "TRAINED",
+        "EVALUATION",
+        "APPROVED",
+        "DEPLOYED",
+        "DEPRECATED",
+        "ARCHIVED",
+        "FAILED",
+    ]
+    set_active: bool = False
+    enabled: Optional[bool] = None
+    reason: str = Field("", max_length=300)
+
+
+@app.get("/api/v1/admin/ai/domains", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_domains_endpoint(
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return DomainRegistry.admin_summary()
+
+
+@app.post("/api/v1/admin/ai/domains/{domain_id}/status", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_set_domain_status_endpoint(
+    domain_id: str,
+    payload: AdminDomainStatusRequest,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    actor, role = actor_info
+    try:
+        admin.check_permission(role, "manage_models")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        res = DomainRegistry.set_domain_active(domain_id, payload.active)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    admin.log_action(
+        actor=actor,
+        actor_role=role,
+        action="set_domain_active",
+        resource_type="ai_domain",
+        resource_id=domain_id,
+        details=f"active={payload.active} reason={payload.reason}",
+    )
+    return res
+
+
+@app.get("/api/v1/admin/ai/models", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_models_endpoint(
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {
+        "summary": _MODEL_REGISTRY.summary(),
+        "models": _MODEL_REGISTRY.list_models(),
+    }
+
+
+@app.post("/api/v1/admin/ai/models/{model_id}/status", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_transition_model_endpoint(
+    model_id: str,
+    payload: AdminMLModelStatusRequest,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    actor, role = actor_info
+    try:
+        admin.check_permission(role, "manage_models")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        updated = _MODEL_REGISTRY.transition_status(
+            model_id,
+            payload.version,
+            payload.lifecycle_status,
+            set_active=payload.set_active,
+            enabled=payload.enabled,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    admin.log_action(
+        actor=actor,
+        actor_role=role,
+        action="transition_ml_model_status",
+        resource_type="ml_model",
+        resource_id=f"{model_id}:v{payload.version}",
+        details=f"status={payload.lifecycle_status} active={payload.set_active} enabled={payload.enabled} reason={payload.reason}",
+    )
+    return updated
+
+
+class AdminMLRollbackRequest(BaseModel):
+    target_version: int = Field(..., ge=1)
+    reason: str = Field("", max_length=300)
+
+
+@app.post("/api/v1/admin/ai/models/{model_id}/rollback", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_rollback_model_endpoint(
+    model_id: str,
+    payload: AdminMLRollbackRequest,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    actor, role = actor_info
+    try:
+        admin.check_permission(role, "manage_models")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        rolled = _MODEL_REGISTRY.rollback_model(model_id, payload.target_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    admin.log_action(
+        actor=actor,
+        actor_role=role,
+        action="rollback_ml_model",
+        resource_type="ml_model",
+        resource_id=f"{model_id}:v{payload.target_version}",
+        details=f"rollback_to=v{payload.target_version} reason={payload.reason}",
+    )
+    return rolled
+
+
+@app.get("/api/v1/admin/ai/models/{model_id}/compare", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_compare_model_versions_endpoint(
+    model_id: str,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        return {"model_id": model_id, "versions": _MODEL_REGISTRY.compare_versions(model_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/admin/audit-logs", dependencies=[Depends(_admin_rate_limit_dependency)])

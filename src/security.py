@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -20,17 +21,30 @@ _ALLOWED_MIME_PREFIXES = (
     "text/markdown",
 )
 _INDIRECT_INJECTION_RE = re.compile(
-    r"(?:ignore\s+(?:all\s+)?previous\s+instructions|system\s+prompt|you\s+are\s+now|"
-    r"drop\s+table|;\s*delete\s+from|reveal\s+api\s+key|supabase_service_role_key)",
+    r"(?:ignore\s+(?:all\s+)?previous\s+instructions|ignore[rz]?\s+toutes?\s+les?\s+instructions?|"
+    r"system\s+prompt|prompt\s+syst[eè]me|you\s+are\s+now|tu\s+es\s+maintenant|"
+    r"drop\s+table|;\s*delete\s+from|reveal\s+api\s+key|r[eé]v[eè]le\w*\s+la\s+cl[eé]|"
+    r"supabase_service_role_key|admin_token|bypass\s+quota|contourne\w*\s+les?\s+quotas?)",
     re.IGNORECASE,
 )
+_PDF_DANGEROUS_ACTION_RE = re.compile(rb"/(?:JavaScript|JS\b|Launch|OpenAction\s*<<[^>]*?/JavaScript)", re.IGNORECASE)
 _REVOKED_TOKENS: set[str] = set()
+_TOKEN_ISSUER = "freedata-ai"
+_TOKEN_AUDIENCE = "freedata-app"
 
 
 def issue_signed_user_token(user_id: str, secret: str, *, ttl_seconds: int = 3600) -> str:
     if not secret or len(secret) < 16:
         raise ValueError("AUTH_SECRET doit contenir au moins 16 caractères.")
-    payload = {"sub": user_id, "exp": int(time.time()) + ttl_seconds}
+    now = int(time.time())
+    payload = {
+        "sub": user_id,
+        "iss": _TOKEN_ISSUER,
+        "aud": _TOKEN_AUDIENCE,
+        "iat": now,
+        "exp": now + ttl_seconds,
+        "jti": secrets.token_hex(8),
+    }
     raw = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
     sig = hmac.new(secret.encode("utf-8"), raw.encode("ascii"), hashlib.sha256).hexdigest()
     return f"{raw}.{sig}"
@@ -47,6 +61,12 @@ def verify_signed_user_token(token: str, secret: str) -> Optional[str]:
         if not hmac.compare_digest(expected, sig):
             return None
         payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        if "iss" in payload and payload["iss"] != _TOKEN_ISSUER:
+            return None
+        if "aud" in payload and payload["aud"] != _TOKEN_AUDIENCE:
+            return None
         if int(payload.get("exp", 0)) < int(time.time()):
             return None
         sub = str(payload.get("sub") or "").strip()
@@ -84,11 +104,17 @@ def validate_uploaded_document(
     if len(content_bytes) > max_bytes:
         raise ValueError(f"Fichier trop volumineux ({len(content_bytes)} octets > {max_bytes} max).")
 
-    if ext == ".pdf" and not content_bytes.startswith(b"%PDF-"):
-        raise ValueError("Contenu PDF invalide (en-tête %PDF- manquant).")
+    if ext == ".pdf":
+        if not content_bytes.startswith(b"%PDF-"):
+            raise ValueError("Contenu PDF invalide (en-tête %PDF- manquant).")
+        if _PDF_DANGEROUS_ACTION_RE.search(content_bytes):
+            raise ValueError("PDF contenant des actions actives/JavaScript bloqué par sécurité.")
 
-    if content_bytes.startswith(b"MZ") or b"<script" in content_bytes[:4096].lower():
-        raise ValueError("Contenu exécutable ou script potentiellement malveillant bloqué.")
+    if (
+        content_bytes.startswith((b"MZ", b"\x7fELF", b"\xfe\xed\xfa", b"PK\x03\x04"))
+        or b"<script" in content_bytes[:4096].lower()
+    ):
+        raise ValueError("Contenu exécutable, archive ou script potentiellement malveillant bloqué.")
 
     sanitized_text = ""
     injection_detected = False
@@ -106,6 +132,22 @@ def validate_uploaded_document(
         "indirect_injection_filtered": injection_detected,
         "sanitized_preview": sanitized_text[:500] if sanitized_text else None,
     }
+
+
+_SECRET_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(postgresql|postgres|mysql|redis)://([^:\s/@]+):([^@\s/]+)@", re.IGNORECASE), r"\1://\2:[REDACTED]@"),
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]{8,}", re.IGNORECASE), r"\1[REDACTED]"),
+    (re.compile(r"\b(?:gsk_|jina_|sb_secret_|sk-[a-zA-Z0-9]|fd_)[A-Za-z0-9._\-]{6,}"), "[REDACTED_KEY]"),
+    (re.compile(r"((?:api[_-]?key|token|secret|password)\s*[=:]\s*)([^\s,;'\"]+)", re.IGNORECASE), r"\1[REDACTED]"),
+)
+
+
+def redact_secrets(value: Any) -> str:
+    """Redacts API keys, Bearer tokens, and DB passwords from log messages or diagnostic strings."""
+    text = str(value if value is not None else "")
+    for pat, repl in _SECRET_REDACTION_PATTERNS:
+        text = pat.sub(repl, text)
+    return text
 
 
 def filter_rag_hits_for_owner(hits: list[dict[str, Any]], owner_id: Optional[str]) -> list[dict[str, Any]]:

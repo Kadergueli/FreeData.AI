@@ -32,6 +32,17 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Future<void> _loadTickets() async {
+    if (!widget.apiService.isAuthenticated &&
+        !widget.apiService.hasExplicitPremiumKey) {
+      if (!mounted) return;
+      setState(() {
+        _tickets = [];
+        _loadError =
+            'Connectez-vous (onglet Compte) pour consulter ou envoyer des demandes au support.';
+        _loading = false;
+      });
+      return;
+    }
     try {
       final list = await widget.apiService.listMyTickets();
       if (!mounted) return;

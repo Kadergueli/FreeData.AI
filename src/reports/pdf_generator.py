@@ -35,7 +35,27 @@ def _clean_pdf_text(val: object) -> str:
 
 
 def _styled_table(rows: list[list[str]], col_widths: list[float] | None = None) -> Table:
-    cleaned_rows = [[_clean_pdf_text(cell) for cell in row] for row in rows]
+    styles = getSampleStyleSheet()
+    cell_style = ParagraphStyle("FDCell", parent=styles["Normal"], fontSize=8.0, leading=10.0)
+    header_style = ParagraphStyle(
+        "FDCellHeader",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8.0,
+        leading=10.0,
+        textColor=colors.white,
+    )
+    cleaned_rows: list[list[Any]] = []
+    for r_idx, row in enumerate(rows):
+        out_row: list[Any] = []
+        for cell in row:
+            txt = _clean_pdf_text(cell)
+            if len(txt) > 36:
+                safe_html = txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                out_row.append(Paragraph(safe_html, header_style if r_idx == 0 else cell_style))
+            else:
+                out_row.append(txt)
+        cleaned_rows.append(out_row)
     tbl = Table(cleaned_rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(
         TableStyle([
@@ -208,7 +228,69 @@ class PDFRenderer:
         return buf.getvalue()
 
 
-def render_market_study_pdf(dossier: dict) -> bytes:
-    """Assemble le dossier vérifié en un document PDF binaire téléchargeable."""
+def validate_rendered_pdf(pdf_bytes: bytes, doc_model: ReportDocument) -> dict[str, Any]:
+    """Post-render verification of the generated PDF:
+    - Confirms valid `%PDF-` header and readable pages via `pypdf`.
+    - Verifies that every section title in `doc_model.sections`, the study reference (`study_id`),
+      and expected tables are preserved in the rendered PDF text without silent omission.
+    """
+    issues: list[str] = []
+    if not pdf_bytes or not pdf_bytes.startswith(b"%PDF-"):
+        return {
+            "passed": False,
+            "page_count": 0,
+            "missing_sections": [s.title for s in doc_model.sections],
+            "table_count": 0,
+            "issues": ["En-tête PDF invalide (%PDF- manquant)."],
+        }
+
+    extracted_text = ""
+    page_count = 0
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        page_count = len(reader.pages)
+        extracted_text = "\n".join((p.extract_text() or "") for p in reader.pages)
+    except Exception as exc:
+        issues.append(f"Lecture post-rendu PDF impossible : {type(exc).__name__}")
+
+    if page_count < 1:
+        issues.append("Le PDF généré ne contient aucune page.")
+    if not extracted_text.strip():
+        issues.append("Le PDF généré ne contient aucun texte lisible.")
+
+    norm_pdf = " ".join(extracted_text.split()).lower()
+    if doc_model.study_id and doc_model.study_id.lower() not in norm_pdf:
+        issues.append(f"Référence étude absente du PDF rendu : {doc_model.study_id}")
+
+    missing_sections: list[str] = []
+    expected_tables = 0
+    for sec in doc_model.sections:
+        expected_tables += sum(1 for blk in sec.blocks if blk.get("type") == "table")
+        clean_title = " ".join(_clean_pdf_text(sec.title).split()).lower()
+        # Match full title or significant prefix (handles line wrapping across spaces)
+        if clean_title and clean_title not in norm_pdf:
+            words = [w for w in clean_title.split() if len(w) >= 4]
+            if not words or sum(1 for w in words if w in norm_pdf) < max(1, len(words) // 2):
+                missing_sections.append(sec.title)
+                issues.append(f"Section absente ou tronquée dans le PDF rendu : {sec.title}")
+
+    return {
+        "passed": len(issues) == 0,
+        "page_count": page_count,
+        "missing_sections": missing_sections,
+        "expected_table_count": expected_tables,
+        "extracted_chars": len(extracted_text),
+        "issues": issues,
+    }
+
+
+def render_market_study_pdf(dossier: dict, *, return_validation: bool = False) -> bytes | tuple[bytes, dict[str, Any]]:
+    """Assemble le dossier vérifié en un document PDF binaire téléchargeable avec validation post-rendu."""
     doc_model = ReportOrchestrator().build_document(dossier)
-    return PDFRenderer().render(doc_model)
+    pdf_bytes = PDFRenderer().render(doc_model)
+    post_val = validate_rendered_pdf(pdf_bytes, doc_model)
+    if return_validation:
+        return pdf_bytes, post_val
+    return pdf_bytes

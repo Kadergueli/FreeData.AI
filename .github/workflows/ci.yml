@@ -25,7 +25,7 @@ jobs:
       - name: Tests unitaires & fonctionnels
         run: python -m pytest -q
       - name: Porte de sécurité, QA & Release Gate
-        run: python -m pytest -q tests/test_release_gate.py tests/test_security_hardening.py tests/test_phase4_qa_validator.py tests/test_monetization.py tests/test_admin_dashboard.py
+        run: python -m pytest -q tests/test_release_gate.py tests/test_security_hardening.py tests/test_security_auth_hardening.py tests/test_privacy_and_data_protection.py tests/test_workspace_isolation_stabilization.py tests/test_admin_observability_stabilization.py tests/test_multi_domain_ml_release_readiness.py tests/test_ops_infrastructure_readiness.py tests/test_staging_acceptance_go_nogo.py tests/test_phase4_qa_validator.py tests/test_monetization.py tests/test_admin_dashboard.py
       - name: Audit des vulnérabilités Python
         run: pip-audit -r requirements.txt
 

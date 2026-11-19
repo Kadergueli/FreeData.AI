@@ -281,9 +281,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     children: [
                       filterBar,
                       const SizedBox(height: 12),
-                      FDCard(
-                        child: Text(_error!,
-                            style: const TextStyle(color: AppColors.danger)),
+                      FDErrorState(
+                        message: _error!.contains('TimeoutException')
+                            ? 'Le serveur met plus de temps que prévu à répondre (démarrage en cours).'
+                            : _error!,
+                        onRetry: _load,
                       ),
                     ],
                   ),

@@ -292,6 +292,31 @@ class ProjectStore:
             if cur.rowcount == 0:
                 raise KeyError(f"Projet introuvable : {project_id}")
 
+    def delete_study(self, owner_id: str, project_id: str, study_id: str) -> bool:
+        """Deletes a single generated study and all its versions/artifacts under strict owner_id isolation."""
+        with self._connect() as conn:
+            # Clean up any local SQLite PDF files on disk before removing DB rows
+            rows = conn.execute(
+                "SELECT artifact_path FROM study_versions WHERE owner_id = ? AND project_id = ? AND study_id = ?",
+                (owner_id, project_id, study_id),
+            ).fetchall()
+            for r in rows:
+                art = r["artifact_path"]
+                if art and art not in ("db:", "on_demand:"):
+                    try:
+                        p = Path(art)
+                        if p.is_file():
+                            p.unlink()
+                    except Exception:
+                        pass
+            cur = conn.execute(
+                "DELETE FROM studies WHERE study_id = ? AND project_id = ? AND owner_id = ?",
+                (study_id, project_id, owner_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"Etude introuvable : {study_id}")
+            return True
+
     def create_conversation(self, owner_id: str, project_id: str, title: str = "Nouvelle conversation") -> dict[str, Any]:
         self.get_project(owner_id, project_id)
         now = _utc_now()

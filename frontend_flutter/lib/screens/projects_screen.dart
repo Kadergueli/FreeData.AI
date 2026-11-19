@@ -148,6 +148,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   Future<void> _load() async {
+    if (!widget.apiService.isAuthenticated &&
+        !widget.apiService.hasExplicitPremiumKey) {
+      if (!mounted) return;
+      setState(() {
+        _projects = [];
+        _loading = false;
+        _error =
+            'Connectez-vous (onglet Compte) pour accéder à vos projets et études enregistrées.';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -425,7 +436,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer le projet ?'),
         content: Text(
-            'Cette action est irréversible pour « ${proj['name']} » et ses versions d’études.'),
+            'Cette action est irréversible pour « ${proj['name']} », ses versions d’études et les documents privés rattachés à ce projet (vos discussions restent conservées dans votre historique général).'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -440,8 +451,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       ),
     );
     if (ok == true) {
+      final pid = proj['project_id'].toString();
       await _guard(() async {
-        await widget.apiService.deleteProject(proj['project_id'].toString());
+        await widget.apiService.deleteProject(pid);
+        await LocalConversationStorage.instance.detachProject(pid);
+        if (mounted && _selectedProject?['project_id']?.toString() == pid) {
+          setState(() {
+            _selectedProject = null;
+            _projectConversations = [];
+            _projectDocuments = [];
+          });
+        }
         await _load();
       });
     }
@@ -803,25 +823,45 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     widget.onResumeProject?.call(proj);
   }
 
-  Future<void> _uploadProjectDocument(Map<String, dynamic> proj) async {
+  Future<void> _uploadProjectDocument(Map<String, dynamic> proj,
+      {PickedDocumentFile? existingPicked, int chunkOffset = 0}) async {
     final pid = proj['project_id']?.toString() ?? '';
     if (pid.isEmpty || _uploadingDoc) return;
-    final picked = await pickUserDocumentFile();
+    final picked = existingPicked ?? await pickUserDocumentFile();
     if (picked == null || !mounted) return;
     setState(() => _uploadingDoc = true);
     try {
-      await widget.apiService.uploadUserDocument(
+      final uploaded = await widget.apiService.uploadUserDocument(
         filename: picked.name,
         bytes: picked.bytes,
         mimeType: picked.mimeType,
         projectId: pid,
+        chunkOffset: chunkOffset,
       );
       if (!mounted) return;
       await _openWorkspace(proj, silent: true);
       if (!mounted) return;
+      final isTruncated = uploaded['truncated'] == true;
+      final nextOffset = uploaded['next_offset'];
+      final warning = uploaded['indexing_warning']?.toString();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Document « ${picked.name} » indexé dans ce projet.'),
+          content: Text(
+            (isTruncated && warning != null && warning.isNotEmpty)
+                ? warning
+                : 'Document « ${picked.name} » indexé dans ce projet.',
+          ),
+          duration: Duration(seconds: isTruncated ? 8 : 4),
+          action: (isTruncated && nextOffset is int)
+              ? SnackBarAction(
+                  label: 'Poursuivre',
+                  onPressed: () => _uploadProjectDocument(
+                    proj,
+                    existingPicked: picked,
+                    chunkOffset: nextOffset,
+                  ),
+                )
+              : null,
         ),
       );
     } catch (e) {

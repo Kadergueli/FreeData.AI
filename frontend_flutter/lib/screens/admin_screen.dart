@@ -23,6 +23,7 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _paymentRequests = const [];
   int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements
   bool _loading = false;
+  bool _probing = false;
   String? _error;
 
   String get _token => _tokenCtrl.text.trim();
@@ -73,6 +74,46 @@ class _AdminScreenState extends State<AdminScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _runLiveProbe() async {
+    if (_token.isEmpty || _probing) return;
+    setState(() {
+      _probing = true;
+      _error = null;
+    });
+    try {
+      final freshOverview =
+          await widget.apiService.getAdminOverview(_token, liveProbe: true);
+      if (!mounted) return;
+      setState(() {
+        _overview = freshOverview;
+        _probing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Test de connectivité temps réel terminé.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _probing = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Color _statusColor(String status) {
+    final s = status.toUpperCase();
+    if (s == 'CONNECTED' || s == 'OK' || s == 'FRESH') return AppColors.green;
+    if (s == 'CONFIGURED') return AppColors.blue;
+    if (s == 'DEGRADED' || s == 'NOT_CONFIGURED' || s == 'AGING') {
+      return Colors.orange.shade800;
+    }
+    if (s == 'UNAVAILABLE' || s == 'ERROR' || s == 'STALE') {
+      return AppColors.danger;
+    }
+    return AppColors.ink;
   }
 
   Future<void> _runAction(Future<void> Function() action, String okMsg) async {
@@ -334,8 +375,58 @@ class _AdminScreenState extends State<AdminScreen> {
                             '${metrics['avg_latency_ms'] ?? 0} ms'),
                         _kpiPill('Utilisateurs',
                             '${usersSum['total_known_users'] ?? 0}'),
+                        if ((metrics['document_indexing_requests'] ?? 0) > 0)
+                          _kpiPill('Indexations docs',
+                              '${metrics['document_indexing_requests']}'),
                       ],
                     ),
+                    if (metrics['error_categories'] is Map) ...[
+                      const SizedBox(height: 10),
+                      Builder(builder: (_) {
+                        final cats = metrics['error_categories'] as Map;
+                        final nonZero = cats.entries
+                            .where(
+                                (e) => (e.value is num) && (e.value as num) > 0)
+                            .toList();
+                        if (nonZero.isEmpty) return const SizedBox.shrink();
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: nonZero
+                              .map((e) => _kpiPill(
+                                    'Err: ${e.key}',
+                                    '${e.value}',
+                                    color: AppColors.danger,
+                                  ))
+                              .toList(),
+                        );
+                      }),
+                    ],
+                    if (metrics['recent_errors'] is List &&
+                        (metrics['recent_errors'] as List).isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text('Erreurs récentes (IDs de corrélation)',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.muted)),
+                      const SizedBox(height: 4),
+                      ...(metrics['recent_errors'] as List)
+                          .reversed
+                          .take(5)
+                          .map((raw) {
+                        final err = raw is Map ? raw : const {};
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            '${err['status_code'] ?? ''} [${err['category'] ?? 'error'}] '
+                            '${err['path'] ?? ''} · req=${err['request_id'] ?? '—'}',
+                            style: const TextStyle(
+                                fontSize: 11.5, color: AppColors.danger),
+                          ),
+                        );
+                      }),
+                    ],
                     if (_hasPerm('manage_system')) ...[
                       const SizedBox(height: 14),
                       Wrap(
@@ -364,6 +455,61 @@ class _AdminScreenState extends State<AdminScreen> {
                   ],
                 ),
               ),
+              if (_overview!['operational_warnings'] is List &&
+                  (_overview!['operational_warnings'] as List).isNotEmpty) ...[
+                const SizedBox(height: 12),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Alertes opérationnelles',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.danger)),
+                      const SizedBox(height: 8),
+                      ...(_overview!['operational_warnings'] as List).map((w) {
+                        final item = w is Map ? w : const {};
+                        final sev = (item['severity'] ?? 'warning')
+                            .toString()
+                            .toUpperCase();
+                        final isError = sev == 'HIGH' ||
+                            sev == 'ERROR' ||
+                            sev == 'CRITICAL';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                isError
+                                    ? Icons.error_outline_rounded
+                                    : Icons.warning_amber_rounded,
+                                size: 18,
+                                color: isError
+                                    ? AppColors.danger
+                                    : Colors.orange.shade800,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '[${item['code'] ?? 'ALERT'}] ${item['message'] ?? ''}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: isError
+                                        ? AppColors.danger
+                                        : AppColors.ink,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
               if (_overview!['providers_health'] is Map ||
                   _overview!['data_freshness'] is Map) ...[
                 const SizedBox(height: 12),
@@ -371,40 +517,209 @@ class _AdminScreenState extends State<AdminScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Santé IA (Groq / Jina) & Fraîcheur Prix',
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text('Santé IA (Groq / Jina) & Services',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink)),
+                          FDSecondaryButton(
+                            label: _probing
+                                ? 'Test en cours...'
+                                : 'Tester connectivité',
+                            icon: Icons.network_check_rounded,
+                            onPressed: _probing ? null : _runLiveProbe,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Builder(builder: (_) {
+                        final ph = _overview!['providers_health'] is Map
+                            ? _overview!['providers_health'] as Map
+                            : const {};
+                        final services = ph['services'] is Map
+                            ? ph['services'] as Map
+                            : const {};
+                        final df = _overview!['data_freshness'] is Map
+                            ? _overview!['data_freshness'] as Map
+                            : const {};
+                        String svcStatus(
+                            String key, String legacyKey, String fallback) {
+                          return (services[key] ?? ph[legacyKey] ?? fallback)
+                              .toString()
+                              .toUpperCase();
+                        }
+
+                        final supa = svcStatus(
+                            'supabase',
+                            'supabase_status',
+                            ph['supabase_pg_active'] == true
+                                ? 'CONFIGURED'
+                                : 'NOT_CONFIGURED');
+                        final groq = svcStatus(
+                            'groq',
+                            'groq_status',
+                            ph['groq_llm_configured'] == true
+                                ? 'CONFIGURED'
+                                : 'NOT_CONFIGURED');
+                        final jina = svcStatus(
+                            'jina',
+                            'jina_status',
+                            ph['jina_embed_configured'] == true
+                                ? 'CONFIGURED'
+                                : 'NOT_CONFIGURED');
+                        final ml = svcStatus(
+                            'ml_engine', 'ml_engine_status', 'CONNECTED');
+                        final rag = svcStatus(
+                            'rag_engine', 'rag_engine_status', 'CONNECTED');
+                        final idx = svcStatus('document_indexing',
+                            'document_indexing_status', 'DEGRADED');
+                        final bg = svcStatus('background_jobs',
+                            'background_jobs_status', 'CONNECTED');
+                        final checkedAt = ph['checked_at_utc']?.toString();
+                        final isLive = ph['live_probe_executed'] == true;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (checkedAt != null && checkedAt.isNotEmpty) ...[
+                              Text(
+                                'Dernier contrôle : $checkedAt (${isLive ? 'Sonde active' : 'État passif'})',
+                                style: const TextStyle(
+                                    fontSize: 11.5, color: AppColors.muted),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _kpiPill('Supabase PG', supa,
+                                    color: _statusColor(supa)),
+                                _kpiPill('Groq LLM', groq,
+                                    color: _statusColor(groq)),
+                                _kpiPill('Jina Embed', jina,
+                                    color: _statusColor(jina)),
+                                _kpiPill('Moteur ML', ml,
+                                    color: _statusColor(ml)),
+                                _kpiPill('Moteur RAG', rag,
+                                    color: _statusColor(rag)),
+                                _kpiPill('Indexation Docs', idx,
+                                    color: _statusColor(idx)),
+                                _kpiPill('Tâches arrière-plan', bg,
+                                    color: _statusColor(bg)),
+                                _kpiPill(
+                                  'Dernier mois',
+                                  '${df['latest_observation_month'] ?? '—'} (${df['freshness_status'] ?? '—'})',
+                                  color: _statusColor(
+                                      (df['freshness_status'] ?? '')
+                                          .toString()),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
+              if (_overview!['domains_summary'] is Map ||
+                  _overview!['ml_registry_summary'] is Map) ...[
+                const SizedBox(height: 12),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                          'Centre de contrôle IA (Domaines & Registre ML)',
                           style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: AppColors.ink)),
                       const SizedBox(height: 8),
                       Builder(builder: (_) {
-                        final ph = _overview!['providers_health'] is Map
-                            ? _overview!['providers_health'] as Map
+                        final ds = _overview!['domains_summary'] is Map
+                            ? _overview!['domains_summary'] as Map
                             : const {};
-                        final df = _overview!['data_freshness'] is Map
-                            ? _overview!['data_freshness'] as Map
+                        final ms = _overview!['ml_registry_summary'] is Map
+                            ? _overview!['ml_registry_summary'] as Map
                             : const {};
-                        return Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                        final byDep = ms['by_deployment_status'] is Map
+                            ? ms['by_deployment_status'] as Map
+                            : const {};
+                        final mlModels =
+                            (_overview!['ml_models'] as List? ?? [])
+                                .cast<Map>();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _kpiPill(
-                                'Groq LLM',
-                                ph['groq_llm_configured'] == true
-                                    ? 'Actif (${ph['groq_model'] ?? 'ok'})'
-                                    : 'Non configuré'),
-                            _kpiPill(
-                                'Jina Embed',
-                                ph['jina_embed_configured'] == true
-                                    ? 'Actif (${ph['jina_model'] ?? 'v3'})'
-                                    : 'Fallback local'),
-                            _kpiPill(
-                                'Base Cloud',
-                                ph['supabase_pg_active'] == true
-                                    ? 'Supabase PG'
-                                    : 'SQLite local'),
-                            _kpiPill('Dernier mois',
-                                '${df['latest_observation_month'] ?? '—'} (${df['freshness_status'] ?? '—'})'),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _kpiPill(
+                                  'Domaines actifs',
+                                  '${ds['active_domains'] ?? 0} / ${ds['total_domains'] ?? 0}',
+                                  color: AppColors.blue,
+                                ),
+                                _kpiPill(
+                                  'Modèles ML enregistrés',
+                                  '${ms['total_registered_models'] ?? mlModels.length}',
+                                ),
+                                _kpiPill(
+                                  'Déployés',
+                                  '${byDep['DEPLOYED'] ?? 0}',
+                                  color: AppColors.green,
+                                ),
+                                _kpiPill(
+                                  'Exécutions ML',
+                                  '${ms['total_executions'] ?? 0}',
+                                ),
+                                _kpiPill(
+                                  'Échecs ML',
+                                  '${ms['total_failures'] ?? 0}',
+                                  color: (ms['total_failures'] ?? 0) == 0
+                                      ? AppColors.green
+                                      : AppColors.danger,
+                                ),
+                              ],
+                            ),
+                            if (mlModels.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              ...mlModels.take(8).map((m) {
+                                final st =
+                                    (m['lifecycle_status'] ?? 'REGISTERED')
+                                        .toString();
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    '${m['model_id'] ?? m['name']} v${m['version'] ?? 1} (${m['algorithm'] ?? '—'})',
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  subtitle: Text(
+                                    'Domaine : ${m['domain'] ?? '—'} · Tâche : ${m['task_type'] ?? '—'} · Dataset : ${m['training_dataset_ref'] ?? '—'}',
+                                    style: const TextStyle(fontSize: 11.5),
+                                  ),
+                                  trailing: Text(
+                                    st,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: _statusColor(
+                                          st == 'DEPLOYED' ? 'CONNECTED' : st),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
                           ],
                         );
                       }),

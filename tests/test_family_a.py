@@ -208,9 +208,9 @@ def test_chat_premium_tier_needs_key_once_keys_are_configured(premium_client, mo
     monkeypatch.setattr(
         agent,
         "answer",
-        lambda q, history=None, tier="free", study_context=None: (
+        lambda q, history=None, tier="free", study_context=None, private_chunks=None: (
             seen.append(tier),
-            orig(q, history=history, tier=tier, study_context=study_context),
+            orig(q, history=history, tier=tier, study_context=study_context, private_chunks=private_chunks),
         )[1],
     )
     premium_client.post("/api/v1/chat", json={"message": "prix du mil", "tier": "premium"})

@@ -1,0 +1,52 @@
+# FreeData.AI — Dedicated Staging Render Blueprint
+# Completely isolated from production (render.yaml).
+# Never reuse production SUPABASE_DB_URL, AUTH_SECRET, or ADMIN_TOKENS here.
+services:
+  - type: web
+    name: freedata-ai-api-staging
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt -r requirements-postgres.txt
+    startCommand: uvicorn api.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: RENDER
+        value: "true"
+      - key: FREEDATA_ENV
+        value: "staging"
+      - key: REQUIRE_SIGNED_USER_AUTH
+        value: "1"
+      - key: ALLOW_LOCALHOST_CORS
+        value: "0"
+      - key: ENABLE_DOCS
+        value: "0"
+      # Set to the Firebase Hosting staging preview channel origin only
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Minimum 32 random chars — MUST differ from production
+      - key: AUTH_SECRET
+        sync: false
+      # Independent staging admin tokens (actor:role:secret;...)
+      - key: ADMIN_TOKENS
+        sync: false
+      # Dedicated staging Supabase project (never production)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
+      # Independent staging AI provider keys
+      - key: LLM_API_KEY
+        sync: false
+      - key: EMBED_API_KEY
+        sync: false
+      - key: PREMIUM_API_KEYS
+        sync: false
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+

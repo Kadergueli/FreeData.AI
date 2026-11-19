@@ -188,6 +188,36 @@ class LocalConversationStorage implements ConversationRepository {
     return all.where((c) => c.projectId == projectId).toList();
   }
 
+  /// Detaches local conversations from a deleted project while preserving message history.
+  Future<void> detachProject(String projectId) {
+    final pid = projectId.trim();
+    if (pid.isEmpty) return Future.value();
+    return _synchronized(() async {
+      final all = await _loadInternal(includeDeleted: true);
+      var changed = false;
+      final updated = all.map((c) {
+        if (c.projectId == pid) {
+          changed = true;
+          return ConversationThread(
+            id: c.id,
+            title: c.title,
+            createdAt: c.createdAt,
+            updatedAt: DateTime.now(),
+            isSavedInLibrary: c.isSavedInLibrary,
+            isDeleted: c.isDeleted,
+            projectId: null,
+            projectName: null,
+            messages: c.messages,
+          );
+        }
+        return c;
+      }).toList();
+      if (changed) {
+        await _saveAllInternal(updated);
+      }
+    });
+  }
+
   @override
   Future<void> renameConversation(String id, String newTitle) {
     return _synchronized(() async {

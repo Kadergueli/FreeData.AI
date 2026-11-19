@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -13,10 +14,14 @@ def _utc_now() -> str:
 
 
 class ReportJobManager:
-    """Thread-pool background job runner with owner-scoped status, progress, and artifact storage."""
+    """Thread-pool background job runner with owner-scoped status, idempotency deduplication,
+    timeout tracking, retry policies, and operational visibility.
+    """
 
-    def __init__(self, max_workers: int = 2) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fd-pdf-job")
+    def __init__(self, max_workers: int = 2, default_timeout_seconds: float = 120.0) -> None:
+        self.max_workers = max(1, int(max_workers))
+        self.default_timeout_seconds = max(1.0, float(default_timeout_seconds))
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="fd-pdf-job")
         self._lock = threading.Lock()
         self._jobs: dict[str, dict[str, Any]] = {}
 
@@ -26,16 +31,32 @@ class ReportJobManager:
         fn: Callable[[Callable[[int], None]], dict[str, Any]],
         *,
         max_retries: int = 1,
+        idempotency_key: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> dict[str, Any]:
+        # Duplicate execution prevention: reuse active queued/running job with same (owner_id, idempotency_key)
+        if idempotency_key:
+            with self._lock:
+                for existing in self._jobs.values():
+                    if (
+                        existing["owner_id"] == owner_id
+                        and existing.get("idempotency_key") == idempotency_key
+                        and existing["status"] in ("queued", "running")
+                    ):
+                        return {k: v for k, v in existing.items() if k not in ("pdf_bytes", "owner_id", "_fn")}
+
         job_id = f"JOB-{uuid.uuid4().hex[:10].upper()}"
         now = _utc_now()
+        eff_timeout = float(timeout_seconds) if timeout_seconds is not None else self.default_timeout_seconds
         record = {
             "job_id": job_id,
             "owner_id": owner_id,
+            "idempotency_key": idempotency_key,
             "status": "queued",
             "progress_pct": 0,
             "attempts": 0,
             "max_retries": max_retries,
+            "timeout_seconds": eff_timeout,
             "error": None,
             "validation": None,
             "pdf_bytes": None,
@@ -51,10 +72,15 @@ class ReportJobManager:
                 for k, _ in oldest:
                     self._jobs.pop(k, None)
             self._jobs[job_id] = record
-        self._dispatch(job_id, fn)
+        self._dispatch(job_id, fn, eff_timeout)
         return self.get_status(owner_id, job_id)
 
-    def _dispatch(self, job_id: str, fn: Callable[[Callable[[int], None]], dict[str, Any]]) -> None:
+    def _dispatch(
+        self,
+        job_id: str,
+        fn: Callable[[Callable[[int], None]], dict[str, Any]],
+        timeout_seconds: float,
+    ) -> None:
         def _update_progress(pct: int) -> None:
             with self._lock:
                 if job_id in self._jobs:
@@ -63,6 +89,7 @@ class ReportJobManager:
                     self._jobs[job_id]["updated_at"] = _utc_now()
 
         def _run() -> None:
+            t0 = time.monotonic()
             with self._lock:
                 if job_id in self._jobs:
                     self._jobs[job_id]["attempts"] += 1
@@ -70,6 +97,9 @@ class ReportJobManager:
             _update_progress(15)
             try:
                 res = fn(_update_progress)
+                elapsed = time.monotonic() - t0
+                if elapsed > timeout_seconds:
+                    raise TimeoutError(f"Job dépassé ({elapsed:.1f}s > {timeout_seconds:.1f}s).")
                 with self._lock:
                     if job_id in self._jobs:
                         self._jobs[job_id]["status"] = "completed"
@@ -101,7 +131,8 @@ class ReportJobManager:
             rec["progress_pct"] = 0
             rec["updated_at"] = _utc_now()
             fn = rec["_fn"]
-        self._dispatch(job_id, fn)
+            eff_timeout = float(rec.get("timeout_seconds", self.default_timeout_seconds))
+        self._dispatch(job_id, fn, eff_timeout)
         return self.get_status(owner_id, job_id)
 
     def get_status(self, owner_id: str, job_id: str) -> dict[str, Any]:
@@ -120,3 +151,17 @@ class ReportJobManager:
                 raise ValueError(f"PDF non disponible (statut: {rec['status']}).")
             return bytes(rec["pdf_bytes"])
 
+    def summary(self) -> dict[str, Any]:
+        """Non-PII operational summary for the Admin Control Center."""
+        counts = {"queued": 0, "running": 0, "completed": 0, "failed": 0}
+        with self._lock:
+            for rec in self._jobs.values():
+                st = rec.get("status", "failed")
+                counts[st] = counts.get(st, 0) + 1
+            total = len(self._jobs)
+        return {
+            "max_workers": self.max_workers,
+            "default_timeout_seconds": self.default_timeout_seconds,
+            "total_tracked_jobs": total,
+            "by_status": counts,
+        }

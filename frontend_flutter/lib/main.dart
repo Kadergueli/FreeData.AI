@@ -88,6 +88,17 @@ class _MainShellState extends State<MainShell> {
           content: Text(
               'Clé PRO refusée par le serveur : accès PRO désactivé. Saisissez une clé valide.')));
     };
+    _apiService.onAuthSessionExpired = () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(kAuthTokenStorageKey);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {});
+      _showSnackBar(const SnackBar(
+          content: Text(
+              'Votre session a expiré ou été révoquée. Veuillez vous reconnecter.')));
+    };
     _loadPremiumKey();
     _reloadConversations();
   }

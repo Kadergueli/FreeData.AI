@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
@@ -22,13 +23,21 @@ class DomainModule:
     supported_workflows: tuple[str, ...]
     output_formats: tuple[str, ...]
     required_tier: str = "free"
+    ml_models: tuple[str, ...] = ()
+    rag_collections: tuple[str, ...] = ()
+    analytical_operations: tuple[str, ...] = ()
+    execution_pipeline: str = "rag_llm"  # "chad_agent" | "ml_orchestrator" | "rag_llm"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 class DomainRegistry:
-    """Registry of specialized domains sharing FreeData.AI's core LLM, RAG, ML, and Analytics engines."""
+    """Extensible registry of specialized domains sharing FreeData.AI's core LLM, RAG, ML, and Analytics engines."""
+
+    _lock = threading.Lock()
+    _active_overrides: dict[str, bool] = {}
+    _usage_counts: dict[str, int] = {}
 
     MODULES: dict[str, DomainModule] = {
         "general_ai": DomainModule(
@@ -39,6 +48,9 @@ class DomainRegistry:
             knowledge_sources=("corpus_general", "documentation"),
             supported_workflows=("qa", "brainstorming", "summarization"),
             output_formats=("markdown",),
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("synthesis",),
+            execution_pipeline="rag_llm",
         ),
         "education": DomainModule(
             domain_id="education",
@@ -48,6 +60,9 @@ class DomainRegistry:
             knowledge_sources=("METHODOLOGY.md", "USER_GUIDE.md"),
             supported_workflows=("tutoring", "concept_explanation", "quiz"),
             output_formats=("markdown",),
+            rag_collections=("methodology_docs", "user_private_docs"),
+            analytical_operations=("pedagogical_breakdown",),
+            execution_pipeline="rag_llm",
         ),
         "academic_research": DomainModule(
             domain_id="academic_research",
@@ -57,6 +72,9 @@ class DomainRegistry:
             knowledge_sources=("METHODOLOGY.md", "DATA_CATALOG.md", "DATA_GOVERNANCE_POLICY.md"),
             supported_workflows=("literature_synthesis", "methodology_review"),
             output_formats=("markdown", "pdf"),
+            rag_collections=("governance_docs", "methodology_docs", "user_private_docs"),
+            analytical_operations=("literature_review", "citation_grounding"),
+            execution_pipeline="rag_llm",
         ),
         "business_entrepreneurship": DomainModule(
             domain_id="business_entrepreneurship",
@@ -66,6 +84,10 @@ class DomainRegistry:
             knowledge_sources=("table_ml_forecasts", "table_ml_credit_passport"),
             supported_workflows=("feasibility_study", "business_plan", "swot_pestel"),
             output_formats=("markdown", "pdf"),
+            ml_models=("ridge_price_regressor", "risk_grade_classifier"),
+            rag_collections=("market_knowledge", "user_private_docs"),
+            analytical_operations=("unit_economics", "margin_simulation", "sensitivity_analysis"),
+            execution_pipeline="chad_agent",
         ),
         "finance": DomainModule(
             domain_id="finance",
@@ -75,6 +97,10 @@ class DomainRegistry:
             knowledge_sources=("table_ml_credit_passport", "METHODOLOGY.md"),
             supported_workflows=("break_even", "cashflow_projection", "risk_scoring"),
             output_formats=("markdown", "pdf"),
+            ml_models=("risk_grade_classifier",),
+            rag_collections=("financial_methodology", "user_private_docs"),
+            analytical_operations=("break_even", "cashflow_12m", "risk_grading"),
+            execution_pipeline="chad_agent",
         ),
         "data_science": DomainModule(
             domain_id="data_science",
@@ -84,6 +110,10 @@ class DomainRegistry:
             knowledge_sources=("table_ml_forecasts", "METHODOLOGY.md"),
             supported_workflows=("benchmarking", "clustering", "anomaly_detection"),
             output_formats=("markdown", "json"),
+            ml_models=("ridge_price_regressor", "kmeans_market_clusterer", "risk_grade_classifier"),
+            rag_collections=("ml_methodology", "user_private_docs"),
+            analytical_operations=("chronological_backtest", "kmeans_segmentation", "anomaly_zscore"),
+            execution_pipeline="ml_orchestrator",
         ),
         "agriculture": DomainModule(
             domain_id="agriculture",
@@ -93,6 +123,10 @@ class DomainRegistry:
             knowledge_sources=("table_ml_forecasts", "table_ml_seasonality_studies"),
             supported_workflows=("price_forecast", "arbitrage", "seasonality"),
             output_formats=("markdown", "pdf"),
+            ml_models=("ridge_price_regressor", "kmeans_market_clusterer"),
+            rag_collections=("chad_market_docs", "user_private_docs"),
+            analytical_operations=("price_forecast", "spatial_arbitrage", "seasonality_profile"),
+            execution_pipeline="chad_agent",
         ),
         "tech_programming": DomainModule(
             domain_id="tech_programming",
@@ -102,6 +136,9 @@ class DomainRegistry:
             knowledge_sources=("DEVELOPER_GUIDE.md", "API.md", "ARCHITECTURE.md"),
             supported_workflows=("code_help", "debugging", "api_integration"),
             output_formats=("markdown",),
+            rag_collections=("developer_docs", "user_private_docs"),
+            analytical_operations=("code_review", "architecture_guidance"),
+            execution_pipeline="rag_llm",
         ),
         "productivity": DomainModule(
             domain_id="productivity",
@@ -111,6 +148,9 @@ class DomainRegistry:
             knowledge_sources=("USER_GUIDE.md",),
             supported_workflows=("action_plan", "checklist", "meeting_summary"),
             output_formats=("markdown",),
+            rag_collections=("user_guides", "user_private_docs"),
+            analytical_operations=("task_decomposition", "summarization"),
+            execution_pipeline="rag_llm",
         ),
         "chad_intelligence": DomainModule(
             domain_id="chad_intelligence",
@@ -120,6 +160,10 @@ class DomainRegistry:
             knowledge_sources=("table_ml_forecasts", "table_ml_credit_passport", "DATA_CATALOG.md"),
             supported_workflows=("regional_comparison", "market_study", "risk_analysis"),
             output_formats=("markdown", "pdf"),
+            ml_models=("ridge_price_regressor", "kmeans_market_clusterer", "risk_grade_classifier"),
+            rag_collections=("chad_market_docs", "governance_docs", "user_private_docs"),
+            analytical_operations=("regional_comparison", "price_forecast", "credit_passport"),
+            execution_pipeline="chad_agent",
         ),
     }
 
@@ -136,8 +180,81 @@ class DomainRegistry:
     ]
 
     @classmethod
-    def list_domains(cls) -> list[dict[str, Any]]:
-        return [m.to_dict() for m in cls.MODULES.values()]
+    def register_domain(
+        cls,
+        module: DomainModule,
+        *,
+        pattern: Optional[str] = None,
+        active: bool = True,
+    ) -> DomainModule:
+        """Dynamically registers a new domain (or updates an existing one) without modifying the Chat Engine."""
+        with cls._lock:
+            cls.MODULES[module.domain_id] = module
+            cls._active_overrides[module.domain_id] = bool(active)
+            if pattern:
+                compiled = re.compile(pattern)
+                cls._DOMAIN_PATTERNS = [
+                    (d, p) for d, p in cls._DOMAIN_PATTERNS if d != module.domain_id
+                ] + [(module.domain_id, compiled)]
+        return module
+
+    @classmethod
+    def unregister_domain(cls, domain_id: str) -> None:
+        with cls._lock:
+            cls.MODULES.pop(domain_id, None)
+            cls._active_overrides.pop(domain_id, None)
+            cls._usage_counts.pop(domain_id, None)
+            cls._DOMAIN_PATTERNS = [(d, p) for d, p in cls._DOMAIN_PATTERNS if d != domain_id]
+
+    @classmethod
+    def is_domain_active(cls, domain_id: str) -> bool:
+        if domain_id not in cls.MODULES:
+            return False
+        with cls._lock:
+            return cls._active_overrides.get(domain_id, True)
+
+    @classmethod
+    def set_domain_active(cls, domain_id: str, active: bool) -> dict[str, Any]:
+        if domain_id not in cls.MODULES:
+            raise KeyError(f"Domaine inconnu : {domain_id}")
+        with cls._lock:
+            cls._active_overrides[domain_id] = bool(active)
+        return {"domain_id": domain_id, "active": bool(active)}
+
+    @classmethod
+    def record_usage(cls, domain_id: str) -> None:
+        with cls._lock:
+            cls._usage_counts[domain_id] = cls._usage_counts.get(domain_id, 0) + 1
+
+    @classmethod
+    def get_usage_counts(cls) -> dict[str, int]:
+        with cls._lock:
+            return dict(cls._usage_counts)
+
+    @classmethod
+    def list_domains(cls, *, include_inactive: bool = False) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        with cls._lock:
+            for dom_id, m in cls.MODULES.items():
+                is_active = cls._active_overrides.get(dom_id, True)
+                if not include_inactive and not is_active:
+                    continue
+                d = m.to_dict()
+                d["active"] = is_active
+                d["usage_count"] = cls._usage_counts.get(dom_id, 0)
+                out.append(d)
+        return out
+
+    @classmethod
+    def admin_summary(cls) -> dict[str, Any]:
+        all_domains = cls.list_domains(include_inactive=True)
+        active_count = sum(1 for d in all_domains if d["active"])
+        return {
+            "total_domains": len(all_domains),
+            "active_domains": active_count,
+            "inactive_domains": len(all_domains) - active_count,
+            "domains": all_domains,
+        }
 
     @classmethod
     def get_domain(cls, domain_id: str) -> DomainModule:
@@ -151,7 +268,6 @@ class DomainRegistry:
             return cls.MODULES[explicit_domain]
         q_norm = _norm(query)
         for dom_id, pat in cls._DOMAIN_PATTERNS:
-            if pat.search(q_norm):
+            if dom_id in cls.MODULES and cls.is_domain_active(dom_id) and pat.search(q_norm):
                 return cls.MODULES[dom_id]
         return cls.MODULES["general_ai"]
-

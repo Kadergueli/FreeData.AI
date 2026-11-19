@@ -45,7 +45,9 @@ class _AuditFakeApiService extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getAdminOverview(String adminToken) async => {
+  Future<Map<String, dynamic>> getAdminOverview(String adminToken,
+          {bool liveProbe = false}) async =>
+      {
         'api_health': {'status': 'ok', 'version': '1.2.0'},
         'api_metrics': {
           'total_requests': 42,
@@ -241,6 +243,7 @@ class _AuditFakeApiService extends ApiService {
     required Uint8List bytes,
     String? mimeType,
     String? projectId,
+    int chunkOffset = 0,
   }) async {
     final doc = {
       'doc_id': 'doc-${uploadedDocs.length + 1}',
@@ -375,7 +378,9 @@ void main() {
   testWidgets(
       'SubscriptionScreen renders French quotas and submits Mobile Money payment request',
       (tester) async {
-    final api = _AuditFakeApiService();
+    final api = _AuditFakeApiService()
+      ..setAuthSession(
+          token: 'test-bearer-token', user: const {'email': 'u@test.td'});
     await tester
         .pumpWidget(MaterialApp(home: SubscriptionScreen(apiService: api)));
     await tester.pumpAndSettle();
@@ -438,7 +443,9 @@ void main() {
   testWidgets(
       'ProjectsScreen loads dynamic products in PDF dialog without overflow',
       (tester) async {
-    final api = _AuditFakeApiService();
+    final api = _AuditFakeApiService()
+      ..setAuthSession(
+          token: 'test-bearer-token', user: const {'email': 'u@test.td'});
     await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: ProjectsScreen(apiService: api))));
     await tester.pumpAndSettle();

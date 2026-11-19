@@ -31,6 +31,20 @@ class ApiService {
 
   /// Appelé quand le serveur refuse la clé PRO (403) : l'interface doit se mettre à jour.
   Future<void> Function()? onPremiumKeyRejected;
+
+  /// Appelé quand le serveur renvoie 401 sur une session Bearer active (jeton expiré ou révoqué).
+  Future<void> Function()? onAuthSessionExpired;
+
+  void _notifyIfSessionExpired(int statusCode) {
+    if (statusCode == 401 && _authToken != null && _authToken!.isNotEmpty) {
+      clearAuthSession();
+      final cb = onAuthSessionExpired;
+      if (cb != null) {
+        unawaited(cb());
+      }
+    }
+  }
+
   // Identifiant d'espace : aléatoire et propre à ce navigateur (un identifiant partagé donnerait les mêmes projets à tous).
   String _userId = generateUserId();
   Future<Map<String, dynamic>>? _metadataCache;
@@ -93,12 +107,12 @@ class ApiService {
   }
 
   Map<String, String> _projectHeaders({bool includeJson = false}) {
+    final hasBearer = _authToken != null && _authToken!.isNotEmpty;
     return <String, String>{
-      'X-User-Id': _userId,
+      if (!hasBearer) 'X-User-Id': _userId,
       if (includeJson) 'Content-Type': 'application/json',
       if (activePremiumKey.isNotEmpty) 'X-Premium-Key': activePremiumKey,
-      if (_authToken != null && _authToken!.isNotEmpty)
-        'Authorization': 'Bearer $_authToken',
+      if (hasBearer) 'Authorization': 'Bearer $_authToken',
     };
   }
 
@@ -132,6 +146,7 @@ class ApiService {
         final resp = await _client
             .get(uri, headers: headers)
             .timeout(const Duration(seconds: 25));
+        _notifyIfSessionExpired(resp.statusCode);
         if (attempt == 0 &&
             (resp.statusCode == 502 ||
                 resp.statusCode == 504 ||
@@ -811,8 +826,11 @@ class ApiService {
         resp.statusCode, 'Accès admin refusé (${resp.statusCode})');
   }
 
-  Future<Map<String, dynamic>> getAdminOverview(String adminToken) async {
-    final uri = Uri.parse('$baseUrl/api/v1/admin/overview');
+  Future<Map<String, dynamic>> getAdminOverview(String adminToken,
+      {bool liveProbe = false}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/overview').replace(
+      queryParameters: liveProbe ? const {'live_probe': 'true'} : null,
+    );
     final resp = await _client.get(uri, headers: {
       'X-Admin-Token': adminToken.trim()
     }).timeout(const Duration(seconds: 20));
@@ -1052,7 +1070,8 @@ class ApiService {
     }
   }
 
-  static String _extractErrorDetail(http.Response resp, String fallback) {
+  String _extractErrorDetail(http.Response resp, String fallback) {
+    _notifyIfSessionExpired(resp.statusCode);
     try {
       final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
       if (decoded is Map &&
@@ -1147,8 +1166,30 @@ class ApiService {
       );
       return data;
     }
+    _notifyIfSessionExpired(resp.statusCode);
     throw ApiHttpException(
         resp.statusCode, _extractErrorDetail(resp, 'Session invalide'));
+  }
+
+  Future<Map<String, dynamic>> refreshAuthSession() async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/refresh');
+    final resp = await _client
+        .post(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      setAuthSession(
+        token: data['token']?.toString(),
+        user: data['user'] is Map
+            ? Map<String, dynamic>.from(data['user'] as Map)
+            : _authUser,
+      );
+      return data;
+    }
+    _notifyIfSessionExpired(resp.statusCode);
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Renouvellement de session impossible'));
   }
 
   Future<void> logoutAccount() async {
@@ -1401,6 +1442,7 @@ class ApiService {
     required Uint8List bytes,
     String? mimeType,
     String? projectId,
+    int chunkOffset = 0,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/documents/upload');
     final resp = await _client
@@ -1414,6 +1456,7 @@ class ApiService {
               'mime_type': mimeType.trim(),
             if (projectId != null && projectId.trim().isNotEmpty)
               'project_id': projectId.trim(),
+            if (chunkOffset > 0) 'chunk_offset': chunkOffset,
           }),
         )
         .timeout(const Duration(seconds: 40));

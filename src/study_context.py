@@ -207,11 +207,46 @@ def _strip_sensitive_keys(obj: Any) -> Any:
     return obj
 
 
-def extract_structured_instructions(text: str) -> dict[str, Any]:
+_CONTINUATION_RE = re.compile(
+    r"\b(?:continue\w*|poursuis|poursuivre|reprends?|reprendre|suite|etape\s+suivante|la\s+suite)\b"
+)
+_FILE_ANALYSIS_RE = re.compile(
+    r"\b(?:mon\s+document|mon\s+pdf|mon\s+fichier|mon\s+contrat|mon\s+devis|ce\s+document|ce\s+pdf|ce\s+fichier|mes\s+documents)\b"
+)
+_TOOL_ML_RAG_RE = re.compile(
+    r"\b(?:prevision|forecast|cluster|anomalie|backtest|ridge|credit\s+passport|ltv|volatilite|saisonnalite)\b"
+)
+
+
+def classify_user_turn(text: str, *, has_history: bool = False) -> str:
+    """Distinguishes between:
+    1. `document_generation` (request to generate a PDF/report)
+    2. `file_analysis` (request to analyze uploaded files)
+    3. `modification` (correction/modification to an existing request)
+    4. `continuation` (request to continue previous work)
+    5. `tool_ml_rag` (request requiring ML, Analytics, or RAG tools)
+    6. `new_request` (fresh general inquiry)
+    """
+    norm = _norm(text or "")
+    if _PDF_REQUEST_RE.search(norm):
+        return "document_generation"
+    if _FILE_ANALYSIS_RE.search(norm):
+        return "file_analysis"
+    if _CORRECTION_RE.search(norm):
+        return "modification"
+    if has_history and _CONTINUATION_RE.search(norm):
+        return "continuation"
+    if _TOOL_ML_RAG_RE.search(norm):
+        return "tool_ml_rag"
+    return "new_request"
+
+
+def extract_structured_instructions(text: str, *, has_history: bool = False) -> dict[str, Any]:
     """Extract structured report/constraint instructions from a single natural-language message."""
     raw = (text or "").strip()
     norm = _norm(raw)
     is_correction = bool(_CORRECTION_RE.search(norm))
+    turn_intent = classify_user_turn(raw, has_history=has_history)
 
     add_sections: list[str] = []
     remove_sections: list[str] = []
@@ -318,6 +353,7 @@ def extract_structured_instructions(text: str) -> dict[str, Any]:
             fixed_costs_xaf = float(digits)
 
     return {
+        "turn_intent": turn_intent,
         "is_correction": is_correction,
         "add_sections": add_sections,
         "remove_sections": remove_sections,

@@ -66,27 +66,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       _error = null;
     });
     try {
-      final res = await Future.wait([
-        widget.apiService.getMyBilling(),
-        widget.apiService.getBillingPlans(),
-      ]);
+      final plansRes = await widget.apiService.getBillingPlans();
+      Map<String, dynamic>? me;
       Map<String, dynamic>? methods;
       List<Map<String, dynamic>> reqs = const [];
       try {
         methods = await widget.apiService.getPaymentMethods();
       } catch (_) {}
-      try {
-        reqs = await widget.apiService.listMyPaymentRequests();
-      } catch (_) {}
+      final canReadPrivate = widget.apiService.isAuthenticated ||
+          widget.apiService.hasExplicitPremiumKey;
+      if (canReadPrivate) {
+        try {
+          me = await widget.apiService.getMyBilling();
+        } catch (_) {}
+        try {
+          reqs = await widget.apiService.listMyPaymentRequests();
+        } catch (_) {}
+      }
       if (!mounted) return;
       final defaultPrice = methods?['premium_price_xaf_month'];
       if (_amountCtrl.text.isEmpty && defaultPrice is num && defaultPrice > 0) {
         _amountCtrl.text = defaultPrice.toInt().toString();
       }
       setState(() {
-        _me = res[0];
+        _me = me;
         _plans =
-            ((res[1]['plans'] as List?) ?? []).cast<Map<String, dynamic>>();
+            ((plansRes['plans'] as List?) ?? []).cast<Map<String, dynamic>>();
         _paymentMethods = methods;
         _myRequests = reqs;
         _loading = false;

@@ -186,33 +186,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
     try {
-      final uploaded = await widget.apiService.uploadUserDocument(
-        filename: picked.name,
-        bytes: picked.bytes,
-        mimeType: picked.mimeType,
-        projectId: _activeProjectId(),
-      );
-      await _loadUserDocuments();
-      if (!mounted) return;
-      final chunksCount = uploaded['chunks_count'] ?? 1;
-      final provider = uploaded['embedding_provider'] ?? 'jina';
-      ScaffoldMessenger.maybeOf(context)
-        ?..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: FDTheme.greenDark,
-            content: Text(
-              'Document privé « ${picked.name} » indexé ($chunksCount segments · $provider). Posez votre question !',
-            ),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      if (_controller.text.trim().isEmpty) {
-        setState(() {
-          _controller.text =
-              'Analyse mon document « ${picked.name} » et résume les points clés.';
-        });
-      }
+      await _uploadPickedFileWithProgressiveIndexing(picked, chunkOffset: 0);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
@@ -226,6 +200,61 @@ class _ChatScreenState extends State<ChatScreen> {
         );
     } finally {
       if (mounted) setState(() => _uploadingDoc = false);
+    }
+  }
+
+  Future<void> _uploadPickedFileWithProgressiveIndexing(
+    PickedDocumentFile picked, {
+    required int chunkOffset,
+  }) async {
+    final uploaded = await widget.apiService.uploadUserDocument(
+      filename: picked.name,
+      bytes: picked.bytes,
+      mimeType: picked.mimeType,
+      projectId: _activeProjectId(),
+      chunkOffset: chunkOffset,
+    );
+    await _loadUserDocuments();
+    if (!mounted) return;
+    final chunksCount = uploaded['chunks_count'] ?? 1;
+    final provider = uploaded['embedding_provider'] ?? 'jina';
+    final isTruncated = uploaded['truncated'] == true;
+    final nextOffset = uploaded['next_offset'];
+    final warning = uploaded['indexing_warning']?.toString();
+    final isDuplicate = uploaded['duplicate'] == true;
+
+    final msg = isDuplicate
+        ? 'Document « ${picked.name} » déjà indexé dans cet espace.'
+        : (isTruncated && warning != null && warning.isNotEmpty)
+            ? warning
+            : 'Document privé « ${picked.name} » indexé ($chunksCount segments · $provider). Posez votre question !';
+
+    ScaffoldMessenger.maybeOf(context)
+      ?..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: isTruncated ? FDTheme.blue : FDTheme.greenDark,
+          content: Text(msg),
+          duration: Duration(seconds: isTruncated ? 8 : 4),
+          action: (isTruncated && nextOffset is int)
+              ? SnackBarAction(
+                  label: 'Poursuivre',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    _uploadPickedFileWithProgressiveIndexing(
+                      picked,
+                      chunkOffset: nextOffset,
+                    ).catchError((_) {});
+                  },
+                )
+              : null,
+        ),
+      );
+    if (chunkOffset == 0 && _controller.text.trim().isEmpty) {
+      setState(() {
+        _controller.text =
+            'Analyse mon document « ${picked.name} » et résume les points clés.';
+      });
     }
   }
 

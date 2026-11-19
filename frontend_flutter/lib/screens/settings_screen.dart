@@ -231,12 +231,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _userCtrl,
-                  readOnly: loggedIn,
+                  readOnly: true,
                   decoration: InputDecoration(
-                    labelText: 'Identifiant espace projets (X-User-Id)',
+                    labelText: loggedIn
+                        ? 'Identifiant de compte (session sécurisée)'
+                        : 'Identifiant local (connexion requise en production)',
                     helperText: loggedIn
-                        ? 'Lié automatiquement à votre compte connecté.'
-                        : 'Isole vos projets : 32 à 80 caractères (lettres, chiffres, - ou _). Le changer donne accès à un autre espace.',
+                        ? 'Lié automatiquement à votre session Bearer sécurisée.'
+                        : 'Connectez-vous ci-dessus pour synchroniser vos projets et conversations avec un jeton signé.',
                   ),
                 ),
                 const SizedBox(height: 16),

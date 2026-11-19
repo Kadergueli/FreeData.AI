@@ -15,6 +15,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -35,7 +36,7 @@ import requests
 from src import db as _db
 from src.config import settings
 from src.rag_engine import _hashed_embedding, _norm_tokens, rewrite_query
-from src.security import _INDIRECT_INJECTION_RE, validate_uploaded_document
+from src.security import _INDIRECT_INJECTION_RE, redact_secrets, validate_uploaded_document
 
 logger = logging.getLogger("freedata.user_documents")
 
@@ -75,6 +76,11 @@ _EXPLICIT_DOC_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_DOC_OVERVIEW_INTENT_RE = re.compile(
+    r"\b(?:resume\w*|synthes\w*|analyse\w*|points?\s+cles?|apercu|de\s+quoi\s+parle|contenu\s+de|explique\w*)\b",
+    re.IGNORECASE,
+)
+
 
 def _strip_accents(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text or "")
@@ -84,24 +90,35 @@ def _strip_accents(text: str) -> str:
 def validate_document_domain_relevance(text: str, filename: str = "") -> dict[str, Any]:
     """Ensures uploaded documents are safe and relevant to FreeData.AI's professional scope
     (agriculture, trade, logistics, finance, market studies, economics, data science, or Chad/Sahel).
-    Raises ValueError if malicious, abusive, or completely out-of-domain.
+    Evaluates the document BODY (not just the filename) so a single keyword in a filename cannot bypass validation.
+    Raises ValueError if malicious, abusive, or out-of-domain.
     """
-    norm = _strip_accents(f"{filename} {text}")
-    bad = _MALICIOUS_OR_UNSAFE_DOC_RE.search(norm)
+    full_norm = _strip_accents(f"{filename} {text}")
+    bad = _MALICIOUS_OR_UNSAFE_DOC_RE.search(full_norm)
     if bad:
         raise ValueError(
             "Document refusé par la charte de sécurité FreeData.AI : contenu inapproprié, illicite ou malveillant détecté."
         )
-    matches = {m.group(0).lower() for m in _DOMAIN_VOCAB_RE.finditer(norm)}
-    if len(matches) < 1:
+
+    body_norm = _strip_accents(text)
+    body_words = re.findall(r"[a-z0-9]{2,}", body_norm)
+    body_matches = [m.group(0).lower() for m in _DOMAIN_VOCAB_RE.finditer(body_norm)]
+    distinct_terms = sorted(set(body_matches))
+    word_count = max(1, len(body_words))
+    density = len(body_matches) / word_count
+
+    # Require at least 2 distinct domain terms in the document body, and for longer texts (>= 60 words)
+    # require a minimum topical density (>= 2.5%) or >= 4 distinct domain terms to reject mixed-domain noise.
+    if len(distinct_terms) < 2 or (word_count >= 60 and density < 0.025 and len(distinct_terms) < 4):
         raise ValueError(
-            "Document hors périmètre FreeData.AI : veuillez importer uniquement des documents professionnels liés "
-            "à l'agriculture, au négoce, à la logistique/transport, à la finance/microfinance, aux études de marché "
-            "ou à l'économie au Tchad/Sahel."
+            "Document hors périmètre FreeData.AI : le contenu du document ne présente pas suffisamment "
+            "d'éléments liés à l'agriculture, au négoce, à la logistique/transport, à la finance/microfinance, "
+            "aux études de marché ou à l'économie au Tchad/Sahel."
         )
     return {
         "domain_valid": True,
-        "matched_domain_terms": sorted(matches)[:15],
+        "matched_domain_terms": distinct_terms[:15],
+        "domain_density": round(density, 4),
     }
 
 
@@ -189,20 +206,61 @@ def extract_text_from_bytes(filename: str, content_bytes: bytes) -> tuple[str, i
     return cleaned, page_count
 
 
-def chunk_document_text(text: str, *, chunk_size: int = 1000, overlap: int = 180, max_chunks: int = 80) -> list[str]:
-    """Splits document text into overlapping chunks capped at `max_chunks` to control token/embedding costs."""
+def chunk_document_text_with_meta(
+    text: str,
+    *,
+    chunk_size: int = 1000,
+    overlap: int = 180,
+    max_chunks: int = 80,
+    chunk_offset: int = 0,
+) -> dict[str, Any]:
+    """Splits document text into overlapping chunks with explicit truncation/progressive-indexing metadata."""
     cleaned = " ".join((text or "").split())
     if not cleaned:
-        return []
-    chunks: list[str] = []
+        return {
+            "chunks": [],
+            "total_chunks": 0,
+            "indexed_chunks": 0,
+            "chunk_offset": max(0, int(chunk_offset)),
+            "truncated": False,
+            "coverage_pct": 100.0,
+            "next_offset": None,
+        }
+    step = max(1, chunk_size - overlap)
+    all_chunks: list[str] = []
     start = 0
-    while start < len(cleaned) and len(chunks) < max_chunks:
+    while start < len(cleaned):
         end = start + chunk_size
-        chunks.append(cleaned[start:end])
+        all_chunks.append(cleaned[start:end])
         if end >= len(cleaned):
             break
-        start += max(1, chunk_size - overlap)
-    return chunks
+        start += step
+
+    total = len(all_chunks)
+    offset = max(0, min(int(chunk_offset), total))
+    selected = all_chunks[offset : offset + max(1, int(max_chunks))]
+    end_idx = offset + len(selected)
+    truncated = end_idx < total
+    coverage = round((end_idx / max(1, total)) * 100.0, 1)
+    return {
+        "chunks": selected,
+        "total_chunks": total,
+        "indexed_chunks": len(selected),
+        "chunk_offset": offset,
+        "truncated": truncated,
+        "coverage_pct": coverage,
+        "next_offset": end_idx if truncated else None,
+    }
+
+
+def chunk_document_text(text: str, *, chunk_size: int = 1000, overlap: int = 180, max_chunks: int = 80) -> list[str]:
+    """Splits document text into overlapping chunks capped at `max_chunks` to control token/embedding costs."""
+    return chunk_document_text_with_meta(
+        text,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        max_chunks=max_chunks,
+    )["chunks"]
 
 
 def compute_jina_embeddings(texts: list[str]) -> Optional[list[list[float]]]:
@@ -236,7 +294,7 @@ def compute_jina_embeddings(texts: list[str]) -> Optional[list[list[float]]]:
             all_vecs.extend(ordered)
         return all_vecs
     except Exception as exc:
-        logger.warning("Jina Embeddings unavailable, falling back to local hybrid vector/BM25: %s", exc)
+        logger.warning("Jina Embeddings unavailable, falling back to local hybrid vector/BM25: %s", redact_secrets(exc))
         return None
 
 
@@ -293,6 +351,9 @@ class UserDocumentStore:
                     size_bytes INTEGER NOT NULL,
                     page_count INTEGER NOT NULL DEFAULT 1,
                     chunks_count INTEGER NOT NULL DEFAULT 0,
+                    total_chunks INTEGER NOT NULL DEFAULT 0,
+                    indexing_status TEXT NOT NULL DEFAULT 'complete',
+                    content_hash TEXT,
                     embedding_provider TEXT NOT NULL DEFAULT 'local_hybrid',
                     created_at TEXT NOT NULL
                 );
@@ -316,7 +377,12 @@ class UserDocumentStore:
             # Migration douce (idempotente) pour bases existantes
             for stmt in (
                 "ALTER TABLE user_documents ADD COLUMN project_id TEXT",
+                "ALTER TABLE user_documents ADD COLUMN total_chunks INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE user_documents ADD COLUMN indexing_status TEXT NOT NULL DEFAULT 'complete'",
+                "ALTER TABLE user_documents ADD COLUMN content_hash TEXT",
                 "ALTER TABLE user_document_chunks ADD COLUMN project_id TEXT",
+                "CREATE INDEX IF NOT EXISTS idx_user_documents_owner_project ON user_documents(owner_id, project_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_user_doc_chunks_owner_project ON user_document_chunks(owner_id, project_id)",
             ):
                 try:
                     conn.execute(stmt)
@@ -335,8 +401,12 @@ class UserDocumentStore:
         project_id: Optional[str] = None,
         max_bytes: int = 2 * 1024 * 1024,
         max_docs: int = 10,
+        max_chunks: int = 40,
+        chunk_offset: int = 0,
     ) -> dict[str, Any]:
-        """Validates, extracts text, indexes chunks via Jina (or local fallback), and persists under `owner_id`."""
+        """Validates, extracts text, checks duplicates, indexes chunks via Jina (or local fallback),
+        and persists under `owner_id` (and optional `project_id`) with explicit truncation metadata.
+        """
         if not owner_id:
             raise PermissionError("Authentification requise pour téléverser un document.")
 
@@ -348,8 +418,34 @@ class UserDocumentStore:
             mime_type=mime_type,
             max_bytes=max_bytes,
         )
+
+        # Duplicate prevention per (owner_id, project_id, content_hash) on initial upload (chunk_offset == 0)
+        content_hash = hashlib.sha256(content_bytes).hexdigest()
+        if chunk_offset == 0:
+            with self._connect() as conn:
+                if clean_project_id:
+                    dup = conn.execute(
+                        "SELECT * FROM user_documents WHERE owner_id = ? AND project_id = ? AND content_hash = ?",
+                        (owner_id, clean_project_id, content_hash),
+                    ).fetchone()
+                else:
+                    dup = conn.execute(
+                        "SELECT * FROM user_documents WHERE owner_id = ? AND (project_id IS NULL OR project_id = '') AND content_hash = ?",
+                        (owner_id, content_hash),
+                    ).fetchone()
+                if dup:
+                    d = dict(dup)
+                    return {
+                        **d,
+                        "duplicate": True,
+                        "raw_binary_stored": False,
+                        "indexing_warning": (
+                            "Ce document identique est déjà indexé dans cet espace (doublon évité)."
+                        ),
+                    }
+
         existing = self.list_documents(owner_id)
-        if len(existing) >= max_docs:
+        if chunk_offset == 0 and len(existing) >= max_docs:
             raise OverflowError(
                 f"Limite de documents atteinte ({max_docs} documents max pour votre plan). Supprimez un document existant ou passez à PRO."
             )
@@ -357,12 +453,25 @@ class UserDocumentStore:
         text, page_count = extract_text_from_bytes(validation["filename"], content_bytes)
         domain_check = validate_document_domain_relevance(text, validation["filename"])
         extracted_params = extract_document_business_parameters(text)
-        text_chunks = chunk_document_text(text, max_chunks=40)
+        chunk_meta = chunk_document_text_with_meta(
+            text,
+            max_chunks=max_chunks,
+            chunk_offset=chunk_offset,
+        )
+        text_chunks = chunk_meta["chunks"]
         if not text_chunks:
             raise ValueError("Aucun segment de texte exploitable n'a pu être extrait.")
 
         jina_vecs = compute_jina_embeddings(text_chunks)
         emb_provider = "jina-embeddings-v3" if jina_vecs is not None else "local_hybrid_bm25"
+        indexing_status = "partial" if chunk_meta["truncated"] else "complete"
+        indexing_warning = (
+            f"Document volumineux : {chunk_meta['indexed_chunks']} segments indexés sur {chunk_meta['total_chunks']} "
+            f"({chunk_meta['coverage_pct']}%). L'indexation est partielle ; utilisez chunk_offset={chunk_meta['next_offset']} "
+            "pour poursuivre l'indexation progressive."
+            if chunk_meta["truncated"]
+            else None
+        )
 
         doc_id = f"DOC-{uuid.uuid4().hex[:12].upper()}"
         now = _utc_now_iso()
@@ -372,9 +481,10 @@ class UserDocumentStore:
                 """
                 INSERT INTO user_documents (
                     doc_id, owner_id, project_id, filename, extension, size_bytes,
-                    page_count, chunks_count, embedding_provider, created_at
+                    page_count, chunks_count, total_chunks, indexing_status, content_hash,
+                    embedding_provider, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc_id,
@@ -385,12 +495,16 @@ class UserDocumentStore:
                     validation["size_bytes"],
                     page_count,
                     len(text_chunks),
+                    int(chunk_meta["total_chunks"]),
+                    indexing_status,
+                    content_hash,
                     emb_provider,
                     now,
                 ),
             )
             for idx, piece in enumerate(text_chunks):
-                chunk_id = f"{doc_id}#{idx}"
+                abs_idx = int(chunk_meta["chunk_offset"]) + idx
+                chunk_id = f"{doc_id}#{abs_idx}"
                 # Compress float precision to 4 decimals to prevent database bloat while preserving >99.9% cosine accuracy
                 vec_json = (
                     json.dumps([round(float(v), 4) for v in jina_vecs[idx]], separators=(",", ":"))
@@ -404,7 +518,7 @@ class UserDocumentStore:
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (chunk_id, doc_id, owner_id, clean_project_id, idx, piece, vec_json, now),
+                    (chunk_id, doc_id, owner_id, clean_project_id, abs_idx, piece, vec_json, now),
                 )
 
         return {
@@ -416,6 +530,13 @@ class UserDocumentStore:
             "size_bytes": validation["size_bytes"],
             "page_count": page_count,
             "chunks_count": len(text_chunks),
+            "total_chunks": int(chunk_meta["total_chunks"]),
+            "truncated": bool(chunk_meta["truncated"]),
+            "coverage_pct": float(chunk_meta["coverage_pct"]),
+            "next_offset": chunk_meta["next_offset"],
+            "indexing_status": indexing_status,
+            "indexing_warning": indexing_warning,
+            "duplicate": False,
             "embedding_provider": emb_provider,
             "indirect_injection_filtered": validation["indirect_injection_filtered"],
             "domain_valid": domain_check["domain_valid"],
@@ -456,6 +577,22 @@ class UserDocumentStore:
                 (owner_id, doc_id),
             )
             return (cur.rowcount or 0) > 0
+
+    def delete_project_documents(self, owner_id: str, project_id: str) -> int:
+        """Explicit lifecycle cleanup: safely deletes all documents & chunks attached to a deleted project."""
+        if not owner_id or not project_id:
+            return 0
+        clean_pid = project_id.strip()[:80]
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM user_document_chunks WHERE owner_id = ? AND project_id = ?",
+                (owner_id, clean_pid),
+            )
+            cur = conn.execute(
+                "DELETE FROM user_documents WHERE owner_id = ? AND project_id = ?",
+                (owner_id, clean_pid),
+            )
+            return int(cur.rowcount or 0)
 
     def purge_owner(self, owner_id: str) -> int:
         if not owner_id:
@@ -587,10 +724,13 @@ class UserDocumentStore:
             else:
                 hybrid = 0.60 * bm25_norm + 0.40 * sem_cos
 
-            # Only apply a small base boost when the user explicitly asks about their document/PDF/contract
-            base_boost = (0.08 if len(parsed_chunks) <= 10 else 0.02) if explicit_doc_ref else 0.0
-            total_score = hybrid + base_boost
-            if explicit_doc_ref or total_score >= min_score:
+            # Phase 2A: Never disable minimum relevance blindly just because the user said "document/rapport".
+            # Only allow broad summary/overview retrieval ("résume mon document", "analyse mon contrat")
+            # when the user explicitly asks for an overview; specific factual queries must meet a relevance floor.
+            is_overview_query = explicit_doc_ref and bool(_DOC_OVERVIEW_INTENT_RE.search(q_clean))
+            effective_floor = 0.05 if is_overview_query else (0.18 if explicit_doc_ref else min_score)
+            total_score = hybrid
+            if total_score >= effective_floor:
                 scored.append((total_score, d, d["content"][:max_excerpt_chars]))
 
         scored.sort(key=lambda item: item[0], reverse=True)

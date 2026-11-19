@@ -1,0 +1,121 @@
+{
+  "ridge_price_regressor::v1": {
+    "model_id": "ridge_price_regressor",
+    "name": "ridge_price_regressor",
+    "model_name": "Ridge Price Forecaster (Causal Lags + Seasonality)",
+    "domain": "agriculture",
+    "algorithm": "RidgeRegression_L2",
+    "task_type": "forecasting",
+    "version": 1,
+    "description": "Prévision causale des prix agricoles (XAF/kg) avec lags 1-3 mois, MA3 et harmoniques saisonnières.",
+    "training_dataset_ref": "table_ml_forecasts",
+    "evaluation_dataset_ref": "chronological_holdout_30pct",
+    "dataset_provenance": {
+      "source": "WFP/FEWSNET Chad Markets",
+      "split": "chronological_70_30"
+    },
+    "training_date": null,
+    "saved_at_utc": "2026-11-19T18:43:55+00:00",
+    "lifecycle_status": "REGISTERED",
+    "deployment_status": "NOT_DEPLOYED",
+    "enabled": true,
+    "is_active_production": false,
+    "evaluation_metrics": {},
+    "metrics": {},
+    "configuration": {
+      "alphas": [
+        0.1,
+        1.0,
+        10.0
+      ],
+      "min_history": 8
+    },
+    "dependencies": [
+      "numpy",
+      "pandas"
+    ],
+    "last_execution_date": null,
+    "execution_count": 0,
+    "failure_count": 0,
+    "total_inference_latency_ms": 0.0,
+    "avg_inference_latency_ms": 0.0,
+    "last_error": null
+  },
+  "kmeans_market_clusterer::v1": {
+    "model_id": "kmeans_market_clusterer",
+    "name": "kmeans_market_clusterer",
+    "model_name": "K-Means Market Volatility & Price Clusterer",
+    "domain": "data_science",
+    "algorithm": "KMeans_Deterministic",
+    "task_type": "clustering",
+    "version": 1,
+    "description": "Segmentation déterministe des marchés tchadiens par niveau de prix et volatilité (CV%).",
+    "training_dataset_ref": "table_ml_forecasts",
+    "evaluation_dataset_ref": "inertia_silhouette_internal",
+    "dataset_provenance": {
+      "source": "WFP/FEWSNET Chad Markets",
+      "seed": 42
+    },
+    "training_date": null,
+    "saved_at_utc": "2026-11-19T18:43:55+00:00",
+    "lifecycle_status": "REGISTERED",
+    "deployment_status": "NOT_DEPLOYED",
+    "enabled": true,
+    "is_active_production": false,
+    "evaluation_metrics": {},
+    "metrics": {},
+    "configuration": {
+      "k": 3,
+      "max_iter": 30,
+      "seed": 42
+    },
+    "dependencies": [
+      "numpy",
+      "pandas"
+    ],
+    "last_execution_date": null,
+    "execution_count": 0,
+    "failure_count": 0,
+    "total_inference_latency_ms": 0.0,
+    "avg_inference_latency_ms": 0.0,
+    "last_error": null
+  },
+  "risk_grade_classifier::v1": {
+    "model_id": "risk_grade_classifier",
+    "name": "risk_grade_classifier",
+    "model_name": "Logistic Risk Grade Classifier (Credit Passport)",
+    "domain": "finance",
+    "algorithm": "LogisticRegression_L2",
+    "task_type": "classification",
+    "version": 1,
+    "description": "Classification du risque marché (grades C/D) à partir de la volatilité (CV%) et du drawdown.",
+    "training_dataset_ref": "table_ml_credit_passport",
+    "evaluation_dataset_ref": "credit_passport_validation",
+    "dataset_provenance": {
+      "source": "FreeData.AI Credit Passport Gold"
+    },
+    "training_date": null,
+    "saved_at_utc": "2026-11-19T18:43:55+00:00",
+    "lifecycle_status": "REGISTERED",
+    "deployment_status": "NOT_DEPLOYED",
+    "enabled": true,
+    "is_active_production": false,
+    "evaluation_metrics": {},
+    "metrics": {},
+    "configuration": {
+      "lr": 0.2,
+      "epochs": 300,
+      "l2": 0.05
+    },
+    "dependencies": [
+      "numpy",
+      "pandas"
+    ],
+    "last_execution_date": null,
+    "execution_count": 0,
+    "failure_count": 0,
+    "total_inference_latency_ms": 0.0,
+    "avg_inference_latency_ms": 0.0,
+    "last_error": null
+  }
+}
