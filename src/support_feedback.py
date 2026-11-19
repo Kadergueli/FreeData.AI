@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import sqlite3
+
+from src import db as _db
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,12 +20,17 @@ def _utc_now() -> str:
 class SupportFeedbackStore:
     """SQLite-backed store for user support tickets, structured feedback, and product analytics."""
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: Optional[str] = None, *, database_url: Optional[str] = None, schema: Optional[str] = None) -> None:
+        self._pg_url = _db.resolve_backend(db_path, database_url_override=database_url)
+        self._pg_schema = _db.validate_schema(schema) if schema else (_db.new_test_schema(db_path) if (self._pg_url and db_path) else _db.DEFAULT_SCHEMA)
         self.db_path = Path(db_path or os.getenv("FREEDATA_SUPPORT_DB_PATH", "data/freedata_support.db"))
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg_url:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
+        if self._pg_url:
+            return _db.pg_connect(self._pg_url, self._pg_schema)
         conn = sqlite3.connect(str(self.db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL;")
@@ -66,6 +73,8 @@ class SupportFeedbackStore:
                 CREATE INDEX IF NOT EXISTS idx_prod_events_name ON product_events (event_name, created_at DESC);
                 """
             )
+            if self._pg_url:
+                _db.harden_tables(conn)
 
     @staticmethod
     def _hash_user(owner_id: str) -> str:

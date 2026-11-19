@@ -6,6 +6,8 @@ import hmac
 import json
 import os
 import sqlite3
+
+from src import db as _db
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
@@ -117,12 +119,17 @@ class HmacJsonWebhookAdapter(PaymentProviderAdapter):
 class SubscriptionStore:
     """SQLite-backed subscription lifecycle, atomic quota consumption, usage metering, and audit log."""
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: Optional[str] = None, *, database_url: Optional[str] = None, schema: Optional[str] = None) -> None:
+        self._pg_url = _db.resolve_backend(db_path, database_url_override=database_url)
+        self._pg_schema = _db.validate_schema(schema) if schema else (_db.new_test_schema(db_path) if (self._pg_url and db_path) else _db.DEFAULT_SCHEMA)
         self.db_path = Path(db_path or os.getenv("FREEDATA_BILLING_DB_PATH", "data/freedata_billing.db"))
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg_url:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
+        if self._pg_url:
+            return _db.pg_connect(self._pg_url, self._pg_schema)
         conn = sqlite3.connect(str(self.db_path), timeout=15.0, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL;")
@@ -183,6 +190,8 @@ class SubscriptionStore:
                 );
                 """
             )
+            if self._pg_url:
+                _db.harden_tables(conn)
 
     def get_subscription(self, user_id: str) -> dict[str, Any]:
         now = _utc_now()

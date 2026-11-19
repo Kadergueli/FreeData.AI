@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import sqlite3
+
+from src import db as _db
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,16 +26,24 @@ class ProjectStore:
         self,
         db_path: Optional[str] = None,
         artifacts_dir: Optional[str] = None,
+        *,
+        database_url: Optional[str] = None,
+        schema: Optional[str] = None,
     ) -> None:
+        self._pg_url = _db.resolve_backend(db_path, database_url_override=database_url)
+        self._pg_schema = _db.validate_schema(schema) if schema else (_db.new_test_schema(db_path) if (self._pg_url and db_path) else _db.DEFAULT_SCHEMA)
         default_db = os.getenv("FREEDATA_PROJECT_DB_PATH", "data/freedata_projects.db")
         default_art = os.getenv("FREEDATA_ARTIFACTS_DIR", "data/artifacts")
         self.db_path = Path(db_path or default_db)
         self.artifacts_dir = Path(artifacts_dir or default_art)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg_url:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
+        if self._pg_url:
+            return _db.pg_connect(self._pg_url, self._pg_schema)
         conn = sqlite3.connect(str(self.db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
@@ -124,8 +134,14 @@ class ProjectStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_study_versions_study
                     ON study_versions (study_id, version_number DESC);
+                CREATE TABLE IF NOT EXISTS study_artifacts (
+                    version_id TEXT PRIMARY KEY REFERENCES study_versions (version_id) ON DELETE CASCADE,
+                    pdf BLOB NOT NULL
+                );
                 """
             )
+            if self._pg_url:
+                _db.harden_tables(conn)
 
     def create_project(
         self,
@@ -378,7 +394,10 @@ class ProjectStore:
                 )
 
             artifact_path: Optional[str] = None
-            if pdf_bytes is not None:
+            if pdf_bytes is not None and self._pg_url:
+                # Postgres : le PDF vit en base (le disque de Render est éphémère).
+                artifact_path = "db:"
+            elif pdf_bytes is not None:
                 owner_hash = hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:16]
                 owner_dir = self.artifacts_dir / owner_hash
                 owner_dir.mkdir(parents=True, exist_ok=True)
@@ -410,6 +429,8 @@ class ProjectStore:
                     now,
                 ),
             )
+            if artifact_path == "db:" and pdf_bytes is not None:
+                conn.execute("INSERT INTO study_artifacts (version_id, pdf) VALUES (?, ?)", (version_id, bytes(pdf_bytes)))
             conn.execute("UPDATE projects SET updated_at = ? WHERE project_id = ?", (now, project_id))
 
         return {
@@ -444,7 +465,7 @@ class ProjectStore:
                     "version_number": r["version_number"],
                     "generation_params": json.loads(r["generation_params_json"]),
                     "validation": json.loads(r["validation_result_json"]),
-                    "artifact_available": bool(art and Path(art).is_file()),
+                    "artifact_available": bool(art == "db:" or (art and Path(art).is_file())),
                     "created_at": r["created_at"],
                 })
             return out
@@ -458,6 +479,15 @@ class ProjectStore:
             if not row:
                 raise KeyError(f"Version introuvable : {study_id} v{version_number}")
             art = row["artifact_path"]
+            if art == "db:":
+                blob = conn.execute(
+                    "SELECT a.pdf FROM study_artifacts a JOIN study_versions v ON v.version_id = a.version_id "
+                    "WHERE v.owner_id = ? AND v.project_id = ? AND v.study_id = ? AND v.version_number = ?",
+                    (owner_id, project_id, study_id, version_number),
+                ).fetchone()
+                if not blob:
+                    raise FileNotFoundError(f"Artefact PDF manquant ou supprime pour {study_id} v{version_number}.")
+                return bytes(blob["pdf"])
             if not art or not Path(art).is_file():
                 raise FileNotFoundError(f"Artefact PDF manquant ou supprime pour {study_id} v{version_number}.")
             return Path(art).read_bytes()

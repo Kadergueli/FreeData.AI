@@ -50,3 +50,19 @@ firebase deploy --only hosting
 - **Backup**: Back up `FREEDATA_PROJECT_DB_PATH` (SQLite `.backup` or persistent disk snapshot) and `FREEDATA_ARTIFACTS_DIR` daily.
 - **Rollback**: Redeploy previous Render commit (`git revert` + `git push origin main`) and `firebase hosting:rollback` if needed.
 
+
+
+## Persistance PostgreSQL (Supabase) — recommandé en production
+
+Le disque de Render (offre gratuite) est éphémère : sans base externe, projets, abonnements, tickets, journaux admin
+et PDF d'études sont perdus à chaque redéploiement/redémarrage.
+
+1. Supabase > **Connect** > **Session pooler** : copier l'URL (Render n'a pas d'IPv6, la connexion directe échoue).
+2. Render > Environment : `SUPABASE_DB_URL=<URL>` (déjà utilisée pour lire les tables Gold ; le même rôle sert ici).
+3. Redéployer. Au démarrage l'API crée le schéma privé `freedata_app` (RLS activée, aucun droit pour `anon`/`authenticated`,
+   schéma non exposé par l'API REST). Voir `sql/13_app_private_schema.sql` pour les vérifications.
+4. Les PDF d'études sont stockés en base (`study_artifacts`) ; plus besoin de `FREEDATA_ARTIFACTS_DIR` persistant.
+
+Sans `SUPABASE_DB_URL`, le comportement SQLite reste inchangé (développement local, tests). Les données SQLite existantes
+ne sont pas migrées automatiquement (sur Render elles n'existent plus après redéploiement). `POST /api/v1/admin/backup`
+ne sauvegarde que les fichiers SQLite ; en mode Postgres, utiliser les sauvegardes/PITR de Supabase.

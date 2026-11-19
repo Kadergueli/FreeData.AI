@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+
+from src import db as _db
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,12 +41,17 @@ def _utc_now() -> str:
 class AdminService:
     """SQLite-backed RBAC, account suspension, model availability flags, and admin audit logs."""
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: Optional[str] = None, *, database_url: Optional[str] = None, schema: Optional[str] = None) -> None:
+        self._pg_url = _db.resolve_backend(db_path, database_url_override=database_url)
+        self._pg_schema = _db.validate_schema(schema) if schema else (_db.new_test_schema(db_path) if (self._pg_url and db_path) else _db.DEFAULT_SCHEMA)
         self.db_path = Path(db_path or os.getenv("FREEDATA_ADMIN_DB_PATH", "data/freedata_admin.db"))
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._pg_url:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
+        if self._pg_url:
+            return _db.pg_connect(self._pg_url, self._pg_schema)
         conn = sqlite3.connect(str(self.db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL;")
@@ -78,6 +85,8 @@ class AdminService:
                 );
                 """
             )
+            if self._pg_url:
+                _db.harden_tables(conn)
 
     @staticmethod
     def check_permission(role: str, permission: str) -> None:
