@@ -116,6 +116,65 @@ class _AdminScreenState extends State<AdminScreen> {
     return AppColors.ink;
   }
 
+  Future<void> _showModelCompareDialog(String modelId) async {
+    try {
+      final res =
+          await widget.apiService.compareAdminMlModelVersions(_token, modelId);
+      if (!mounted) return;
+      final versions = (res['versions'] as List? ?? []).cast<Map>();
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Versions ML — $modelId'),
+          content: SizedBox(
+            width: 480,
+            child: versions.isEmpty
+                ? const Text('Aucune version enregistrée.')
+                : SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: versions.map((v) {
+                        final ev = v['evaluation_metrics'] is Map
+                            ? (v['evaluation_metrics'] as Map)
+                            : const {};
+                        final metricsStr = ev.isEmpty
+                            ? 'Aucune métrique enregistrée'
+                            : ev.entries
+                                .map((e) => '${e.key}=${e.value}')
+                                .join(' · ');
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            'v${v['version']} · ${v['lifecycle_status']} '
+                            '${v['is_active_production'] == true ? '(ACTIF PROD)' : ''}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            'Algo: ${v['algorithm'] ?? '—'} · Dataset: ${v['training_dataset_ref'] ?? '—'}\n'
+                            'Métriques: $metricsStr\n'
+                            'Exécutions: ${v['execution_count'] ?? 0} · Échecs: ${v['failure_count'] ?? 0}',
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
   Future<void> _runAction(Future<void> Function() action, String okMsg) async {
     try {
       await action();
@@ -326,6 +385,11 @@ class _AdminScreenState extends State<AdminScreen> {
                   onSelected: (_) => setState(() => _tab = 0),
                 ),
                 ChoiceChip(
+                  label: const Text('Centre IA'),
+                  selected: _tab == 4,
+                  onSelected: (_) => setState(() => _tab = 4),
+                ),
+                ChoiceChip(
                   label: Text('Utilisateurs (${_users.length})'),
                   selected: _tab == 1,
                   onSelected: (_) => setState(() => _tab = 1),
@@ -378,6 +442,23 @@ class _AdminScreenState extends State<AdminScreen> {
                         if ((metrics['document_indexing_requests'] ?? 0) > 0)
                           _kpiPill('Indexations docs',
                               '${metrics['document_indexing_requests']}'),
+                        if (_overview!['deployment_info'] is Map)
+                          _kpiPill(
+                            'Environnement',
+                            '${(_overview!['deployment_info'] as Map)['environment'] ?? '—'}'
+                                '${(_overview!['deployment_info'] as Map)['git_commit'] != null ? ' (${(_overview!['deployment_info'] as Map)['git_commit']})' : ''}',
+                            color: AppColors.blue,
+                          ),
+                        if (_overview!['storage_summary'] is Map)
+                          _kpiPill(
+                            'Persistance DB',
+                            '${(_overview!['storage_summary'] as Map)['persistence_backend'] ?? '—'}',
+                          ),
+                        if (_overview!['background_jobs_summary'] is Map)
+                          _kpiPill(
+                            'Jobs PDF',
+                            '${(_overview!['background_jobs_summary'] as Map)['total_tracked_jobs'] ?? 0} suivis',
+                          ),
                       ],
                     ),
                     if (metrics['error_categories'] is Map) ...[
@@ -809,6 +890,249 @@ class _AdminScreenState extends State<AdminScreen> {
                   ],
                 ),
               ),
+            ],
+            if (_tab == 4) ...[
+              Builder(builder: (_) {
+                final ds = _overview!['domains_summary'] is Map
+                    ? _overview!['domains_summary'] as Map
+                    : const {};
+                final domList = (ds['domains'] as List? ?? []).cast<Map>();
+                final ms = _overview!['ml_registry_summary'] is Map
+                    ? _overview!['ml_registry_summary'] as Map
+                    : const {};
+                final mlModels =
+                    (_overview!['ml_models'] as List? ?? []).cast<Map>();
+                final canManage = _hasPerm('manage_models');
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FDCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Domaines IA (${ds['active_domains'] ?? 0} / ${ds['total_domains'] ?? domList.length} actifs)',
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.ink),
+                          ),
+                          const SizedBox(height: 8),
+                          if (domList.isEmpty)
+                            const Text('Aucun domaine remonté par le backend.',
+                                style: TextStyle(color: AppColors.muted))
+                          else
+                            ...domList.map((d) {
+                              final domId = (d['domain_id'] ?? '').toString();
+                              final isActive = d['active'] != false;
+                              final tier =
+                                  (d['required_tier'] ?? 'free').toString();
+                              final usage = d['usage_count'] ?? 0;
+                              final models =
+                                  (d['ml_models'] as List? ?? []).join(', ');
+                              return SwitchListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  '${d['label_fr'] ?? domId} ($domId)',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                subtitle: Text(
+                                  'Tier: $tier · Usages: $usage'
+                                  '${models.isNotEmpty ? ' · Modèles ML: $models' : ''}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                value: isActive,
+                                onChanged: canManage
+                                    ? (val) => _runAction(
+                                          () => widget.apiService
+                                              .setAdminDomainStatus(
+                                            _token,
+                                            domId,
+                                            val,
+                                          ),
+                                          'Domaine $domId ${val ? 'activé' : 'désactivé'}.',
+                                        )
+                                    : null,
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FDCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Registre & Opérations Modèles ML',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink)),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _kpiPill(
+                                'Persistance ML',
+                                '${ms['persistence_backend'] ?? 'local_sqlite'}',
+                                color: AppColors.blue,
+                              ),
+                              _kpiPill(
+                                'Artefacts durables',
+                                '${ms['durable_artifacts_count'] ?? 0}',
+                              ),
+                              _kpiPill(
+                                'Chargés en RAM (LRU)',
+                                '${ms['loaded_count'] ?? 0} / ${ms['max_loaded_models'] ?? 4}',
+                              ),
+                              _kpiPill(
+                                'Exécutions',
+                                '${ms['total_executions'] ?? 0}',
+                              ),
+                              _kpiPill(
+                                'Échecs',
+                                '${ms['total_failures'] ?? 0}',
+                                color: (ms['total_failures'] ?? 0) == 0
+                                    ? AppColors.green
+                                    : AppColors.danger,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (mlModels.isEmpty)
+                            const Text('Aucun modèle ML enregistré.',
+                                style: TextStyle(color: AppColors.muted))
+                          else
+                            ...mlModels.map((m) {
+                              final modelId =
+                                  (m['model_id'] ?? m['name'] ?? '').toString();
+                              final ver = (m['version'] is int)
+                                  ? m['version'] as int
+                                  : int.tryParse('${m['version']}') ?? 1;
+                              final status =
+                                  (m['lifecycle_status'] ?? 'REGISTERED')
+                                      .toString();
+                              final isActiveProd =
+                                  m['is_active_production'] == true;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.canvas,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: AppColors.line),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '$modelId v$ver (${m['algorithm'] ?? '—'})',
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 13.5),
+                                            ),
+                                          ),
+                                          Text(
+                                            isActiveProd
+                                                ? '$status · ACTIF PROD'
+                                                : status,
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: _statusColor(
+                                                  status == 'DEPLOYED'
+                                                      ? 'CONNECTED'
+                                                      : status),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Domaine: ${m['domain'] ?? '—'} · Tâche: ${m['task_type'] ?? '—'} · Dataset: ${m['training_dataset_ref'] ?? '—'}',
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.muted),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 6,
+                                        children: [
+                                          OutlinedButton(
+                                            onPressed: () =>
+                                                _showModelCompareDialog(
+                                                    modelId),
+                                            child: const Text('Comparer'),
+                                          ),
+                                          if (canManage && !isActiveProd)
+                                            ElevatedButton(
+                                              onPressed: () => _runAction(
+                                                () => widget.apiService
+                                                    .transitionAdminMlModelStatus(
+                                                  _token,
+                                                  modelId,
+                                                  version: ver,
+                                                  lifecycleStatus: 'DEPLOYED',
+                                                  setActive: true,
+                                                  enabled: true,
+                                                ),
+                                                'Modèle $modelId v$ver déployé en production.',
+                                              ),
+                                              child: const Text('Déployer'),
+                                            ),
+                                          if (canManage && isActiveProd)
+                                            TextButton(
+                                              onPressed: () => _runAction(
+                                                () => widget.apiService
+                                                    .transitionAdminMlModelStatus(
+                                                  _token,
+                                                  modelId,
+                                                  version: ver,
+                                                  lifecycleStatus: 'DEPRECATED',
+                                                  setActive: false,
+                                                ),
+                                                'Modèle $modelId v$ver déprécié.',
+                                              ),
+                                              child: const Text('Déprécier',
+                                                  style: TextStyle(
+                                                      color: AppColors.danger)),
+                                            ),
+                                          if (canManage && ver > 1)
+                                            OutlinedButton(
+                                              onPressed: () => _runAction(
+                                                () => widget.apiService
+                                                    .rollbackAdminMlModel(
+                                                  _token,
+                                                  modelId,
+                                                  targetVersion: ver - 1,
+                                                ),
+                                                'Rollback $modelId vers v${ver - 1} effectué.',
+                                              ),
+                                              child: Text(
+                                                  'Rollback → v${ver - 1}'),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }),
             ],
             if (_tab == 1) ...[
               FDCard(

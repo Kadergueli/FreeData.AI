@@ -932,6 +932,106 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> setAdminDomainStatus(
+    String adminToken,
+    String domainId,
+    bool active, {
+    String reason = 'Admin AI Control Center',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/domains/$domainId/status');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'active': active, 'reason': reason}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(
+        resp.statusCode, _extractErrorDetail(resp, 'Erreur statut domaine IA'));
+  }
+
+  Future<Map<String, dynamic>> transitionAdminMlModelStatus(
+    String adminToken,
+    String modelId, {
+    required int version,
+    required String lifecycleStatus,
+    bool setActive = false,
+    bool? enabled,
+    String reason = 'Admin AI Control Center',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/models/$modelId/status');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'version': version,
+            'lifecycle_status': lifecycleStatus,
+            'set_active': setActive,
+            if (enabled != null) 'enabled': enabled,
+            'reason': reason,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur mise à jour modèle ML'));
+  }
+
+  Future<Map<String, dynamic>> rollbackAdminMlModel(
+    String adminToken,
+    String modelId, {
+    required int targetVersion,
+    String reason = 'Admin rollback',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/models/$modelId/rollback');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'target_version': targetVersion, 'reason': reason}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur rollback modèle ML'));
+  }
+
+  Future<Map<String, dynamic>> compareAdminMlModelVersions(
+    String adminToken,
+    String modelId,
+  ) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/ai/models/$modelId/compare');
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur comparaison versions ML'));
+  }
+
   Future<Map<String, dynamic>> triggerAdminBackup(String adminToken) async {
     final uri = Uri.parse('$baseUrl/api/v1/admin/backup');
     final resp = await _client.post(uri, headers: {
