@@ -29,6 +29,7 @@ class FDTheme {
   static const dangerBorder = AppColors.dangerBorder;
   static const warning = AppColors.warning;
   static const warningDark = AppColors.warningDark;
+  static const shadow = AppColors.shadow;
 
   static ThemeData light() => AppTheme.light();
 }
