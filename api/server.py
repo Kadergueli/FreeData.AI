@@ -686,21 +686,42 @@ _CONVERSATION_STORE: Optional[ConversationStore] = None
 def get_subscription_store() -> SubscriptionStore:
     global _SUBSCRIPTION_STORE
     if _SUBSCRIPTION_STORE is None:
-        _SUBSCRIPTION_STORE = SubscriptionStore()
+        try:
+            _SUBSCRIPTION_STORE = SubscriptionStore()
+        except Exception as exc:
+            logger.exception("Échec connexion SubscriptionStore (vérifier SUPABASE_DB_URL) : %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Base de données applicative indisponible (vérifiez SUPABASE_DB_URL sur Render) : {type(exc).__name__}",
+            ) from exc
     return _SUBSCRIPTION_STORE
 
 
 def get_auth_store() -> AuthStore:
     global _AUTH_STORE
     if _AUTH_STORE is None:
-        _AUTH_STORE = AuthStore()
+        try:
+            _AUTH_STORE = AuthStore()
+        except Exception as exc:
+            logger.exception("Échec connexion AuthStore (vérifier SUPABASE_DB_URL) : %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Base de données des comptes indisponible (vérifiez SUPABASE_DB_URL sur Render) : {type(exc).__name__}",
+            ) from exc
     return _AUTH_STORE
 
 
 def get_conversation_store() -> ConversationStore:
     global _CONVERSATION_STORE
     if _CONVERSATION_STORE is None:
-        _CONVERSATION_STORE = ConversationStore()
+        try:
+            _CONVERSATION_STORE = ConversationStore()
+        except Exception as exc:
+            logger.exception("Échec connexion ConversationStore (vérifier SUPABASE_DB_URL) : %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Base de données des conversations indisponible (vérifiez SUPABASE_DB_URL sur Render) : {type(exc).__name__}",
+            ) from exc
     return _CONVERSATION_STORE
 
 

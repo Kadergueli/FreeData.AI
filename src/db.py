@@ -139,7 +139,7 @@ def _get_pool(url: str, schema: str):
             )
             maxconn = max(2, int(os.getenv("DB_POOL_MAX", "8")))
             pool = ThreadedConnectionPool(
-                1, maxconn, dsn=url, connect_timeout=10, options=f"-c search_path={schema},public"
+                1, maxconn, dsn=url, connect_timeout=10
             )
             _POOLS[key] = pool
         return pool
@@ -147,10 +147,14 @@ def _get_pool(url: str, schema: str):
 
 class PgConnection:
     def __init__(self, url: str, schema: str) -> None:
+        validate_schema(schema)
         self._pool = _get_pool(url, schema)
         self._conn = self._pool.getconn()
         self._released = False
         self._conn.autocommit = False
+        with self._conn.cursor() as cur:
+            cur.execute(f'SET search_path TO "{schema}", public')
+        self._conn.commit()
 
     # --- API compatible sqlite3 -------------------------------------------------
     def execute(self, sql: str, params: Iterable[Any] = ()) -> PgCursor:
