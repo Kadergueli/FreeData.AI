@@ -9,7 +9,7 @@ import '../widgets/auth_dialog.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   final ApiService apiService;
-  final VoidCallback? onConfigureKey;
+  final Future<void> Function()? onConfigureKey;
 
   const SubscriptionScreen(
       {super.key, required this.apiService, this.onConfigureKey});
@@ -33,10 +33,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _amountCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
 
+  String _lastLoadedKey = '';
+
   @override
   void initState() {
     super.initState();
+    _lastLoadedKey = widget.apiService.activePremiumKey;
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SubscriptionScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_lastLoadedKey != widget.apiService.activePremiumKey) {
+      _lastLoadedKey = widget.apiService.activePremiumKey;
+      _load();
+    }
   }
 
   @override
@@ -242,7 +254,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           FDPrimaryButton(
                             label: 'Clé PRO',
                             icon: Icons.vpn_key_outlined,
-                            onPressed: widget.onConfigureKey,
+                            onPressed: widget.onConfigureKey == null
+                                ? null
+                                : () async {
+                                    await widget.onConfigureKey!();
+                                    if (mounted) {
+                                      _lastLoadedKey =
+                                          widget.apiService.activePremiumKey;
+                                      await _load();
+                                    }
+                                  },
                           ),
                         ],
                       ),
