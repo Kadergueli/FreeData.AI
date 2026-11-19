@@ -136,13 +136,18 @@ class AuthStore:
             ).fetchone()
             if existing:
                 raise FileExistsError("Un compte existe déjà avec cette adresse e-mail.")
-            conn.execute(
-                """
-                INSERT INTO user_accounts (user_id, email, display_name, password_hash, password_salt, status, created_at, last_login_at)
-                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-                """,
-                (user_id, norm_email, clean_name, pw_hash, salt_hex, now, now),
-            )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO user_accounts (user_id, email, display_name, password_hash, password_salt, status, created_at, last_login_at)
+                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                    """,
+                    (user_id, norm_email, clean_name, pw_hash, salt_hex, now, now),
+                )
+            except Exception as exc:  # inscription simultanée : la contrainte UNIQUE(email) gagne -> 409, pas 500
+                if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+                    raise FileExistsError("Un compte existe déjà avec cette adresse e-mail.") from exc
+                raise
             row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (user_id,)).fetchone()
         return self._public_user(row)
 

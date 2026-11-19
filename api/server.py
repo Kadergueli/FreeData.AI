@@ -816,17 +816,37 @@ def get_project_store() -> ProjectStore:
 
 
 _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
+_ACCOUNT_ID_RE = re.compile(r"^u[0-9a-f]{32}$")
 
 
 def _assert_not_suspended(owner_id: Optional[str]) -> None:
     if not owner_id:
         return
-    if _ADMIN_SERVICE is not None and _ADMIN_SERVICE.is_user_suspended(owner_id):
-        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
-    if _AUTH_STORE is not None and owner_id.startswith("user:"):
-        u = _AUTH_STORE.get_user(owner_id)
+    msg = "Compte suspendu par l'administrateur. Contactez le support."
+    # Le service est instancié à la demande : s'appuyer sur `_ADMIN_SERVICE` (None après un redémarrage)
+    # laissait les comptes suspendus actifs jusqu'au premier appel d'une route admin.
+    try:
+        if get_admin_service().is_user_suspended(owner_id):
+            raise HTTPException(status_code=403, detail=msg)
+    except HTTPException:
+        raise
+    except Exception as exc:  # base admin indisponible : ne pas bloquer tout le trafic
+        logger.warning("Vérification de suspension (admin_accounts) impossible : %s", exc)
+    if owner_id.startswith("user:"):
+        try:
+            u = get_auth_store().get_user(owner_id)
+        except HTTPException:
+            u = None
         if u and u.get("status") == "suspended":
-            raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+            raise HTTPException(status_code=403, detail=msg)
+
+
+def _is_registered_account_id(uid: str) -> bool:
+    """True si `uid` est l'identifiant d'un compte enregistré (donc protégé par mot de passe / jeton Bearer)."""
+    try:
+        return get_auth_store().get_user(uid) is not None
+    except Exception:
+        return False
 
 
 def _resolve_owner_id_optional(
@@ -840,8 +860,12 @@ def _resolve_owner_id_optional(
         tok = authorization.split(" ", 1)[1].strip()
         sub = verify_signed_user_token(tok, auth_secret)
         if sub:
-            if _AUTH_STORE is not None and _AUTH_STORE.is_token_revoked(tok):
+            auth_store = get_auth_store()
+            if auth_store.is_token_revoked(tok):
                 raise HTTPException(status_code=401, detail="Session révoquée. Veuillez vous reconnecter.")
+            # Compte supprimé : un jeton encore valide ne doit plus ouvrir d'espace (identifiants émis par /auth/*).
+            if _ACCOUNT_ID_RE.fullmatch(sub) and auth_store.get_user(sub) is None:
+                raise HTTPException(status_code=401, detail="Compte introuvable ou supprimé. Veuillez vous reconnecter.")
             owner = f"user:{sub}"
             _assert_not_suspended(owner)
             return owner
@@ -854,7 +878,9 @@ def _resolve_owner_id_optional(
     # En mode strict (REQUIRE_SIGNED_USER_AUTH=1), un en-tête X-User-Id non signé ne doit JAMAIS
     # permettre d'usurper l'espace `user:<uid>` d'un autre utilisateur, même avec une clé PRO partagée.
     if not require_signed and strong:
-        owner = f"user:{uid}"
+        # L'identifiant d'un compte enregistré n'est PAS un secret : sans jeton Bearer il ne donne accès qu'à un
+        # espace anonyme distinct (`anon:`), jamais aux données du compte (usurpation par X-User-Id).
+        owner = f"anon:{uid}" if _is_registered_account_id(uid) else f"user:{uid}"
         _assert_not_suspended(owner)
         return owner
     if not require_signed and uid and settings.allow_weak_user_id and len(uid) >= 3:
