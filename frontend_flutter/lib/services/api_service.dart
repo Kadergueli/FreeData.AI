@@ -769,7 +769,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getBillingPlans() async {
     final uri = Uri.parse('$baseUrl/api/v1/billing/plans');
-    final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
@@ -780,9 +780,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getMyBilling() async {
     final uri = Uri.parse('$baseUrl/api/v1/billing/me');
-    final resp = await _client
-        .get(uri, headers: _projectHeaders())
-        .timeout(const Duration(seconds: 20));
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
     if (resp.statusCode == 200) {
       final data = Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);

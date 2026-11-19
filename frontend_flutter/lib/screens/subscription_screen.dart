@@ -217,9 +217,35 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
-                  child: FDCard(
-                    child: Text(_error!,
-                        style: const TextStyle(color: AppColors.danger)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: FDCard(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.cloud_off_rounded,
+                                size: 32, color: AppColors.danger),
+                            const SizedBox(height: 10),
+                            Text(
+                              _error!.contains('TimeoutException')
+                                  ? 'Le serveur met plus de temps que prévu à répondre (démarrage en cours).'
+                                  : _error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 13.5, color: AppColors.ink),
+                            ),
+                            const SizedBox(height: 14),
+                            FDPrimaryButton(
+                              label: 'Réessayer',
+                              icon: Icons.refresh_rounded,
+                              onPressed: _load,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 )
               : ListView(
