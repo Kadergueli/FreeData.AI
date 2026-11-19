@@ -103,18 +103,40 @@ _MAX_LLM_REPLY_CHARS = 8000
 def _ungrounded_numbers(candidate: str, *sources: str) -> set[str]:
     """
     Retourne les nombres présents dans `candidate` mais absents des `sources`.
-    Autorise aussi les conversions arithmétiques directes depuis les sources (* 100 sac, * 1000 tonne).
+    Autorise aussi les conversions arithmétiques directes depuis les sources (* 100 sac, * 1000 tonne),
+    les arrondis ±1 (ex. 245.6 -> 246), ainsi que les écarts/sommes simples entre deux valeurs sources
+    (ex. marge brute = prix vente - prix achat).
     """
     base_allowed: set[str] = set()
     for s in sources:
         if s:
             base_allowed |= _numbers_in(s)
     allowed = set(base_allowed)
+    int_vals: list[int] = []
     for num_str in base_allowed:
         if 2 <= len(num_str) <= 6 and num_str.isdigit():
             val = int(num_str)
+            int_vals.append(val)
             allowed.add(str(val * 100))
             allowed.add(str(val * 1000))
+            if val >= 10:
+                allowed.add(str(val - 1))
+                allowed.add(str(val + 1))
+
+    # Autoriser les écarts (différences absolues) et sommes directes entre paires de valeurs sources (plafonné pour rester O(1) rapide)
+    if 2 <= len(int_vals) <= 45:
+        for i in range(len(int_vals)):
+            a = int_vals[i]
+            for j in range(i + 1, len(int_vals)):
+                b = int_vals[j]
+                diff = abs(a - b)
+                if diff >= 10:
+                    allowed.add(str(diff))
+                    allowed.add(str(diff * 100))
+                summ = a + b
+                if summ >= 10:
+                    allowed.add(str(summ))
+
     return _numbers_in(candidate) - allowed
 
 
@@ -2884,20 +2906,43 @@ class FreeDataAIAgent(FormattersMixin):
 
         try:
             chat_url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
-            resp = requests.post(
-                chat_url,
-                headers={
-                    "Authorization": f"Bearer {settings.llm_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.llm_chat_model,
-                    "messages": messages,
-                    "temperature": 0.3,
-                    "max_tokens": 1500 if business_plan_blueprint else 750,
-                },
-                timeout=30 if business_plan_blueprint else 12,
-            )
+            headers = {
+                "Authorization": f"Bearer {settings.llm_api_key}",
+                "Content-Type": "application/json",
+            }
+            req_timeout = 35 if business_plan_blueprint else 20
+            max_toks = 1600 if business_plan_blueprint else 1100
+            model_attempts = [settings.llm_chat_model]
+            # Si le modèle principal Groq est en rate-limit (429/503), bascule automatique sur un modèle léger rapide
+            if (
+                "groq.com" in chat_url.lower()
+                and settings.llm_chat_model != "llama-3.1-8b-instant"
+            ):
+                model_attempts.append("llama-3.1-8b-instant")
+
+            resp = None
+            for attempt_idx, model_name in enumerate(model_attempts):
+                resp = requests.post(
+                    chat_url,
+                    headers=headers,
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "temperature": 0.3,
+                        "max_tokens": max_toks,
+                    },
+                    timeout=req_timeout,
+                )
+                if resp.status_code in (429, 502, 503, 504) and attempt_idx + 1 < len(model_attempts):
+                    logger.warning(
+                        "LLM %s returned HTTP %s, retrying with fallback model %s.",
+                        model_name,
+                        resp.status_code,
+                        model_attempts[attempt_idx + 1],
+                    )
+                    continue
+                break
+            assert resp is not None
             resp.raise_for_status()
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
@@ -3257,7 +3302,7 @@ class FreeDataAIAgent(FormattersMixin):
             or _OVERVIEW_RE.search(q_norm)
         )
         chat_mode = tier == "premium" and bool(settings.llm_api_key)
-        if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request and not private_chunks:
+        if _SMALLTALK_RE.search(q_norm) and len(q.split()) <= 10 and not has_domain_request:
             pure_greeting = not (
                 _SMALLTALK_HOW_RE.search(q_norm) or _SMALLTALK_IDENTITY_RE.search(q_norm) or _SMALLTALK_THANKS_RE.search(q_norm)
             )

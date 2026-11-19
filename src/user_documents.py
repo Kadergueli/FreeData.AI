@@ -69,6 +69,13 @@ _DOMAIN_VOCAB_RE = re.compile(
 )
 
 
+_EXPLICIT_DOC_QUERY_RE = re.compile(
+    r"\b(?:document|pdf|fichier|contrat|devis|facture|rapport|dossier|etude|annexe|"
+    r"piece\s+jointe|televerse|uploade|importe|ce\s+texte|mon\s+tableau|mes\s+donnees)\b",
+    re.IGNORECASE,
+)
+
+
 def _strip_accents(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text or "")
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower()
@@ -442,9 +449,21 @@ class UserDocumentStore:
         *,
         top_k: int = 3,
         max_excerpt_chars: int = 440,
+        min_score: float = 0.25,
     ) -> list[dict[str, Any]]:
-        """Retrieves top-K chunks strictly belonging to `owner_id`, using Jina cosine + BM25 hybrid scoring."""
+        """Retrieves top-K chunks strictly belonging to `owner_id`, using Jina cosine + BM25 hybrid scoring.
+        Filters out low-relevance chunks (`score < min_score`) unless the user explicitly refers to their document.
+        """
         if not owner_id or not (query or "").strip():
+            return []
+
+        q_clean = _strip_accents(query)
+        explicit_doc_ref = bool(_EXPLICIT_DOC_QUERY_RE.search(q_clean))
+        # Skip unnecessary Jina/DB work on pure smalltalk greetings ("bonjour", "merci", "salut")
+        if not explicit_doc_ref and len(q_clean.split()) <= 3 and re.fullmatch(
+            r"(?:bonjour|bonsoir|salut|hello|hi|coucou|merci(?:\s+beaucoup)?|ok|d'accord|super|parfait|au\s+revoir)[!?. ]*",
+            q_clean,
+        ):
             return []
 
         with self._connect() as conn:
@@ -527,10 +546,11 @@ class UserDocumentStore:
             else:
                 hybrid = 0.60 * bm25_norm + 0.40 * sem_cos
 
-            # Always keep at least a tiny base score for the most recent chunks if the user asks "analyse mon document"
-            base_boost = 0.08 if len(parsed_chunks) <= 10 else 0.02
+            # Only apply a small base boost when the user explicitly asks about their document/PDF/contract
+            base_boost = (0.08 if len(parsed_chunks) <= 10 else 0.02) if explicit_doc_ref else 0.0
             total_score = hybrid + base_boost
-            scored.append((total_score, d, d["content"][:max_excerpt_chars]))
+            if explicit_doc_ref or total_score >= min_score:
+                scored.append((total_score, d, d["content"][:max_excerpt_chars]))
 
         scored.sort(key=lambda item: item[0], reverse=True)
         out: list[dict[str, Any]] = []

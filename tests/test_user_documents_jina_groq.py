@@ -251,3 +251,39 @@ def test_valid_domain_document_extracts_params_and_crosses_freedata_calculations
     assert "210.0 XAF/kg" in ans["reply"]
 
 
+def test_p1_smalltalk_and_unrelated_query_skip_private_doc_injection(tmp_path, monkeypatch):
+    doc_store = UserDocumentStore(db_path=str(tmp_path / "docs.db"))
+    # Simulate orthogonal Jina vectors (cosine = 0.0 for unrelated query)
+    def _fake_jina(texts):
+        return [[1.0, 0.0, 0.0, 0.0] if "salamat" in t.lower() else [0.0, 1.0, 0.0, 0.0] for t in texts]
+
+    monkeypatch.setattr("src.user_documents.compute_jina_embeddings", _fake_jina)
+    owner_id = "user:" + "u" + "g" * 32
+    doc_store.ingest_document(
+        owner_id,
+        filename="contrat_salamat.txt",
+        content_bytes="Contrat achat mil Salamat 450 sacs a 210 XAF/kg.".encode("utf-8"),
+        mime_type="text/plain",
+    )
+
+    # 1. Pure greeting ("Bonjour") must NOT retrieve the PDF and must NOT waste Jina tokens
+    assert doc_store.retrieve_for_owner(owner_id, "Bonjour") == []
+    # 2. Unrelated question with cosine=0 and BM25=0 must NOT inject the old PDF
+    assert doc_store.retrieve_for_owner(owner_id, "Quel est le prix du sorgho à Moundou ?") == []
+    # 3. Explicit document question MUST retrieve it
+    hits = doc_store.retrieve_for_owner(owner_id, "Résume mon contrat")
+    assert len(hits) == 1
+    assert hits[0]["filename"] == "contrat_salamat.txt"
+
+
+def test_p2_numbers_are_grounded_allows_rounding_and_margin_diff_but_blocks_hallucination():
+    from src.ai_agent import numbers_are_grounded
+
+    source = "Prix d'achat Salamat : 210 XAF/kg. Prix de vente N'Djamena : 290 XAF/kg."
+    # Margin diff = 290 - 210 = 80 (and per 100kg bag = 8000), rounding = 211 -> ALLOWED
+    assert numbers_are_grounded("L'écart est de 80 XAF/kg (soit 8 000 XAF par sac de 100 kg), autour de 211 XAF.", source)
+    # Hallucinated price 945 XAF/kg -> STILL BLOCKED
+    assert not numbers_are_grounded("Le prix prévu est de 945 XAF/kg.", source)
+
+
+
