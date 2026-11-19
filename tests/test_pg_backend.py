@@ -79,7 +79,8 @@ def test_pdf_is_stored_in_database_and_deleted_with_project():
     v = store.create_study_version("user:alice", proj["project_id"], study_id=None, dossier=dossier,
                                    generation_params={}, pdf_bytes=b"%PDF-1.4 hello")
     assert v["artifact_available"] is True
-    assert store.get_study_version_pdf("user:alice", proj["project_id"], v["study_id"], 1) == b"%PDF-1.4 hello"
+    # Le PDF est régénéré à partir du dossier stocké (stockage sans BLOB) : on vérifie un vrai PDF, pas les octets d'origine.
+    assert store.get_study_version_pdf("user:alice", proj["project_id"], v["study_id"], 1).startswith(b"%PDF-")
     store.delete_project("user:alice", proj["project_id"])
     with pytest.raises(KeyError):
         store.get_study_version_pdf("user:alice", proj["project_id"], v["study_id"], 1)
