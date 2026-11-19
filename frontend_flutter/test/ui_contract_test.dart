@@ -25,7 +25,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('ExploreScreen exposes the real market metadata catalog', (tester) async {
+  testWidgets('ExploreScreen exposes the real market metadata catalog',
+      (tester) async {
     final metadata = {
       'active_domain': {
         'slug': 'markets_and_prices',
@@ -33,8 +34,16 @@ void main() {
         'description': 'Catalogue exploitable des marchés et produits.',
       },
       'domains': [
-        {'slug': 'markets_and_prices', 'label': 'Marchés et prix des produits', 'description': 'Opérationnel'},
-        {'slug': 'agriculture', 'label': 'Agriculture', 'description': 'En préparation'},
+        {
+          'slug': 'markets_and_prices',
+          'label': 'Marchés et prix des produits',
+          'description': 'Opérationnel'
+        },
+        {
+          'slug': 'agriculture',
+          'label': 'Agriculture',
+          'description': 'En préparation'
+        },
       ],
       'products': ['Millet', 'Maïs'],
       'cereals': ['Millet'],
@@ -78,7 +87,8 @@ void main() {
     expect(find.text('Dates de mise à jour'), findsOneWidget);
   });
 
-  testWidgets('LibraryScreen shows the empty state and future feature cards', (tester) async {
+  testWidgets('LibraryScreen shows the empty state and future feature cards',
+      (tester) async {
     for (final size in [
       const Size(375, 812),
       const Size(430, 932),
@@ -110,7 +120,8 @@ void main() {
     expect(find.text('Stockage local'), findsOneWidget);
   });
 
-  testWidgets('LibraryScreen reads saved conversations from local storage', (tester) async {
+  testWidgets('LibraryScreen reads saved conversations from local storage',
+      (tester) async {
     final conversation = ChatConversation(
       id: 'conv-1',
       title: 'Test conversation',

@@ -60,7 +60,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _load() async {
-    final conversations = await LocalConversationStorage.instance.loadConversations(includeDeleted: true);
+    final conversations = await LocalConversationStorage.instance
+        .loadConversations(includeDeleted: true);
     if (!mounted) return;
     setState(() {
       _allConversations = conversations;
@@ -122,7 +123,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626)),
             child: const Text('Supprimer'),
           ),
         ],
@@ -162,7 +164,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Clipboard.setData(ClipboardData(text: buffer.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Export Markdown copié dans le presse-papiers pour "${conv.title}" (.md)'),
+        content: Text(
+            'Export Markdown copié dans le presse-papiers pour "${conv.title}" (.md)'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -194,7 +197,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (_searchQuery.isEmpty) return true;
       final q = _searchQuery.toLowerCase();
       final inTitle = c.title.toLowerCase().contains(q);
-      final inMessages = c.messages.any((m) => m.text.toLowerCase().contains(q));
+      final inMessages =
+          c.messages.any((m) => m.text.toLowerCase().contains(q));
       return inTitle || inMessages;
     }).toList();
 
@@ -207,7 +211,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(compact ? 18 : 32, 24, compact ? 18 : 32, 36),
+          padding:
+              EdgeInsets.fromLTRB(compact ? 18 : 32, 24, compact ? 18 : 32, 36),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1100),
@@ -227,7 +232,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.refresh_rounded, size: 22, color: Color(0xFF64748B)),
+                        icon: const Icon(Icons.refresh_rounded,
+                            size: 22, color: Color(0xFF64748B)),
                         tooltip: 'Rafraîchir',
                         onPressed: () {
                           _load();
@@ -250,15 +256,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   TextField(
                     controller: _searchController,
                     onChanged: (v) => setState(() => _searchQuery = v.trim()),
-                    style: const TextStyle(fontSize: 15.5, color: Color(0xFF0F172A)),
+                    style: const TextStyle(
+                        fontSize: 15.5, color: Color(0xFF0F172A)),
                     decoration: InputDecoration(
-                      hintText: 'Rechercher dans les conversations et analyses…',
-                      hintStyle: const TextStyle(fontSize: 15, color: Color(0xFF94A3B8)),
-                      prefixIcon: const Icon(Icons.search_rounded, size: 22, color: Color(0xFF64748B)),
+                      hintText:
+                          'Rechercher dans les conversations et analyses…',
+                      hintStyle: const TextStyle(
+                          fontSize: 15, color: Color(0xFF94A3B8)),
+                      prefixIcon: const Icon(Icons.search_rounded,
+                          size: 22, color: Color(0xFF64748B)),
                       suffixIcon: _searchQuery.isEmpty
                           ? null
                           : IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 20, color: Color(0xFF64748B)),
+                              icon: const Icon(Icons.close_rounded,
+                                  size: 20, color: Color(0xFF64748B)),
                               tooltip: 'Effacer la recherche',
                               onPressed: () {
                                 _searchController.clear();
@@ -267,7 +278,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
                         borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -288,18 +300,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           avatar: Icon(
                             Icons.chat_bubble_outline_rounded,
                             size: 16,
-                            color: (!_showTrash && !_filterSavedOnly) ? const Color(0xFF1D4ED8) : const Color(0xFF64748B),
+                            color: (!_showTrash && !_filterSavedOnly)
+                                ? const Color(0xFF1D4ED8)
+                                : const Color(0xFF64748B),
                           ),
-                          label: Text('Sauvegardes (${activeConversations.length})'),
+                          label: Text(
+                              'Sauvegardes (${activeConversations.length})'),
                           selected: !_showTrash && !_filterSavedOnly,
                           selectedColor: const Color(0xFFEFF6FF),
                           labelStyle: TextStyle(
-                            color: (!_showTrash && !_filterSavedOnly) ? const Color(0xFF1D4ED8) : const Color(0xFF334155),
+                            color: (!_showTrash && !_filterSavedOnly)
+                                ? const Color(0xFF1D4ED8)
+                                : const Color(0xFF334155),
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
                           onSelected: (val) => setState(() {
                             _showTrash = false;
                             _filterSavedOnly = false;
@@ -310,18 +329,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           avatar: Icon(
                             Icons.bookmark_rounded,
                             size: 16,
-                            color: (!_showTrash && _filterSavedOnly) ? const Color(0xFF1D4ED8) : const Color(0xFF64748B),
+                            color: (!_showTrash && _filterSavedOnly)
+                                ? const Color(0xFF1D4ED8)
+                                : const Color(0xFF64748B),
                           ),
                           label: Text('Favoris (${savedConversations.length})'),
                           selected: !_showTrash && _filterSavedOnly,
                           selectedColor: const Color(0xFFEFF6FF),
                           labelStyle: TextStyle(
-                            color: (!_showTrash && _filterSavedOnly) ? const Color(0xFF1D4ED8) : const Color(0xFF334155),
+                            color: (!_showTrash && _filterSavedOnly)
+                                ? const Color(0xFF1D4ED8)
+                                : const Color(0xFF334155),
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
                           onSelected: (val) => setState(() {
                             _showTrash = false;
                             _filterSavedOnly = true;
@@ -332,18 +357,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           avatar: Icon(
                             Icons.delete_outline_rounded,
                             size: 16,
-                            color: _showTrash ? const Color(0xFFDC2626) : const Color(0xFF64748B),
+                            color: _showTrash
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF64748B),
                           ),
-                          label: Text('Corbeille (${deletedConversations.length})'),
+                          label: Text(
+                              'Corbeille (${deletedConversations.length})'),
                           selected: _showTrash,
                           selectedColor: const Color(0xFFFEF2F2),
                           labelStyle: TextStyle(
-                            color: _showTrash ? const Color(0xFFDC2626) : const Color(0xFF64748B),
+                            color: _showTrash
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF64748B),
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
                           onSelected: (val) => setState(() {
                             _showTrash = true;
                             _filterSavedOnly = false;
@@ -354,16 +386,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 20),
                   if (_loading)
-                    const FDLoadingState(message: 'Chargement de la bibliothèque…')
+                    const FDLoadingState(
+                        message: 'Chargement de la bibliothèque…')
                   else if (displayedList.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       child: FDEmptyState(
-                        title: _showTrash ? 'Corbeille vide' : 'Aucune conversation enregistrée',
+                        title: _showTrash
+                            ? 'Corbeille vide'
+                            : 'Aucune conversation enregistrée',
                         subtitle: _showTrash
                             ? 'Les conversations mises à la corbeille peuvent être restaurées ici.'
                             : 'Les conversations sauvegardées apparaîtront ici une fois que vous aurez échangé avec l’IA.',
-                        icon: _showTrash ? Icons.delete_outline_rounded : Icons.history_rounded,
+                        icon: _showTrash
+                            ? Icons.delete_outline_rounded
+                            : Icons.history_rounded,
                       ),
                     )
                   else
@@ -373,11 +410,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
                           elevation: 0,
-                          color: isDeleted ? const Color(0xFFFFF7F7) : Colors.white,
+                          color: isDeleted
+                              ? const Color(0xFFFFF7F7)
+                              : Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                             side: BorderSide(
-                              color: isDeleted ? const Color(0xFFFECACA) : const Color(0xFFE2E8F0),
+                              color: isDeleted
+                                  ? const Color(0xFFFECACA)
+                                  : const Color(0xFFE2E8F0),
                               width: 1.2,
                             ),
                           ),
@@ -394,7 +435,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                             ? Icons.delete_outline_rounded
                                             : (conv.isSavedInLibrary
                                                 ? Icons.bookmark_rounded
-                                                : Icons.bookmark_border_rounded),
+                                                : Icons
+                                                    .bookmark_border_rounded),
                                         size: 20,
                                         color: isDeleted
                                             ? FDTheme.danger
@@ -402,10 +444,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                                 ? FDTheme.blue
                                                 : FDTheme.subtle),
                                       ),
-                                      tooltip: conv.isSavedInLibrary ? 'Retirer des favoris' : 'Enregistrer dans Library',
+                                      tooltip: conv.isSavedInLibrary
+                                          ? 'Retirer des favoris'
+                                          : 'Enregistrer dans Library',
                                       padding: const EdgeInsets.all(10),
-                                      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-                                      onPressed: isDeleted ? null : () => _toggleBookmark(conv.id),
+                                      constraints: const BoxConstraints(
+                                          minWidth: 44, minHeight: 44),
+                                      onPressed: isDeleted
+                                          ? null
+                                          : () => _toggleBookmark(conv.id),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
@@ -421,31 +468,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     ),
                                     if (!isDeleted) ...[
                                       IconButton(
-                                        icon: const Icon(Icons.download_rounded, size: 20, color: FDTheme.subtle),
+                                        icon: const Icon(Icons.download_rounded,
+                                            size: 20, color: FDTheme.subtle),
                                         tooltip: 'Exporter (.md)',
                                         padding: const EdgeInsets.all(10),
-                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                                        constraints: const BoxConstraints(
+                                            minWidth: 44, minHeight: 44),
                                         onPressed: () => _exportMarkdown(conv),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete_outline_rounded, size: 20, color: FDTheme.danger),
+                                        icon: const Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 20,
+                                            color: FDTheme.danger),
                                         tooltip: 'Mettre à la corbeille',
                                         padding: const EdgeInsets.all(10),
-                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                                        constraints: const BoxConstraints(
+                                            minWidth: 44, minHeight: 44),
                                         onPressed: () => _delete(conv.id),
                                       ),
                                     ] else ...[
                                       TextButton.icon(
                                         onPressed: () => _restore(conv.id),
-                                        icon: const Icon(Icons.restore_rounded, size: 18, color: FDTheme.green),
-                                        label: const Text('Restaurer', style: TextStyle(color: FDTheme.green, fontSize: 13, fontWeight: FontWeight.w600)),
+                                        icon: const Icon(Icons.restore_rounded,
+                                            size: 18, color: FDTheme.green),
+                                        label: const Text('Restaurer',
+                                            style: TextStyle(
+                                                color: FDTheme.green,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600)),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete_forever_rounded, size: 20, color: FDTheme.danger),
+                                        icon: const Icon(
+                                            Icons.delete_forever_rounded,
+                                            size: 20,
+                                            color: FDTheme.danger),
                                         tooltip: 'Supprimer définitivement',
                                         padding: const EdgeInsets.all(10),
-                                        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-                                        onPressed: () => _permanentlyDelete(conv.id),
+                                        constraints: const BoxConstraints(
+                                            minWidth: 44, minHeight: 44),
+                                        onPressed: () =>
+                                            _permanentlyDelete(conv.id),
                                       ),
                                     ],
                                   ],
@@ -467,19 +530,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                     Expanded(
                                       child: Text(
                                         '${conv.messages.length} message(s) · Modifié le ${conv.updatedAt.day.toString().padLeft(2, '0')}/${conv.updatedAt.month.toString().padLeft(2, '0')}/${conv.updatedAt.year}',
-                                        style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF94A3B8)),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (!isDeleted && widget.onOpenConversation != null)
+                                    if (!isDeleted &&
+                                        widget.onOpenConversation != null)
                                       TextButton.icon(
-                                        onPressed: () => widget.onOpenConversation!(conv.id),
-                                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                                        label: const Text('Ouvrir l’échange', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                                        onPressed: () =>
+                                            widget.onOpenConversation!(conv.id),
+                                        icon: const Icon(
+                                            Icons.arrow_forward_rounded,
+                                            size: 16),
+                                        label: const Text('Ouvrir l’échange',
+                                            style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w600)),
                                         style: TextButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 6),
                                           minimumSize: const Size(0, 36),
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
                                         ),
                                       ),
                                   ],
@@ -494,7 +568,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   // Cartes d'aide et statut
                   LayoutBuilder(
                     builder: (context, constraints) {
-                      final itemWidth = constraints.maxWidth < 700 ? constraints.maxWidth : (constraints.maxWidth - 16) / 2;
+                      final itemWidth = constraints.maxWidth < 700
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 16) / 2;
                       return Wrap(
                         spacing: 16,
                         runSpacing: 16,
@@ -507,12 +583,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 children: [
                                   const Row(
                                     children: [
-                                      Icon(Icons.insights_rounded, color: FDTheme.blue, size: 22),
+                                      Icon(Icons.insights_rounded,
+                                          color: FDTheme.blue, size: 22),
                                       SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
                                           'Analyses',
-                                          style: TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink, fontSize: 17),
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: FDTheme.ink,
+                                              fontSize: 17),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
@@ -521,13 +601,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   const SizedBox(height: 8),
                                   const Text(
                                     'Synthèses et comparaisons de prix extraites de vos échanges.',
-                                    style: TextStyle(fontSize: 14, color: FDTheme.muted, height: 1.5),
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: FDTheme.muted,
+                                        height: 1.5),
                                   ),
                                   const SizedBox(height: 12),
                                   FDBadge(
                                     label: 'DISPONIBLE EN LOCAL',
                                     color: FDTheme.green,
-                                    backgroundColor: FDTheme.green.withValues(alpha: 0.10),
+                                    backgroundColor:
+                                        FDTheme.green.withValues(alpha: 0.10),
                                   ),
                                 ],
                               ),
@@ -541,12 +625,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 children: [
                                   const Row(
                                     children: [
-                                      Icon(Icons.storage_rounded, color: FDTheme.blue, size: 22),
+                                      Icon(Icons.storage_rounded,
+                                          color: FDTheme.blue, size: 22),
                                       SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
                                           'Stockage local',
-                                          style: TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink, fontSize: 17),
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: FDTheme.ink,
+                                              fontSize: 17),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
@@ -556,7 +644,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   const Text(
                                     'Vos conversations sont enregistrées uniquement sur cet appareil. '
                                     'La synchronisation cloud multi-appareils est actuellement indisponible.',
-                                    style: TextStyle(fontSize: 14, color: FDTheme.muted, height: 1.5),
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: FDTheme.muted,
+                                        height: 1.5),
                                   ),
                                   const SizedBox(height: 12),
                                   Wrap(
@@ -566,7 +657,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                       FDBadge(
                                         label: 'STOCKÉ LOCALEMENT',
                                         color: FDTheme.blue,
-                                        backgroundColor: FDTheme.blue.withValues(alpha: 0.10),
+                                        backgroundColor: FDTheme.blue
+                                            .withValues(alpha: 0.10),
                                       ),
                                       FDBadge(
                                         label: 'SYNCHRONISATION INDISPONIBLE',

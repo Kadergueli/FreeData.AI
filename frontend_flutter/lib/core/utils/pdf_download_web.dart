@@ -13,4 +13,3 @@ void triggerPdfDownload(Uint8List bytes, String filename) {
   anchor.remove();
   html.Url.revokeObjectUrl(url);
 }
-

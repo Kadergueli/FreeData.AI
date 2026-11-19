@@ -32,9 +32,12 @@ String stripMarkdown(String text) {
     RegExp(r'ℹ️\s*Produit non précisé ou non reconnu\s*:[^\n]+\n*'),
     '',
   );
-  cleaned = cleaned.replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '');
-  cleaned = cleaned.replaceAll(RegExp(r'^\s*[-*_]{3,}\s*$', multiLine: true), '');
-  cleaned = cleaned.replaceAll(RegExp(r'^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*$', multiLine: true), '');
+  cleaned =
+      cleaned.replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '');
+  cleaned =
+      cleaned.replaceAll(RegExp(r'^\s*[-*_]{3,}\s*$', multiLine: true), '');
+  cleaned = cleaned.replaceAll(
+      RegExp(r'^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*$', multiLine: true), '');
   cleaned = cleaned
       .replaceAll('###', '')
       .replaceAll('**', '')
@@ -74,10 +77,7 @@ String cleanMarkdownForClipboard(String text) {
     cleanedLines.add(line.trimRight());
   }
 
-  return cleanedLines
-      .join('\n')
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
+  return cleanedLines.join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
 
 const Map<String, String> commodityNamesFr = {
@@ -124,4 +124,3 @@ const Map<String, String> commodityNamesFr = {
 String commodityLabelFr(String commodityStd) {
   return commodityNamesFr[commodityStd] ?? commodityStd;
 }
-

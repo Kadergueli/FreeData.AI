@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../core/fd_theme.dart';
 
 class MarkdownRenderer extends StatelessWidget {
@@ -95,9 +95,9 @@ class MarkdownRenderer extends StatelessWidget {
           color: FDTheme.line,
           borderRadius: BorderRadius.circular(8),
         ),
-        tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        tableCellsPadding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       ),
     );
   }
 }
-

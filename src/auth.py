@@ -1,0 +1,236 @@
+"""User Account Authentication Store (SQLite / Supabase PostgreSQL freedata_app) & Signed Bearer Sessions."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import re
+import secrets
+import sqlite3
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+from src import db as _db
+from src.security import issue_signed_user_token, revoke_user_token, verify_signed_user_token
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+_PBKDF2_ITERATIONS = 260_000
+DEFAULT_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 jours
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _normalize_email(email: str) -> str:
+    cleaned = (email or "").strip().lower()
+    if not cleaned or len(cleaned) > 160 or not _EMAIL_RE.fullmatch(cleaned):
+        raise ValueError("Adresse e-mail invalide.")
+    return cleaned
+
+
+def _hash_password(password: str, salt_hex: str) -> str:
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt_hex),
+        _PBKDF2_ITERATIONS,
+    )
+    return dk.hex()
+
+
+def _token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def get_auth_secret() -> str:
+    """Retourne AUTH_SECRET depuis l'environnement (>= 16 car.), sinon lève RuntimeError."""
+    secret = os.getenv("AUTH_SECRET", "").strip()
+    if len(secret) < 16:
+        raise RuntimeError("AUTH_SECRET non configuré (minimum 16 caractères requis pour les comptes utilisateurs).")
+    return secret
+
+
+class AuthStore:
+    """Gestion des comptes utilisateurs (email/mot de passe PBKDF2-SHA256) et révocation de jetons."""
+
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        *,
+        database_url: Optional[str] = None,
+        schema: Optional[str] = None,
+    ) -> None:
+        self._pg_url = _db.resolve_backend(db_path, database_url_override=database_url)
+        self._pg_schema = (
+            _db.validate_schema(schema)
+            if schema
+            else (_db.new_test_schema(db_path) if (self._pg_url and db_path) else _db.DEFAULT_SCHEMA)
+        )
+        self.db_path = Path(db_path or os.getenv("FREEDATA_AUTH_DB_PATH", "data/freedata_auth.db"))
+        if not self._pg_url:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    def _connect(self):
+        if self._pg_url:
+            return _db.pg_connect(self._pg_url, self._pg_schema)
+        conn = sqlite3.connect(str(self.db_path), timeout=15.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL;")
+        return conn
+
+    def _init_schema(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS user_accounts (
+                    user_id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    password_hash TEXT NOT NULL,
+                    password_salt TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_accounts_email ON user_accounts(email);
+                CREATE TABLE IF NOT EXISTS revoked_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    expires_at INTEGER NOT NULL,
+                    revoked_at TEXT NOT NULL
+                );
+                """
+            )
+            if self._pg_url:
+                _db.harden_tables(conn)
+
+    @staticmethod
+    def _public_user(row: Any) -> dict[str, Any]:
+        d = dict(row)
+        return {
+            "user_id": d["user_id"],
+            "email": d["email"],
+            "display_name": d.get("display_name") or "",
+            "status": d.get("status") or "active",
+            "created_at": d.get("created_at"),
+            "last_login_at": d.get("last_login_at"),
+        }
+
+    def register(self, email: str, password: str, display_name: str = "") -> dict[str, Any]:
+        norm_email = _normalize_email(email)
+        if not isinstance(password, str) or len(password) < 8 or len(password) > 128:
+            raise ValueError("Le mot de passe doit contenir entre 8 et 128 caractères.")
+        clean_name = (display_name or "").strip()[:80]
+        user_id = f"u{uuid.uuid4().hex}"  # 33 car. -> compatible _STRONG_UID_RE
+        salt_hex = secrets.token_hex(16)
+        pw_hash = _hash_password(password, salt_hex)
+        now = _utc_now_iso()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT user_id FROM user_accounts WHERE email = ?",
+                (norm_email,),
+            ).fetchone()
+            if existing:
+                raise FileExistsError("Un compte existe déjà avec cette adresse e-mail.")
+            conn.execute(
+                """
+                INSERT INTO user_accounts (user_id, email, display_name, password_hash, password_salt, status, created_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                """,
+                (user_id, norm_email, clean_name, pw_hash, salt_hex, now, now),
+            )
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (user_id,)).fetchone()
+        return self._public_user(row)
+
+    def authenticate(self, email: str, password: str) -> dict[str, Any]:
+        try:
+            norm_email = _normalize_email(email)
+        except ValueError as exc:
+            raise PermissionError("Identifiants incorrects.") from exc
+        if not isinstance(password, str) or not password:
+            raise PermissionError("Identifiants incorrects.")
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE email = ?", (norm_email,)).fetchone()
+            if not row:
+                # Temps constant factice contre l'énumération d'e-mails
+                _hash_password(password, "00" * 16)
+                raise PermissionError("Identifiants incorrects.")
+            expected = row["password_hash"]
+            actual = _hash_password(password, row["password_salt"])
+            if not hmac.compare_digest(expected, actual):
+                raise PermissionError("Identifiants incorrects.")
+            if row["status"] != "active":
+                raise PermissionError("Compte suspendu ou désactivé. Contactez le support.")
+            now = _utc_now_iso()
+            conn.execute("UPDATE user_accounts SET last_login_at = ? WHERE user_id = ?", (now, row["user_id"]))
+            updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (row["user_id"],)).fetchone()
+        return self._public_user(updated)
+
+    def get_user(self, user_id: str) -> Optional[dict[str, Any]]:
+        clean = (user_id or "").strip().removeprefix("user:")
+        if not clean:
+            return None
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+        return self._public_user(row) if row else None
+
+    def issue_session(
+        self,
+        user: dict[str, Any],
+        *,
+        secret: Optional[str] = None,
+        ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS,
+    ) -> dict[str, Any]:
+        auth_secret = secret if secret is not None else get_auth_secret()
+        token = issue_signed_user_token(user["user_id"], auth_secret, ttl_seconds=ttl_seconds)
+        return {
+            "token": token,
+            "token_type": "bearer",
+            "expires_in": ttl_seconds,
+            "user": user,
+        }
+
+    def verify_session_token(self, token: str, *, secret: Optional[str] = None) -> Optional[str]:
+        auth_secret = (secret if secret is not None else os.getenv("AUTH_SECRET", "")).strip()
+        if not token or not auth_secret:
+            return None
+        sub = verify_signed_user_token(token, auth_secret)
+        if not sub:
+            return None
+        if self.is_token_revoked(token):
+            return None
+        return sub
+
+    def revoke_token(self, token: str, *, ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS) -> None:
+        if not token:
+            return
+        revoke_user_token(token)
+        now_ts = int(time.time())
+        exp_ts = now_ts + max(60, int(ttl_seconds))
+        digest = _token_digest(token)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM revoked_tokens WHERE expires_at < ?", (now_ts,))
+            conn.execute(
+                """
+                INSERT INTO revoked_tokens (token_hash, expires_at, revoked_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (token_hash) DO NOTHING
+                """,
+                (digest, exp_ts, _utc_now_iso()),
+            )
+
+    def is_token_revoked(self, token: str) -> bool:
+        if not token:
+            return True
+        digest = _token_digest(token)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT token_hash FROM revoked_tokens WHERE token_hash = ?",
+                (digest,),
+            ).fetchone()
+        return row is not None
+

@@ -34,13 +34,15 @@ class _DocsScreenState extends State<DocsScreen> {
     },
     {
       'category': 'FAQ',
-      'title': 'Pourquoi certaines sections (concurrence, demande) sont marquées indisponibles ?',
+      'title':
+          'Pourquoi certaines sections (concurrence, demande) sont marquées indisponibles ?',
       'body':
           'FreeData.AI suit les prix de marché et la volatilité mais ne mesure pas les volumes de demande des ménages ni les parts de marché des concurrents. Aucun chiffre n’est jamais inventé.',
     },
     {
       'category': 'FAQ',
-      'title': 'Comment corriger un budget ou exclure une section en cours de discussion ?',
+      'title':
+          'Comment corriger un budget ou exclure une section en cours de discussion ?',
       'body':
           'Écrivez simplement « Finalement budget 1 200 000 XAF », « BFR constant » ou « Exclure projection 6 mois ». Le StudyContext persistant met à jour uniquement le paramètre concerné.',
     },
@@ -66,7 +68,9 @@ class _DocsScreenState extends State<DocsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Documentation & Méthodologie', style: TextStyle(fontWeight: FontWeight.w700))),
+      appBar: AppBar(
+          title: const Text('Documentation & Méthodologie',
+              style: TextStyle(fontWeight: FontWeight.w700))),
       body: Column(
         children: [
           Padding(
@@ -93,12 +97,23 @@ class _DocsScreenState extends State<DocsScreen> {
                     children: [
                       Text(
                         item['category']!,
-                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.blue),
+                        style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.blue),
                       ),
                       const SizedBox(height: 4),
-                      Text(item['title']!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      Text(item['title']!,
+                          style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink)),
                       const SizedBox(height: 6),
-                      Text(item['body']!, style: const TextStyle(fontSize: 13.5, height: 1.45, color: AppColors.body)),
+                      Text(item['body']!,
+                          style: const TextStyle(
+                              fontSize: 13.5,
+                              height: 1.45,
+                              color: AppColors.body)),
                     ],
                   ),
                 );
@@ -110,4 +125,3 @@ class _DocsScreenState extends State<DocsScreen> {
     );
   }
 }
-

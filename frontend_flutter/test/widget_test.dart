@@ -10,7 +10,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('Workspace starts up and shows navigation entries in mobile Drawer', (WidgetTester tester) async {
+  testWidgets(
+      'Workspace starts up and shows navigation entries in mobile Drawer',
+      (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -42,7 +44,8 @@ void main() {
     expect(find.text('+ Nouvelle conversation'), findsNothing);
   });
 
-  testWidgets('Workspace shows fixed Sidebar on Desktop (>= 900px)', (WidgetTester tester) async {
+  testWidgets('Workspace shows fixed Sidebar on Desktop (>= 900px)',
+      (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {

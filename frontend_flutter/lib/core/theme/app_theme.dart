@@ -73,7 +73,8 @@ class AppTheme {
         filled: true,
         fillColor: AppColors.surface,
         hintStyle: const TextStyle(color: AppColors.muted),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.line),
@@ -89,16 +90,17 @@ class AppTheme {
         labelStyle: const TextStyle(color: AppColors.muted),
       ),
       textTheme: ThemeData.light().textTheme.apply(
-        bodyColor: AppColors.ink,
-        displayColor: AppColors.ink,
-      ),
+            bodyColor: AppColors.ink,
+            displayColor: AppColors.ink,
+          ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.blue,
           foregroundColor: Colors.white,
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -107,7 +109,8 @@ class AppTheme {
           foregroundColor: AppColors.ink,
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           side: const BorderSide(color: AppColors.line),
         ),
       ),
@@ -120,7 +123,8 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.canvas,
         selectedColor: AppColors.blue.withValues(alpha: 0.12),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
+        labelStyle:
+            const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       ),
       cardTheme: CardThemeData(

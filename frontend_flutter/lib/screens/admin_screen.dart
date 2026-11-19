@@ -20,7 +20,8 @@ class _AdminScreenState extends State<AdminScreen> {
   Map<String, dynamic>? _overview;
   List<Map<String, dynamic>> _users = const [];
   List<Map<String, dynamic>> _tickets = const [];
-  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support
+  List<Map<String, dynamic>> _paymentRequests = const [];
+  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements
   bool _loading = false;
   String? _error;
 
@@ -42,17 +43,27 @@ class _AdminScreenState extends State<AdminScreen> {
     });
     try {
       final me = await widget.apiService.getAdminMe(_token);
+      final perms = me['permissions'] is List
+          ? (me['permissions'] as List).map((e) => e.toString()).toSet()
+          : const <String>{};
       final results = await Future.wait([
         widget.apiService.getAdminOverview(_token),
         widget.apiService.getAdminUsers(_token, search: _searchCtrl.text),
         widget.apiService.getAdminSupportTickets(_token),
       ]);
+      List<Map<String, dynamic>> payReqs = const [];
+      if (perms.contains('manage_subscriptions')) {
+        try {
+          payReqs = await widget.apiService.getAdminPaymentRequests(_token);
+        } catch (_) {}
+      }
       if (!mounted) return;
       setState(() {
         _adminMe = me;
         _overview = results[0] as Map<String, dynamic>;
         _users = results[1] as List<Map<String, dynamic>>;
         _tickets = results[2] as List<Map<String, dynamic>>;
+        _paymentRequests = payReqs;
         _loading = false;
       });
     } catch (e) {
@@ -69,10 +80,12 @@ class _AdminScreenState extends State<AdminScreen> {
       await action();
       await _loadAll();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(okMsg)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
@@ -91,16 +104,21 @@ class _AdminScreenState extends State<AdminScreen> {
               children: [
                 TextField(
                   controller: userCtrl,
-                  decoration: const InputDecoration(labelText: 'Identifiant utilisateur (user_id)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Identifiant utilisateur (user_id)'),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
                   initialValue: planId,
                   decoration: const InputDecoration(labelText: 'Plan'),
                   items: const [
-                    DropdownMenuItem(value: 'free', child: Text('Gratuit (free)')),
-                    DropdownMenuItem(value: 'trial', child: Text('Essai PRO (trial)')),
-                    DropdownMenuItem(value: 'premium', child: Text('Partenaire PRO (premium)')),
+                    DropdownMenuItem(
+                        value: 'free', child: Text('Gratuit (free)')),
+                    DropdownMenuItem(
+                        value: 'trial', child: Text('Essai PRO (trial)')),
+                    DropdownMenuItem(
+                        value: 'premium',
+                        child: Text('Partenaire PRO (premium)')),
                   ],
                   onChanged: (v) => planId = v ?? 'premium',
                 ),
@@ -114,8 +132,12 @@ class _AdminScreenState extends State<AdminScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Appliquer')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Appliquer')),
           ],
         ),
       );
@@ -156,9 +178,12 @@ class _AdminScreenState extends State<AdminScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+          Text(label,
+              style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
           const SizedBox(height: 2),
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color)),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: color)),
         ],
       ),
     );
@@ -175,7 +200,9 @@ class _AdminScreenState extends State<AdminScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Console Administration FreeData.AI', style: TextStyle(fontWeight: FontWeight.w700))),
+      appBar: AppBar(
+          title: const Text('Console Administration FreeData.AI',
+              style: TextStyle(fontWeight: FontWeight.w700))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -201,34 +228,47 @@ class _AdminScreenState extends State<AdminScreen> {
               ],
             ),
           ),
-          if (_loading) ...[const SizedBox(height: 16), const Center(child: CircularProgressIndicator())],
+          if (_loading) ...[
+            const SizedBox(height: 16),
+            const Center(child: CircularProgressIndicator())
+          ],
           if (_error != null) ...[
             const SizedBox(height: 12),
-            FDCard(child: Text(_error!, style: const TextStyle(color: AppColors.danger))),
+            FDCard(
+                child: Text(_error!,
+                    style: const TextStyle(color: AppColors.danger))),
           ],
           if (_overview != null) ...[
             if (_adminMe != null) ...[
               const SizedBox(height: 12),
               FDCard(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Row(
                   children: [
-                    const Icon(Icons.verified_user_outlined, size: 18, color: AppColors.blue),
+                    const Icon(Icons.verified_user_outlined,
+                        size: 18, color: AppColors.blue),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Connecté : ${_adminMe!['actor']} · Rôle : ${_adminMe!['role']}',
-                        style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, color: AppColors.ink),
                       ),
                     ),
                     if (!_hasPerm('manage_users') && !_hasPerm('manage_system'))
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: AppColors.canvasSoft,
                           borderRadius: BorderRadius.circular(99),
                         ),
-                        child: const Text('Lecture seule', style: TextStyle(fontSize: 11.5, color: AppColors.muted, fontWeight: FontWeight.w600)),
+                        child: const Text('Lecture seule',
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.muted,
+                                fontWeight: FontWeight.w600)),
                       ),
                   ],
                 ),
@@ -254,6 +294,14 @@ class _AdminScreenState extends State<AdminScreen> {
                   selected: _tab == 2,
                   onSelected: (_) => setState(() => _tab = 2),
                 ),
+                if (_hasPerm('manage_subscriptions'))
+                  ChoiceChip(
+                    label: Text(
+                      'Paiements (${_paymentRequests.where((r) => r['status'] == 'pending').length})',
+                    ),
+                    selected: _tab == 3,
+                    onSelected: (_) => setState(() => _tab = 3),
+                  ),
               ],
             ),
             const SizedBox(height: 14),
@@ -262,17 +310,30 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Santé & Opérations', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const Text('Santé & Opérations',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink)),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 10,
                       runSpacing: 10,
                       children: [
-                        _kpiPill('Statut API', '${health['status']} (v${health['version']})', color: AppColors.green),
-                        _kpiPill('Requêtes', '${metrics['total_requests'] ?? 0}', color: AppColors.blue),
-                        _kpiPill('Erreurs 5xx', '${metrics['error_5xx'] ?? 0}', color: (metrics['error_5xx'] ?? 0) == 0 ? AppColors.green : AppColors.danger),
-                        _kpiPill('Latence moy.', '${metrics['avg_latency_ms'] ?? 0} ms'),
-                        _kpiPill('Utilisateurs', '${usersSum['total_known_users'] ?? 0}'),
+                        _kpiPill('Statut API',
+                            '${health['status']} (v${health['version']})',
+                            color: AppColors.green),
+                        _kpiPill(
+                            'Requêtes', '${metrics['total_requests'] ?? 0}',
+                            color: AppColors.blue),
+                        _kpiPill('Erreurs 5xx', '${metrics['error_5xx'] ?? 0}',
+                            color: (metrics['error_5xx'] ?? 0) == 0
+                                ? AppColors.green
+                                : AppColors.danger),
+                        _kpiPill('Latence moy.',
+                            '${metrics['avg_latency_ms'] ?? 0} ms'),
+                        _kpiPill('Utilisateurs',
+                            '${usersSum['total_known_users'] ?? 0}'),
                       ],
                     ),
                     if (_hasPerm('manage_system')) ...[
@@ -284,12 +345,18 @@ class _AdminScreenState extends State<AdminScreen> {
                           FDSecondaryButton(
                             label: 'Rafraîchir données Gold',
                             icon: Icons.refresh_rounded,
-                            onPressed: () => _runAction(() => widget.apiService.refreshAdminData(_token), 'Données Gold rechargées.'),
+                            onPressed: () => _runAction(
+                                () =>
+                                    widget.apiService.refreshAdminData(_token),
+                                'Données Gold rechargées.'),
                           ),
                           FDSecondaryButton(
                             label: 'Sauvegarde SQLite',
                             icon: Icons.backup_outlined,
-                            onPressed: () => _runAction(() => widget.apiService.triggerAdminBackup(_token), 'Sauvegarde exécutée.'),
+                            onPressed: () => _runAction(
+                                () => widget.apiService
+                                    .triggerAdminBackup(_token),
+                                'Sauvegarde exécutée.'),
                           ),
                         ],
                       ),
@@ -303,18 +370,25 @@ class _AdminScreenState extends State<AdminScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Profils Modèles IA', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      const Text('Profils Modèles IA',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink)),
                       const SizedBox(height: 6),
                       ...modelFlags.entries.map((e) {
                         final enabled = e.value == true;
                         return SwitchListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          title: Text(e.key,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
                           value: enabled,
                           onChanged: _hasPerm('manage_models')
                               ? (v) => _runAction(
-                                    () => widget.apiService.toggleAdminModel(_token, e.key, v),
+                                    () => widget.apiService
+                                        .toggleAdminModel(_token, e.key, v),
                                     'Profil ${e.key} ${v ? 'activé' : 'désactivé'}.',
                                   )
                               : null,
@@ -329,13 +403,20 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Jeux de données & Licences', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const Text('Jeux de données & Licences',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink)),
                     const SizedBox(height: 6),
                     ...datasets.map((d) => ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          title: Text(d['dataset_id'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('${d['license_category']} · Statut : ${d['publication_status']}'),
+                          title: Text(d['dataset_id'].toString(),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                              '${d['license_category']} · Statut : ${d['publication_status']}'),
                         )),
                   ],
                 ),
@@ -345,16 +426,22 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Journal d’audit récent', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const Text('Journal d’audit récent',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink)),
                     const SizedBox(height: 6),
                     if (audits.isEmpty)
-                      const Text('Aucune action enregistrée.', style: TextStyle(color: AppColors.muted))
+                      const Text('Aucune action enregistrée.',
+                          style: TextStyle(color: AppColors.muted))
                     else
                       ...audits.take(10).map((a) => ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             title: Text('${a['action']} (${a['resource_id']})'),
-                            subtitle: Text('${a['actor']} [${a['actor_role']}] · ${a['created_at']}'),
+                            subtitle: Text(
+                                '${a['actor']} [${a['actor_role']}] · ${a['created_at']}'),
                           )),
                   ],
                 ),
@@ -371,11 +458,15 @@ class _AdminScreenState extends State<AdminScreen> {
                           child: TextField(
                             controller: _searchCtrl,
                             onSubmitted: (_) => _loadAll(),
-                            decoration: const InputDecoration(labelText: 'Rechercher un utilisateur'),
+                            decoration: const InputDecoration(
+                                labelText: 'Rechercher un utilisateur'),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        FDSecondaryButton(label: 'Filtrer', icon: Icons.search_rounded, onPressed: _loadAll),
+                        FDSecondaryButton(
+                            label: 'Filtrer',
+                            icon: Icons.search_rounded,
+                            onPressed: _loadAll),
                         if (_hasPerm('manage_subscriptions')) ...[
                           const SizedBox(width: 8),
                           FDPrimaryButton(
@@ -388,7 +479,8 @@ class _AdminScreenState extends State<AdminScreen> {
                     ),
                     const SizedBox(height: 12),
                     if (_users.isEmpty)
-                      const Text('Aucun utilisateur enregistré pour le moment.', style: TextStyle(color: AppColors.muted))
+                      const Text('Aucun utilisateur enregistré pour le moment.',
+                          style: TextStyle(color: AppColors.muted))
                     else
                       ..._users.map((u) {
                         final uid = u['user_id'].toString();
@@ -397,24 +489,45 @@ class _AdminScreenState extends State<AdminScreen> {
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          title: Text(uid, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('Plan : ${u['plan_id']} · Statut : $status · Rôle : ${u['role']}'),
-                          trailing: (_hasPerm('manage_subscriptions') || _hasPerm('manage_users'))
+                          title: Text(uid,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                              'Plan : ${u['plan_id']} · Statut : $status · Rôle : ${u['role']}'),
+                          trailing: (_hasPerm('manage_subscriptions') ||
+                                  _hasPerm('manage_users'))
                               ? Wrap(
                                   spacing: 6,
                                   children: [
                                     if (_hasPerm('manage_subscriptions'))
                                       TextButton(
-                                        onPressed: () => _showActivatePlanDialog(prefillUserId: uid),
+                                        onPressed: () =>
+                                            _showActivatePlanDialog(
+                                                prefillUserId: uid),
                                         child: const Text('Plan'),
                                       ),
                                     if (_hasPerm('manage_users'))
                                       TextButton(
                                         onPressed: () => _runAction(
-                                          () => widget.apiService.setAdminUserStatus(_token, uid, suspended ? 'active' : 'suspended'),
-                                          suspended ? 'Utilisateur réactivé.' : 'Utilisateur suspendu.',
+                                          () => widget.apiService
+                                              .setAdminUserStatus(
+                                                  _token,
+                                                  uid,
+                                                  suspended
+                                                      ? 'active'
+                                                      : 'suspended'),
+                                          suspended
+                                              ? 'Utilisateur réactivé.'
+                                              : 'Utilisateur suspendu.',
                                         ),
-                                        child: Text(suspended ? 'Réactiver' : 'Suspendre', style: TextStyle(color: suspended ? AppColors.green : AppColors.danger)),
+                                        child: Text(
+                                            suspended
+                                                ? 'Réactiver'
+                                                : 'Suspendre',
+                                            style: TextStyle(
+                                                color: suspended
+                                                    ? AppColors.green
+                                                    : AppColors.danger)),
                                       ),
                                   ],
                                 )
@@ -430,30 +543,126 @@ class _AdminScreenState extends State<AdminScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Tickets Support Utilisateurs', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    const Text('Tickets Support Utilisateurs',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink)),
                     const SizedBox(height: 8),
                     if (_tickets.isEmpty)
-                      const Text('Aucun ticket support.', style: TextStyle(color: AppColors.muted))
+                      const Text('Aucun ticket support.',
+                          style: TextStyle(color: AppColors.muted))
                     else
                       ..._tickets.map((t) {
                         final tid = t['ticket_id'].toString();
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: Text('${t['subject']} (${t['category']})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('De : ${t['owner_id']} · Statut : ${t['status']} · Priorité : ${t['priority']}\n${t['description']}'),
+                          title: Text('${t['subject']} (${t['category']})',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                              'De : ${t['owner_id']} · Statut : ${t['status']} · Priorité : ${t['priority']}\n${t['description']}'),
                           trailing: _hasPerm('manage_users')
                               ? PopupMenuButton<String>(
                                   onSelected: (s) => _runAction(
-                                    () => widget.apiService.updateAdminTicketStatus(_token, tid, s),
+                                    () => widget.apiService
+                                        .updateAdminTicketStatus(
+                                            _token, tid, s),
                                     'Ticket passé à $s.',
                                   ),
                                   itemBuilder: (_) => const [
-                                    PopupMenuItem(value: 'in_progress', child: Text('En cours')),
-                                    PopupMenuItem(value: 'resolved', child: Text('Résolu')),
-                                    PopupMenuItem(value: 'closed', child: Text('Fermé')),
+                                    PopupMenuItem(
+                                        value: 'in_progress',
+                                        child: Text('En cours')),
+                                    PopupMenuItem(
+                                        value: 'resolved',
+                                        child: Text('Résolu')),
+                                    PopupMenuItem(
+                                        value: 'closed', child: Text('Fermé')),
                                   ],
                                 )
                               : null,
+                        );
+                      }),
+                  ],
+                ),
+              ),
+            ],
+            if (_tab == 3 && _hasPerm('manage_subscriptions')) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Demandes de paiement PRO (Mobile Money / Virement)',
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_paymentRequests.isEmpty)
+                      const Text('Aucune demande de paiement enregistrée.',
+                          style: TextStyle(color: AppColors.muted))
+                    else
+                      ..._paymentRequests.map((r) {
+                        final reqId = r['request_id'].toString();
+                        final status = r['status']?.toString() ?? 'pending';
+                        final isPending = status == 'pending';
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '${r['provider']} · ${r['amount_xaf'] ?? 0} XAF · Réf. ${r['transaction_ref']}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            'Utilisateur : ${r['user_id']} · Payeur : ${r['phone_or_ref']} · Statut : $status'
+                            '${(r['note']?.toString().isNotEmpty ?? false) ? '\nNote : ${r['note']}' : ''}',
+                          ),
+                          trailing: isPending
+                              ? Wrap(
+                                  spacing: 6,
+                                  children: [
+                                    TextButton(
+                                      onPressed: () => _runAction(
+                                        () => widget.apiService
+                                            .reviewAdminPaymentRequest(
+                                          _token,
+                                          reqId,
+                                          decision: 'approved',
+                                          periodDays: 30,
+                                        ),
+                                        'Paiement approuvé : PRO activé (30 j).',
+                                      ),
+                                      child: const Text('Approuver',
+                                          style: TextStyle(
+                                              color: AppColors.green)),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => _runAction(
+                                        () => widget.apiService
+                                            .reviewAdminPaymentRequest(
+                                          _token,
+                                          reqId,
+                                          decision: 'rejected',
+                                        ),
+                                        'Demande de paiement refusée.',
+                                      ),
+                                      child: const Text('Refuser',
+                                          style: TextStyle(
+                                              color: AppColors.danger)),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  status == 'approved' ? 'Validé' : 'Refusé',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: status == 'approved'
+                                        ? AppColors.green
+                                        : AppColors.danger,
+                                  ),
+                                ),
                         );
                       }),
                   ],

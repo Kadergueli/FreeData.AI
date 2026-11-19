@@ -9,7 +9,12 @@ class _FakeAnalyticsApiService extends ApiService {
 
   @override
   Future<Map<String, dynamic>> getMetadata() async => {
-        'commodities': ['Millet', 'Sorghum (red)', 'Groundnuts (shelled)', 'Cowpeas'],
+        'commodities': [
+          'Millet',
+          'Sorghum (red)',
+          'Groundnuts (shelled)',
+          'Cowpeas'
+        ],
         'provinces': ["N'Djamena", 'Lac', 'Salamat', 'Batha'],
       };
 
@@ -22,9 +27,17 @@ class _FakeAnalyticsApiService extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getAnalyticsSummary({String? commodity, String? province}) async => {
+  Future<Map<String, dynamic>> getAnalyticsSummary(
+          {String? commodity, String? province}) async =>
+      {
         'descriptive': {
-          'stats': {'median': 275, 'mean': 280, 'min': 190, 'max': 390, 'cv_pct': 14.2},
+          'stats': {
+            'median': 275,
+            'mean': 280,
+            'min': 190,
+            'max': 390,
+            'cv_pct': 14.2
+          },
         },
         'most_volatile_commodities': [
           {'commodity': 'Fish (dry)', 'avg_cv_pct': 24.5},
@@ -33,7 +46,9 @@ class _FakeAnalyticsApiService extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getRegionalComparison({String? commodity}) async => {
+  Future<Map<String, dynamic>> getRegionalComparison(
+          {String? commodity}) async =>
+      {
         'provinces': [
           {
             'province': "N'Djamena",
@@ -51,7 +66,9 @@ class _FakeAnalyticsApiService extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getAnalyticsTrends({String? commodity, String? province, int limit = 24}) async => {
+  Future<Map<String, dynamic>> getAnalyticsTrends(
+          {String? commodity, String? province, int limit = 24}) async =>
+      {
         'change_12m_pct': -4.5,
         'records': [
           {'month': '2026-07', 'median_price_xaf_kg': 300.0},
@@ -62,17 +79,26 @@ class _FakeAnalyticsApiService extends ApiService {
       };
 
   @override
-  Future<Map<String, dynamic>> getForecastBenchmark({required String commodity, required String province}) async => {
+  Future<Map<String, dynamic>> getForecastBenchmark(
+          {required String commodity, required String province}) async =>
+      {
         'status': 'evaluated',
         'observations': 24,
         'models': [
           {'model': 'Naive (t-1)', 'mae': 18.4, 'rmse': 22.1, 'mape_pct': 6.7},
-          {'model': 'Moyenne Mobile (3m)', 'mae': 15.2, 'rmse': 19.0, 'mape_pct': 5.5},
+          {
+            'model': 'Moyenne Mobile (3m)',
+            'mae': 15.2,
+            'rmse': 19.0,
+            'mape_pct': 5.5
+          },
         ],
       };
 
   @override
-  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async => [
+  Future<List<dynamic>> getForecasts(
+          {String? province, String? commodity}) async =>
+      [
         {
           'commodity': 'Millet',
           'province': "N'Djamena",
@@ -84,7 +110,9 @@ class _FakeAnalyticsApiService extends ApiService {
 }
 
 void main() {
-  testWidgets('AnalyticsScreen renders trend curve, backtest benchmark, and formula panel', (tester) async {
+  testWidgets(
+      'AnalyticsScreen renders trend curve, backtest benchmark, and formula panel',
+      (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: AnalyticsScreen(apiService: _FakeAnalyticsApiService()),
@@ -94,7 +122,8 @@ void main() {
 
     expect(find.text('Courbe d’évolution mensuelle (XAF/kg)'), findsOneWidget);
     expect(find.textContaining('Prévision t+1 : 276'), findsOneWidget);
-    expect(find.textContaining('Intervalle 80 % : [245 – 308]'), findsOneWidget);
+    expect(
+        find.textContaining('Intervalle 80 % : [245 – 308]'), findsOneWidget);
     expect(find.textContaining('Backtest 70/30'), findsOneWidget);
     expect(find.textContaining('MAE : 15.2'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -106,4 +135,3 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
-

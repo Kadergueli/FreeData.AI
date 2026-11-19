@@ -8,7 +8,8 @@ import '../widgets/chat/data_cards.dart';
 class ForecastScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onSelectPrompt;
-  const ForecastScreen({super.key, required this.apiService, this.onSelectPrompt});
+  const ForecastScreen(
+      {super.key, required this.apiService, this.onSelectPrompt});
 
   @override
   State<ForecastScreen> createState() => _ForecastScreenState();
@@ -99,11 +100,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
         setState(() {
           if (provs.isNotEmpty) {
             _provinces = provs;
-            _selectedProvince = provs.contains("N'Djamena") ? "N'Djamena" : provs.first;
+            _selectedProvince =
+                provs.contains("N'Djamena") ? "N'Djamena" : provs.first;
           }
           if (comms.isNotEmpty) {
             _commodities = comms;
-            _selectedCommodity = comms.contains('Millet') ? 'Millet' : comms.first;
+            _selectedCommodity =
+                comms.contains('Millet') ? 'Millet' : comms.first;
           }
           if (rawTrack is Map) {
             _trackRecords = Map<String, dynamic>.from(rawTrack);
@@ -146,7 +149,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
       if (mounted && token == _requestToken) setState(() => _items = items);
     } catch (_) {
       if (mounted && token == _requestToken) {
-        setState(() => _error = 'Les prévisions ne sont pas accessibles pour le moment.');
+        setState(() =>
+            _error = 'Les prévisions ne sont pas accessibles pour le moment.');
       }
     } finally {
       if (mounted && token == _requestToken) setState(() => _loading = false);
@@ -167,7 +171,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
       if (mounted && token == _requestToken) setState(() => _alerts = items);
     } catch (_) {
       if (mounted && token == _requestToken) {
-        setState(() => _error = 'Les alertes ne sont pas accessibles pour le moment.');
+        setState(() =>
+            _error = 'Les alertes ne sont pas accessibles pour le moment.');
       }
     } finally {
       if (mounted && token == _requestToken) setState(() => _loading = false);
@@ -188,7 +193,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
       if (mounted && token == _requestToken) setState(() => _anomalies = items);
     } catch (_) {
       if (mounted && token == _requestToken) {
-        setState(() => _error = 'Le radar d’anomalies n’est pas accessible pour le moment.');
+        setState(() => _error =
+            'Le radar d’anomalies n’est pas accessible pour le moment.');
       }
     } finally {
       if (mounted && token == _requestToken) setState(() => _loading = false);
@@ -207,7 +213,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
         province: _selectedProvince,
         storageCostPctMonth: _storageCostPctMonth,
       );
-      if (mounted && token == _requestToken) setState(() => _seasonality = study);
+      if (mounted && token == _requestToken)
+        setState(() => _seasonality = study);
     } on ApiHttpException catch (e) {
       if (mounted && token == _requestToken) {
         if (e.statusCode == 403 || e.statusCode == 503) {
@@ -221,7 +228,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
       }
     } catch (_) {
       if (mounted && token == _requestToken) {
-        setState(() => _error = 'L’étude saisonnière n’est pas accessible pour le moment.');
+        setState(() => _error =
+            'L’étude saisonnière n’est pas accessible pour le moment.');
       }
     } finally {
       if (mounted && token == _requestToken) setState(() => _loading = false);
@@ -246,7 +254,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 640;
     final hasPro = widget.apiService.hasPremiumKey;
-    final effectiveMode = (!hasPro && (_activeMode == 'seasonality' || _activeMode == 'anomalies'))
+    final effectiveMode = (!hasPro &&
+            (_activeMode == 'seasonality' || _activeMode == 'anomalies'))
         ? 'forecasts'
         : _activeMode;
     final trackRecord = hasPro ? _resolveTrackRecord(_selectedCommodity) : null;
@@ -274,12 +283,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Province',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
                         items: _provinces
                             .map((p) => DropdownMenuItem(
                                   value: p,
-                                  child: Text(p, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  child: Text(p,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
                                 ))
                             .toList(),
                         onChanged: (v) {
@@ -300,7 +312,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Produit',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
                         items: _commodities
                             .map((c) => DropdownMenuItem(
@@ -330,13 +343,17 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       avatar: Icon(
                         Icons.show_chart_rounded,
                         size: 16,
-                        color: effectiveMode == 'forecasts' ? FDTheme.blue : FDTheme.subtle,
+                        color: effectiveMode == 'forecasts'
+                            ? FDTheme.blue
+                            : FDTheme.subtle,
                       ),
                       label: const Text('Séries prévues'),
                       selected: effectiveMode == 'forecasts',
                       selectedColor: FDTheme.blueSoft,
                       labelStyle: TextStyle(
-                        color: effectiveMode == 'forecasts' ? FDTheme.blue : FDTheme.body,
+                        color: effectiveMode == 'forecasts'
+                            ? FDTheme.blue
+                            : FDTheme.body,
                         fontWeight: FontWeight.w600,
                       ),
                       onSelected: (_) {
@@ -350,13 +367,17 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       avatar: Icon(
                         Icons.warning_amber_rounded,
                         size: 16,
-                        color: effectiveMode == 'alerts' ? FDTheme.danger : FDTheme.subtle,
+                        color: effectiveMode == 'alerts'
+                            ? FDTheme.danger
+                            : FDTheme.subtle,
                       ),
                       label: const Text('Alertes (>15%)'),
                       selected: effectiveMode == 'alerts',
                       selectedColor: FDTheme.dangerSoft,
                       labelStyle: TextStyle(
-                        color: effectiveMode == 'alerts' ? FDTheme.danger : FDTheme.body,
+                        color: effectiveMode == 'alerts'
+                            ? FDTheme.danger
+                            : FDTheme.body,
                         fontWeight: FontWeight.w600,
                       ),
                       onSelected: (_) {
@@ -365,56 +386,66 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         _loadCurrentMode();
                       },
                     ),
-                      if (hasPro) ...[
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          avatar: Icon(
-                            Icons.calendar_month_outlined,
-                            size: 16,
-                            color: effectiveMode == 'seasonality' ? FDTheme.green : FDTheme.subtle,
-                          ),
-                          label: const Text('Saisonnalité & Stockage'),
-                          selected: effectiveMode == 'seasonality',
-                          selectedColor: FDTheme.greenSoft,
-                          labelStyle: TextStyle(
-                            color: effectiveMode == 'seasonality' ? FDTheme.greenDark : FDTheme.body,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          onSelected: (_) {
-                            if (_activeMode == 'seasonality') return;
-                            setState(() => _activeMode = 'seasonality');
-                            _loadCurrentMode();
-                          },
+                    if (hasPro) ...[
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        avatar: Icon(
+                          Icons.calendar_month_outlined,
+                          size: 16,
+                          color: effectiveMode == 'seasonality'
+                              ? FDTheme.green
+                              : FDTheme.subtle,
                         ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          avatar: Icon(
-                            Icons.radar_rounded,
-                            size: 16,
-                            color: effectiveMode == 'anomalies' ? FDTheme.warningDark : FDTheme.subtle,
-                          ),
-                          label: const Text('Anomalies & Qualité'),
-                          selected: effectiveMode == 'anomalies',
-                          selectedColor: FDTheme.warning.withValues(alpha: 0.14),
-                          labelStyle: TextStyle(
-                            color: effectiveMode == 'anomalies' ? FDTheme.warningDark : FDTheme.body,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          onSelected: (_) {
-                            if (_activeMode == 'anomalies') return;
-                            setState(() => _activeMode = 'anomalies');
-                            _loadCurrentMode();
-                          },
+                        label: const Text('Saisonnalité & Stockage'),
+                        selected: effectiveMode == 'seasonality',
+                        selectedColor: FDTheme.greenSoft,
+                        labelStyle: TextStyle(
+                          color: effectiveMode == 'seasonality'
+                              ? FDTheme.greenDark
+                              : FDTheme.body,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
+                        onSelected: (_) {
+                          if (_activeMode == 'seasonality') return;
+                          setState(() => _activeMode = 'seasonality');
+                          _loadCurrentMode();
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        avatar: Icon(
+                          Icons.radar_rounded,
+                          size: 16,
+                          color: effectiveMode == 'anomalies'
+                              ? FDTheme.warningDark
+                              : FDTheme.subtle,
+                        ),
+                        label: const Text('Anomalies & Qualité'),
+                        selected: effectiveMode == 'anomalies',
+                        selectedColor: FDTheme.warning.withValues(alpha: 0.14),
+                        labelStyle: TextStyle(
+                          color: effectiveMode == 'anomalies'
+                              ? FDTheme.warningDark
+                              : FDTheme.body,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onSelected: (_) {
+                          if (_activeMode == 'anomalies') return;
+                          setState(() => _activeMode = 'anomalies');
+                          _loadCurrentMode();
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
               if (trackRecord != null &&
-                  (effectiveMode == 'forecasts' || effectiveMode == 'seasonality')) ...[
+                  (effectiveMode == 'forecasts' ||
+                      effectiveMode == 'seasonality')) ...[
                 const SizedBox(height: 12),
                 _TrackRecordBanner(
-                  commodityLabel: commodityLabelFr(_selectedCommodity ?? 'Millet'),
+                  commodityLabel:
+                      commodityLabelFr(_selectedCommodity ?? 'Millet'),
                   trackRecord: trackRecord,
                 ),
               ],
@@ -433,7 +464,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
               else if (effectiveMode == 'anomalies')
                 ..._buildAnomaliesSection()
               else if (_items.isEmpty)
-                const _StateMessage(text: 'Aucune prévision disponible pour ces filtres.')
+                const _StateMessage(
+                    text: 'Aucune prévision disponible pour ces filtres.')
               else ...[
                 _buildForecastKpis(),
                 const SizedBox(height: 12),
@@ -461,33 +493,44 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           if (widget.onSelectPrompt != null)
                             TextButton.icon(
                               onPressed: () {
-                                final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
+                                final comm = commodityLabelFr(
+                                    _selectedCommodity ?? 'Millet');
                                 final prov = _selectedProvince ?? 'Moundou';
                                 widget.onSelectPrompt!(
                                   'Simule la rentabilité pour acheter du $comm à $prov et le revendre sur un autre marché au Tchad.',
                                 );
                               },
-                              icon: const Icon(Icons.auto_awesome_outlined, size: 16),
-                              label: const Text('Simuler marge (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              icon: const Icon(Icons.auto_awesome_outlined,
+                                  size: 16),
+                              label: const Text('Simuler marge (IA)',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600)),
                               style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
                                 minimumSize: const Size(0, 36),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                             ),
                           TextButton.icon(
-                            onPressed: () => setState(() => _showTechnicalDetails = !_showTechnicalDetails),
+                            onPressed: () => setState(() =>
+                                _showTechnicalDetails = !_showTechnicalDetails),
                             icon: Icon(
-                              _showTechnicalDetails ? Icons.visibility_off_outlined : Icons.tune_rounded,
+                              _showTechnicalDetails
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.tune_rounded,
                               size: 16,
                             ),
                             label: Text(
                               _showTechnicalDetails ? 'Vue simple' : 'Détails',
-                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                  fontSize: 12.5, fontWeight: FontWeight.w600),
                             ),
                             style: TextButton.styleFrom(
                               foregroundColor: FDTheme.subtle,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
                               minimumSize: const Size(0, 36),
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -495,10 +538,14 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           TextButton.icon(
                             onPressed: _copyForecastsCsv,
                             icon: const Icon(Icons.download_rounded, size: 16),
-                            label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                            label: const Text('Copier CSV',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600)),
                             style: TextButton.styleFrom(
                               foregroundColor: FDTheme.subtle,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
                               minimumSize: const Size(0, 36),
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -513,11 +560,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
                   final r = Map<String, dynamic>.from(raw as Map);
                   final last = parseNum(r['last_observed_price']) ?? 0;
                   final forecast = parseNum(r['forecast_t1']) ?? 0;
-                  final pct = last == 0 ? 0.0 : ((forecast - last) / last) * 100;
+                  final pct =
+                      last == 0 ? 0.0 : ((forecast - last) / last) * 100;
                   final up = pct >= 0;
                   final ciLow = parseNum(r['ci_low_80']);
                   final ciHigh = parseNum(r['ci_high_80']);
-                  final quality = r['forecast_quality']?.toString() ?? 'standard';
+                  final quality =
+                      r['forecast_quality']?.toString() ?? 'standard';
                   final intervalStatus = r['interval_status']?.toString() ?? '';
                   final intervalLabel = intervalStatus == 'calibrated_80'
                       ? 'Intervalle prévisionnel 80 % (calibré)'
@@ -551,9 +600,11 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               ),
                               if (quality == 'reduced') ...[
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 5),
                                   decoration: BoxDecoration(
-                                    color: FDTheme.warning.withValues(alpha: 0.12),
+                                    color:
+                                        FDTheme.warning.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(30),
                                   ),
                                   child: const Text(
@@ -568,7 +619,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                 const SizedBox(width: 6),
                               ],
                               _ChangeBadge(
-                                text: '${up ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                text:
+                                    '${up ? '+' : ''}${pct.toStringAsFixed(1)}%',
                                 positive: !up,
                               ),
                             ],
@@ -596,13 +648,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
                             const SizedBox(height: 10),
                             Text(
                               'Source : ${r['source'] ?? 'Non précisée'}  •  Dernière observation : ${r['last_observed_month'] ?? '—'}',
-                              style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
+                              style: const TextStyle(
+                                  color: FDTheme.muted, fontSize: 11.5),
                             ),
                             if (ciLow != null && ciHigh != null) ...[
                               const SizedBox(height: 3),
                               Text(
                                 '$intervalLabel : ${formatXaf(ciLow)} – ${formatXaf(ciHigh)} XAF/kg',
-                                style: const TextStyle(color: FDTheme.muted, fontSize: 11.5),
+                                style: const TextStyle(
+                                    color: FDTheme.muted, fontSize: 11.5),
                               ),
                             ],
                             const SizedBox(height: 6),
@@ -613,21 +667,30 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                   children: [
                                     GestureDetector(
                                       behavior: HitTestBehavior.opaque,
-                                      onTap: () => setLocal(() => expanded = !expanded),
+                                      onTap: () =>
+                                          setLocal(() => expanded = !expanded),
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 3),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 3),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             const Flexible(
                                               child: Text(
                                                 'Preuve & Détails du calcul',
-                                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: FDTheme.blue),
                                               ),
                                             ),
                                             const SizedBox(width: 4),
                                             Icon(
-                                              expanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                              expanded
+                                                  ? Icons
+                                                      .keyboard_arrow_up_rounded
+                                                  : Icons
+                                                      .keyboard_arrow_down_rounded,
                                               size: 16,
                                               color: FDTheme.blue,
                                             ),
@@ -642,7 +705,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
                                           'Série normalisée en XAF/kg (source : ${r['source'] ?? '—'}, dernier relevé : ${r['last_observed_month'] ?? '—'}). '
                                           'Statut intervalle 80 % : ${intervalStatus.isEmpty ? 'indicatif' : intervalStatus} '
                                           '(calibration conforme hors-échantillon 70/30).',
-                                          style: const TextStyle(fontSize: 11.5, height: 1.45, color: FDTheme.muted),
+                                          style: const TextStyle(
+                                              fontSize: 11.5,
+                                              height: 1.45,
+                                              color: FDTheme.muted),
                                         ),
                                       ),
                                   ],
@@ -656,18 +722,25 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
                                 onPressed: () {
-                                  final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
-                                  final mkt = r['market_name']?.toString() ?? (_selectedProvince ?? '');
+                                  final comm = commodityLabelFr(
+                                      _selectedCommodity ?? 'Millet');
+                                  final mkt = r['market_name']?.toString() ??
+                                      (_selectedProvince ?? '');
                                   widget.onSelectPrompt!(
                                     'Explique la prévision et fais un business plan pour du $comm à $mkt.',
                                   );
                                 },
-                                icon: const Icon(Icons.auto_awesome_outlined, size: 15),
-                                label: const Text('Analyser / Business Plan (IA)', style: TextStyle(fontSize: 12)),
+                                icon: const Icon(Icons.auto_awesome_outlined,
+                                    size: 15),
+                                label: const Text(
+                                    'Analyser / Business Plan (IA)',
+                                    style: TextStyle(fontSize: 12)),
                                 style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
                                   minimumSize: const Size(0, 30),
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                               ),
                             ),
@@ -699,7 +772,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
   List<Widget> _buildAlertsSection() {
     if (_alerts.isEmpty) {
       return [
-        const _StateMessage(text: 'Aucune alerte active (>15 %) pour ces filtres.'),
+        const _StateMessage(
+            text: 'Aucune alerte active (>15 %) pour ces filtres.'),
       ];
     }
     return [
@@ -739,7 +813,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: FDTheme.danger.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(30),
@@ -797,7 +872,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
     if (study == null || study['status'] != 'ok') {
       return [
         const _StateMessage(
-          text: 'Historique insuffisant pour établir une étude saisonnière fiable pour cette sélection.',
+          text:
+              'Historique insuffisant pour établir une étude saisonnière fiable pour cette sélection.',
         ),
       ];
     }
@@ -805,12 +881,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final cal = study['calendar'] is Map
         ? Map<String, dynamic>.from(study['calendar'] as Map)
         : const <String, dynamic>{};
-    final buyMonths = cal['buy_months'] ?? study['low_months'] ?? study['best_buy_months'];
-    final sellMonths = cal['sell_months'] ?? study['high_months'] ?? study['best_sell_months'];
+    final buyMonths =
+        cal['buy_months'] ?? study['low_months'] ?? study['best_buy_months'];
+    final sellMonths =
+        cal['sell_months'] ?? study['high_months'] ?? study['best_sell_months'];
     final amplitude = parseNum(cal['amplitude_pct'] ?? study['amplitude_pct']);
     final buyDiscount = parseNum(cal['buy_discount_pct']);
     final sellPremium = parseNum(cal['sell_premium_pct']);
-    final bool? isReliable = cal['reliable'] is bool ? cal['reliable'] as bool : null;
+    final bool? isReliable =
+        cal['reliable'] is bool ? cal['reliable'] as bool : null;
     final minYearsObserved = parseNum(cal['min_years_observed'])?.toInt();
     final strategy = study['storage_strategy'] is Map
         ? Map<String, dynamic>.from(study['storage_strategy'] as Map)
@@ -827,11 +906,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
             .map((e) => Map<String, dynamic>.from(e))
             .toList()
         : const <Map<String, dynamic>>[];
-    final caveats = study['caveats'] is List ? study['caveats'] as List : const <dynamic>[];
+    final caveats =
+        study['caveats'] is List ? study['caveats'] as List : const <dynamic>[];
     final requestedProvince = study['requested_province']?.toString();
     final scopeProvince = study['scope_province']?.toString();
     final scope = scopeProvince ?? 'Toutes provinces suivies';
-    final commName = commodityLabelFr(study['commodity']?.toString() ?? _selectedCommodity ?? '');
+    final commName = commodityLabelFr(
+        study['commodity']?.toString() ?? _selectedCommodity ?? '');
 
     final typicalGap = parseNum(strategy['typical_gap_months'])?.toInt();
     final nYears = parseNum(strategy['n_years'])?.toInt();
@@ -878,7 +959,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
               children: [
                 const Padding(
                   padding: EdgeInsets.only(top: 2),
-                  child: Icon(Icons.calendar_month_rounded, color: FDTheme.blue, size: 20),
+                  child: Icon(Icons.calendar_month_rounded,
+                      color: FDTheme.blue, size: 20),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -899,7 +981,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
                     if (isReliable != null)
                       FDBadge(
                         label: isReliable ? 'FIABLE' : 'PRUDENCE',
-                        color: isReliable ? FDTheme.greenDark : FDTheme.warningDark,
+                        color: isReliable
+                            ? FDTheme.greenDark
+                            : FDTheme.warningDark,
                         backgroundColor: isReliable
                             ? FDTheme.greenSoft
                             : FDTheme.warning.withValues(alpha: 0.14),
@@ -920,14 +1004,16 @@ class _ForecastScreenState extends State<ForecastScreen> {
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: FDTheme.blueSoft,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   'Historique propre à $requestedProvince insuffisant : étude établie sur la tendance nationale (toutes provinces suivies).',
-                  style: const TextStyle(fontSize: 12, color: FDTheme.blueDark, height: 1.35),
+                  style: const TextStyle(
+                      fontSize: 12, color: FDTheme.blueDark, height: 1.35),
                 ),
               ),
             ],
@@ -1010,14 +1096,16 @@ class _ForecastScreenState extends State<ForecastScreen> {
                   ),
                 ),
               ],
-            ] else if (strategy.isNotEmpty && strategy['status'] != 'not_computed') ...[
+            ] else if (strategy.isNotEmpty &&
+                strategy['status'] != 'not_computed') ...[
               const SizedBox(height: 16),
               const Divider(height: 1, color: FDTheme.line),
               const SizedBox(height: 12),
               Text(
                 'Taux de réussite non publié : historique insuffisant '
                 '(${strategy['n_cycles'] ?? 0} cycle(s)${nYears != null ? ' sur $nYears an(s)' : ''}, minimum 3 années requis).',
-                style: const TextStyle(fontSize: 12.5, color: FDTheme.muted, height: 1.4),
+                style: const TextStyle(
+                    fontSize: 12.5, color: FDTheme.muted, height: 1.4),
               ),
             ],
             if (caveats.isNotEmpty) ...[
@@ -1027,7 +1115,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Text(
                         '• $c',
-                        style: const TextStyle(fontSize: 12, color: FDTheme.muted, height: 1.4),
+                        style: const TextStyle(
+                            fontSize: 12, color: FDTheme.muted, height: 1.4),
                       ),
                     ),
                   ),
@@ -1044,7 +1133,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
             children: [
               const Text(
                 'Profil saisonnier sur 12 mois',
-                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
+                style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: FDTheme.ink),
               ),
               const SizedBox(height: 3),
               const Text(
@@ -1053,11 +1145,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
               ),
               const SizedBox(height: 12),
               ...profile.map((row) {
-                final label = row['label']?.toString() ?? 'Mois ${row['month'] ?? ''}';
+                final label =
+                    row['label']?.toString() ?? 'Mois ${row['month'] ?? ''}';
                 final pct = parseNum(row['pct_vs_avg'])?.toDouble() ?? 0.0;
-                final cons = ((parseNum(row['consistency'])?.toDouble() ?? 0.0) * 100).round();
+                final cons =
+                    ((parseNum(row['consistency'])?.toDouble() ?? 0.0) * 100)
+                        .round();
                 final isLow = pct < 0;
-                final barColor = isLow ? FDTheme.green : const Color(0xFFD97706);
+                final barColor =
+                    isLow ? FDTheme.green : const Color(0xFFD97706);
                 final barRatio = (pct.abs() / 35.0).clamp(0.06, 1.0);
 
                 return Padding(
@@ -1096,7 +1192,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: isLow ? FDTheme.greenDark : FDTheme.warningDark,
+                            color:
+                                isLow ? FDTheme.greenDark : FDTheme.warningDark,
                           ),
                         ),
                       ),
@@ -1106,7 +1203,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         child: Text(
                           '$cons %',
                           textAlign: TextAlign.right,
-                          style: const TextStyle(fontSize: 11.5, color: FDTheme.muted),
+                          style: const TextStyle(
+                              fontSize: 11.5, color: FDTheme.muted),
                         ),
                       ),
                     ],
@@ -1126,7 +1224,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
             children: [
               const Text(
                 'Comparaison des provinces',
-                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
+                style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: FDTheme.ink),
               ),
               const SizedBox(height: 3),
               const Text(
@@ -1141,7 +1242,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: FDTheme.canvas,
                       borderRadius: BorderRadius.circular(10),
@@ -1164,15 +1266,19 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 'Achat : ${_formatMonthList(p['buy_months'])} · Vente : ${_formatMonthList(p['sell_months'])}',
-                                style: const TextStyle(fontSize: 12, color: FDTheme.muted),
+                                style: const TextStyle(
+                                    fontSize: 12, color: FDTheme.muted),
                               ),
                             ],
                           ),
                         ),
                         const SizedBox(width: 8),
                         FDBadge(
-                          label: '${amp.toStringAsFixed(0)} % · ${reliable ? 'Fiable' : 'Faible'}',
-                          color: reliable ? FDTheme.greenDark : FDTheme.warningDark,
+                          label:
+                              '${amp.toStringAsFixed(0)} % · ${reliable ? 'Fiable' : 'Faible'}',
+                          color: reliable
+                              ? FDTheme.greenDark
+                              : FDTheme.warningDark,
                           backgroundColor: reliable
                               ? FDTheme.greenSoft
                               : FDTheme.warning.withValues(alpha: 0.14),
@@ -1211,7 +1317,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
       ..sort();
     if (prices.isEmpty) return const SizedBox.shrink();
     final mid = prices.length ~/ 2;
-    final medianFc = prices.length.isOdd ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2.0;
+    final medianFc = prices.length.isOdd
+        ? prices[mid]
+        : (prices[mid - 1] + prices[mid]) / 2.0;
     final spread = prices.last - prices.first;
 
     final chartData = <String, num>{};
@@ -1232,9 +1340,12 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final medianLast = lastPrices.isNotEmpty
         ? (lastPrices.length.isOdd
             ? lastPrices[lastPrices.length ~/ 2]
-            : (lastPrices[lastPrices.length ~/ 2 - 1] + lastPrices[lastPrices.length ~/ 2]) / 2.0)
+            : (lastPrices[lastPrices.length ~/ 2 - 1] +
+                    lastPrices[lastPrices.length ~/ 2]) /
+                2.0)
         : medianFc;
-    final trendPct = medianLast > 0 ? ((medianFc - medianLast) / medianLast) * 100.0 : 0.0;
+    final trendPct =
+        medianLast > 0 ? ((medianFc - medianLast) / medianLast) * 100.0 : 0.0;
     final trendLabel = trendPct > 1.5
         ? 'Hausse attendue (+${trendPct.toStringAsFixed(1)}%)'
         : (trendPct < -1.5
@@ -1251,7 +1362,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
               Icon(
                 trendPct > 1.5
                     ? Icons.trending_up_rounded
-                    : (trendPct < -1.5 ? Icons.trending_down_rounded : Icons.trending_flat_rounded),
+                    : (trendPct < -1.5
+                        ? Icons.trending_down_rounded
+                        : Icons.trending_flat_rounded),
                 color: trendPct > 1.5 ? FDTheme.danger : FDTheme.green,
                 size: 22,
               ),
@@ -1260,7 +1373,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
                 child: Text(
                   'Verdict rapide · ${commodityLabelFr(_selectedCommodity ?? 'Millet')} (${_selectedProvince ?? ''}) : '
                   '$trendLabel · Sac 100 kg ≈ ${formatXaf(medianFc * 100)} XAF',
-                  style: const TextStyle(color: FDTheme.ink, fontSize: 13.5, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      color: FDTheme.ink,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -1340,7 +1456,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
       final kind = raw['kind']?.toString() ?? '';
       switch (_anomalyFilter) {
         case 'arbitrage':
-          return kind == 'divergence' || kind == 'jump+divergence' || kind == 'jump';
+          return kind == 'divergence' ||
+              kind == 'jump+divergence' ||
+              kind == 'jump';
         case 'regional':
           return kind == 'regional';
         case 'quality':
@@ -1351,7 +1469,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
     }).toList();
 
     final totalAnom = _anomalies.whereType<Map>().length;
-    final strongAnom = _anomalies.whereType<Map>().where((r) => r['severity'] == 'forte').length;
+    final strongAnom = _anomalies
+        .whereType<Map>()
+        .where((r) => r['severity'] == 'forte')
+        .length;
     final qualityAnom = _anomalies
         .whereType<Map>()
         .where((r) => r['kind'] == 'stale' || r['kind'] == 'stopped')
@@ -1390,7 +1511,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
             avatar: Icon(
               Icons.public_rounded,
               size: 16,
-              color: _anomaliesAllProvinces ? FDTheme.greenDark : FDTheme.subtle,
+              color:
+                  _anomaliesAllProvinces ? FDTheme.greenDark : FDTheme.subtle,
             ),
             label: const Text('Tout le Tchad'),
             selected: _anomaliesAllProvinces,
@@ -1427,7 +1549,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
       const SizedBox(height: 12),
       if (filtered.isEmpty)
         const _StateMessage(
-          text: 'Aucun signal d’anomalie ou de qualité détecté pour ces filtres.',
+          text:
+              'Aucun signal d’anomalie ou de qualité détecté pour ces filtres.',
         )
       else ...[
         Text(
@@ -1452,9 +1575,11 @@ class _ForecastScreenState extends State<ForecastScreen> {
           final reference = parseNum(r['reference'])?.toDouble() ?? 0.0;
           final changePct = parseNum(r['change_pct'])?.toDouble() ?? 0.0;
           final score = parseNum(r['score'])?.toDouble() ?? 0.0;
-          final commLabel = commodityLabelFr(r['commodity_std']?.toString() ?? '');
+          final commLabel =
+              commodityLabelFr(r['commodity_std']?.toString() ?? '');
           final kindLabel = _anomalyKindLabel(kind);
-          final b2bHint = _anomalyB2bInsight(kind, changePct, score, value, source);
+          final b2bHint =
+              _anomalyB2bInsight(kind, changePct, score, value, source);
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -1501,7 +1626,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: FDTheme.canvasSoft,
                           borderRadius: BorderRadius.circular(99),
@@ -1518,7 +1644,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       ),
                       if (source.isNotEmpty)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: FDTheme.blueSoft,
                             borderRadius: BorderRadius.circular(99),
@@ -1550,7 +1677,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         ),
                         _PriceValue(
                           label: 'Écart',
-                          value: '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(1)} %',
+                          value:
+                              '${changePct >= 0 ? '+' : ''}${changePct.toStringAsFixed(1)} %',
                         ),
                       ],
                     )
@@ -1559,12 +1687,14 @@ class _ForecastScreenState extends State<ForecastScreen> {
                       label: kind == 'stopped'
                           ? 'Collecte interrompue'
                           : 'Série figée',
-                      value: '${score.toStringAsFixed(0)} mois · ${formatXaf(value)} XAF/kg',
+                      value:
+                          '${score.toStringAsFixed(0)} mois · ${formatXaf(value)} XAF/kg',
                     ),
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: FDTheme.canvas,
                       borderRadius: BorderRadius.circular(8),
@@ -1589,7 +1719,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
   }
 
   String _formatMarketTitle(String market, String province) {
-    if (province.isEmpty || market.toLowerCase().contains(province.toLowerCase())) {
+    if (province.isEmpty ||
+        market.toLowerCase().contains(province.toLowerCase())) {
       return market;
     }
     return '$market ($province)';
@@ -1621,7 +1752,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
     double value,
     String source,
   ) {
-    final srcPrefix = source.isNotEmpty && source != 'multi' ? 'Source $source' : 'Collecte';
+    final srcPrefix =
+        source.isNotEmpty && source != 'multi' ? 'Source $source' : 'Collecte';
     switch (kind) {
       case 'stopped':
         return '$srcPrefix interrompue depuis ${score.toStringAsFixed(0)} mois : appuyez-vous sur les prévisions actives (FEWS NET) ou vérifiez le cours sur place avant contrat.';
@@ -1673,7 +1805,8 @@ class _TrackRecordBanner extends StatelessWidget {
       icon = Icons.verified_outlined;
       title =
           'Fiabilité vérifiée ($months mois · $commodityLabel) : +${vsNaive.abs().toStringAsFixed(0)} % plus précis que la référence naïve';
-      subtitle = 'Exploitable pour calibrer vos achats, stocks et besoins de trésorerie B2B.';
+      subtitle =
+          'Exploitable pour calibrer vos achats, stocks et besoins de trésorerie B2B.';
     } else if (verdict == 'worse') {
       bg = FDTheme.warning.withValues(alpha: 0.10);
       border = FDTheme.warning.withValues(alpha: 0.35);
@@ -1681,7 +1814,8 @@ class _TrackRecordBanner extends StatelessWidget {
       icon = Icons.info_outline_rounded;
       title =
           'Prudence modèle ($months mois · $commodityLabel) : écart supérieur de ${vsNaive.abs().toStringAsFixed(0)} % à la référence naïve';
-      subtitle = 'Privilégiez des engagements courts et croisez avec les cours locaux.';
+      subtitle =
+          'Privilégiez des engagements courts et croisez avec les cours locaux.';
     } else {
       bg = FDTheme.blueSoft;
       border = FDTheme.blue.withValues(alpha: 0.25);
@@ -1689,7 +1823,8 @@ class _TrackRecordBanner extends StatelessWidget {
       icon = Icons.balance_outlined;
       title =
           'Fiabilité ($months mois · $commodityLabel) : précision équivalente au prix du mois précédent';
-      subtitle = 'Croisez la prévision avec les écarts inter-marchés et la saisonnalité.';
+      subtitle =
+          'Croisez la prévision avec les écarts inter-marchés et la saisonnalité.';
     }
 
     return Container(
@@ -1744,7 +1879,8 @@ class _PriceValue extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11.5, color: FDTheme.muted)),
+          Text(label,
+              style: const TextStyle(fontSize: 11.5, color: FDTheme.muted)),
           const SizedBox(height: 3),
           Text(
             value,
@@ -1774,7 +1910,8 @@ class _ChangeBadge extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12),
+        style:
+            TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12),
       ),
     );
   }
@@ -1791,7 +1928,9 @@ class _StateMessage extends StatelessWidget {
           children: [
             const Icon(Icons.query_stats, size: 30, color: FDTheme.muted),
             const SizedBox(height: 10),
-            Text(text, textAlign: TextAlign.center, style: const TextStyle(color: FDTheme.muted)),
+            Text(text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: FDTheme.muted)),
             if (onRetry != null)
               TextButton.icon(
                 onPressed: onRetry,

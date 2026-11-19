@@ -66,7 +66,8 @@ class SourceCard extends StatelessWidget {
                     if (isRecognized) ...[
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: FDTheme.blueSoft,
                           borderRadius: BorderRadius.circular(4),
@@ -101,4 +102,3 @@ class SourceCard extends StatelessWidget {
     );
   }
 }
-

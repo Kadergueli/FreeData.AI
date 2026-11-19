@@ -29,16 +29,19 @@ class AssistantMessage extends StatelessWidget {
   );
 
   ({String body, String? disclaimer}) _extractBodyAndDisclaimer() {
-    final explicitDisclaimer = message.metadata['disclaimer']?.toString().trim();
+    final explicitDisclaimer =
+        message.metadata['disclaimer']?.toString().trim();
     final match = _trailingDisclaimerRegex.firstMatch(message.text);
     if (match != null) {
       final body = message.text.substring(0, match.start).trimRight();
-      final extracted = match.group(1)?.replaceAll(RegExp(r'^[_*\s]+|[_*\s]+$'), '').trim();
+      final extracted =
+          match.group(1)?.replaceAll(RegExp(r'^[_*\s]+|[_*\s]+$'), '').trim();
       return (
         body: body.isNotEmpty ? body : message.text,
-        disclaimer: (explicitDisclaimer != null && explicitDisclaimer.isNotEmpty)
-            ? explicitDisclaimer
-            : extracted,
+        disclaimer:
+            (explicitDisclaimer != null && explicitDisclaimer.isNotEmpty)
+                ? explicitDisclaimer
+                : extracted,
       );
     }
     return (
@@ -52,10 +55,15 @@ class AssistantMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool hasError = message.metadata['error'] == true;
-    final List<Map<String, dynamic>> sources = (message.sources).cast<Map<String, dynamic>>();
-    final dynamic tableData = message.metadata['table'] ?? message.metadata['data'] ?? message.metadata['results'];
-    final dynamic chartData = message.metadata['chart'] ?? message.metadata['chart_data'];
-    final dynamic summary = message.metadata['summary'] ?? message.metadata['analysis'];
+    final List<Map<String, dynamic>> sources =
+        (message.sources).cast<Map<String, dynamic>>();
+    final dynamic tableData = message.metadata['table'] ??
+        message.metadata['data'] ??
+        message.metadata['results'];
+    final dynamic chartData =
+        message.metadata['chart'] ?? message.metadata['chart_data'];
+    final dynamic summary =
+        message.metadata['summary'] ?? message.metadata['analysis'];
     final parsed = _extractBodyAndDisclaimer();
 
     return Padding(
@@ -106,7 +114,9 @@ class AssistantMessage extends StatelessWidget {
             ],
             if (tableData is List && tableData.isNotEmpty) ...[
               DataTableCard(
-                rows: tableData.map((row) => Map<String, dynamic>.from(row as Map)).toList(),
+                rows: tableData
+                    .map((row) => Map<String, dynamic>.from(row as Map))
+                    .toList(),
               ),
             ],
             if (chartData != null) ...[
@@ -119,7 +129,8 @@ class AssistantMessage extends StatelessWidget {
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(top: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: FDTheme.canvas,
                   border: Border.all(color: FDTheme.line),
@@ -140,12 +151,15 @@ class AssistantMessage extends StatelessWidget {
               spacing: 8,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.copy_rounded, size: 18, color: FDTheme.subtle),
+                  icon: const Icon(Icons.copy_rounded,
+                      size: 18, color: FDTheme.subtle),
                   tooltip: 'Copier la réponse',
                   padding: const EdgeInsets.all(10),
-                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                  constraints:
+                      const BoxConstraints(minWidth: 44, minHeight: 44),
                   onPressed: () {
-                    Clipboard.setData(ClipboardData(text: cleanMarkdownForClipboard(message.text)));
+                    Clipboard.setData(ClipboardData(
+                        text: cleanMarkdownForClipboard(message.text)));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Réponse copiée dans le presse-papiers'),
@@ -157,12 +171,16 @@ class AssistantMessage extends StatelessWidget {
                 if (showSaveButton)
                   TextButton.icon(
                     icon: Icon(
-                      isSavedInLibrary ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                      isSavedInLibrary
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_border_rounded,
                       size: 18,
                       color: isSavedInLibrary ? FDTheme.blue : FDTheme.subtle,
                     ),
                     label: Text(
-                      isSavedInLibrary ? 'Enregistrée dans Library' : 'Sauvegarder dans Library',
+                      isSavedInLibrary
+                          ? 'Enregistrée dans Library'
+                          : 'Sauvegarder dans Library',
                       style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w500,
@@ -170,7 +188,8 @@ class AssistantMessage extends StatelessWidget {
                       ),
                     ),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
                       minimumSize: const Size(0, 44),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
@@ -180,7 +199,8 @@ class AssistantMessage extends StatelessWidget {
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Analyse enregistrée dans la Bibliothèque locale'),
+                            content: Text(
+                                'Analyse enregistrée dans la Bibliothèque locale'),
                             duration: Duration(seconds: 2),
                           ),
                         );
@@ -195,4 +215,3 @@ class AssistantMessage extends StatelessWidget {
     );
   }
 }
-

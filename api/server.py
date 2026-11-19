@@ -43,7 +43,16 @@ from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.entitlements import EntitlementManager
-from src.monetization import DEFAULT_PLANS, HmacJsonWebhookAdapter, SubscriptionStore, simulate_unit_economics
+from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, get_auth_secret
+from src.monetization import (
+    DEFAULT_PLANS,
+    HmacJsonWebhookAdapter,
+    StripeWebhookAdapter,
+    SubscriptionStore,
+    get_configured_plans,
+    get_payment_methods,
+    simulate_unit_economics,
+)
 from src.ai_infra import AIQualityMonitor, ModelRouter, TTLCache, cache_key_for_series
 from src.security import filter_rag_hits_for_owner, validate_uploaded_document, verify_signed_user_token
 from src.admin import AdminService, ROLE_PERMISSIONS
@@ -664,6 +673,7 @@ def get_metadata(state: dict = Depends(get_state)):
 
 
 _SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
+_AUTH_STORE: Optional[AuthStore] = None
 
 
 def get_subscription_store() -> SubscriptionStore:
@@ -671,6 +681,13 @@ def get_subscription_store() -> SubscriptionStore:
     if _SUBSCRIPTION_STORE is None:
         _SUBSCRIPTION_STORE = SubscriptionStore()
     return _SUBSCRIPTION_STORE
+
+
+def get_auth_store() -> AuthStore:
+    global _AUTH_STORE
+    if _AUTH_STORE is None:
+        _AUTH_STORE = AuthStore()
+    return _AUTH_STORE
 
 
 _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
@@ -687,6 +704,8 @@ def _resolve_owner_id_optional(
         tok = authorization.split(" ", 1)[1].strip()
         sub = verify_signed_user_token(tok, auth_secret)
         if sub:
+            if _AUTH_STORE is not None and _AUTH_STORE.is_token_revoked(tok):
+                raise HTTPException(status_code=401, detail="Session révoquée. Veuillez vous reconnecter.")
             return f"user:{sub}"
         raise HTTPException(status_code=401, detail="Jeton Bearer invalide ou expiré.")
 
@@ -704,6 +723,33 @@ def _resolve_owner_id_optional(
         digest = hashlib.sha256(pkey.strip().encode("utf-8")).hexdigest()[:16]
         return f"key:{digest}"
     return None
+
+
+def _has_pro_access(
+    owner_id: Optional[str],
+    x_premium_key: Optional[str],
+    sub_store: Any = None,
+) -> bool:
+    """True si clé partenaire PRO valide OU abonnement actif trial/premium en base."""
+    pkey = x_premium_key if isinstance(x_premium_key, str) else None
+    if _premium_key_ok(pkey):
+        return True
+    if owner_id and isinstance(sub_store, SubscriptionStore):
+        sub = sub_store.get_subscription(owner_id)
+        if sub.get("effective_plan_id") in ("trial", "premium"):
+            return True
+    return False
+
+
+def _require_pro_access(
+    owner_id: Optional[str],
+    x_premium_key: Optional[str],
+    sub_store: Any,
+    feature_label: str,
+) -> None:
+    if _has_pro_access(owner_id, x_premium_key, sub_store):
+        return
+    _require_premium_key(x_premium_key, feature_label)
 
 
 def _consume_user_quota(
@@ -741,11 +787,11 @@ def chat_endpoint(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
-    tier = payload.tier
-    # Le niveau « premium » (LLM payant) exige une clé valide : sans clé configurée ou fournie, repli sur le gratuit.
-    if tier == "premium" and not _premium_key_ok(x_premium_key):
-        tier = "free"
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    tier = payload.tier
+    # Le niveau « premium » (LLM payant) exige une clé valide ou un abonnement PRO actif : sinon repli sur le gratuit.
+    if tier == "premium" and not _has_pro_access(owner_id, x_premium_key, sub_store):
+        tier = "free"
     _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
     if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
@@ -832,9 +878,13 @@ def get_anomalies(
     limit: int = Query(100, ge=1, le=1000),
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Signaux à vérifier (offre premium) : sauts, divergences entre marchés, séries figées ou arrêtées."""
-    _require_premium_key(x_premium_key, "Analyse d'anomalies")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Analyse d'anomalies")
     df = state.get("anomalies")
     if df is None or df.empty:
         return {"count": 0, "items": []}
@@ -895,9 +945,13 @@ def seasonality_study(
     output: Literal["json", "markdown"] = Query("json", alias="format"),
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Étude saisonnière avancée (offre premium) : calendrier, comparaison de provinces, stratégie de stockage rejouée."""
-    _require_premium_key(x_premium_key, "Études avancées")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Études avancées")
     book: StudyBook | None = state.get("studies")
     fc = state["forecast_df"]
     by_lower = {str(c).lower(): str(c) for c in fc["commodity_std"].dropna().unique()}
@@ -986,9 +1040,13 @@ def generate_market_study_json(
     payload: MarketStudyRequest,
     state: dict = Depends(get_state),
     x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Génère le dossier structuré d'étude de marché PRO (100 % données réelles, zéro hallucination)."""
-    _require_premium_key(x_premium_key, "Rapports d'étude de marché PRO")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Rapports d'étude de marché PRO")
     return _build_study_dossier_or_404(payload, state)
 
 
@@ -1005,7 +1063,8 @@ def generate_market_study_pdf(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     """Génère et retourne le rapport PDF professionnel d'étude de marché PRO."""
-    _require_premium_key(x_premium_key, "Rapports d'étude de marché PDF PRO")
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Rapports d'étude de marché PDF PRO")
     dossier = _build_study_dossier_or_404(payload, state)
     validation = dossier.get("validation") or {}
     if not validation.get("can_deliver_pdf", True):
@@ -1016,7 +1075,6 @@ def generate_market_study_pdf(
                 "validation": validation,
             },
         )
-    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
     _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
     pdf_bytes = render_market_study_pdf(dossier)
     safe_slug = "".join(c if c.isalnum() else "_" for c in dossier["commodity"].lower()).strip("_") or "marche"
@@ -1213,7 +1271,7 @@ def create_project_study_version_endpoint(
     store: ProjectStore = Depends(get_project_store),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    _require_premium_key(x_premium_key, "Génération d'études PDF dans un projet PRO")
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Génération d'études PDF dans un projet PRO")
     try:
         proj = store.get_project(owner_id, project_id)
     except KeyError as exc:
@@ -1811,9 +1869,12 @@ class PlatformChatRequest(ChatRequest):
 def list_domains_endpoint(
     x_user_id: Optional[str] = Header(default=None),
     x_premium_key: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     ent: EntitlementManager = Depends(get_entitlement_manager),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    eff_tier = "premium" if _premium_key_ok(x_premium_key) else "free"
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    eff_tier = "premium" if _has_pro_access(owner_id, x_premium_key, sub_store) else "free"
     uid = (x_user_id or "anonymous").strip()[:80]
     return {
         "domains": DomainRegistry.list_domains(),
@@ -1833,8 +1894,8 @@ def platform_chat_endpoint(
     ent: EntitlementManager = Depends(get_entitlement_manager),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    eff_tier = "premium" if (payload.tier == "premium" and _premium_key_ok(x_premium_key)) else "free"
     owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    eff_tier = "premium" if (payload.tier == "premium" and _has_pro_access(owner_id, x_premium_key, sub_store)) else "free"
     _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
     uid = (x_user_id or "anonymous").strip()[:80]
     try:
@@ -1907,17 +1968,178 @@ def _fallback_domain_reply(domain_mod, query: str, rag_hits: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 12 — Subscription Lifecycle, Atomic Usage Metering & Cost Simulation
 # ---------------------------------------------------------------------------
+# Phase 12 — User Accounts (JWT Bearer), Subscriptions, Payments & Quotas
+# ---------------------------------------------------------------------------
+class AuthRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=160)
+    password: str = Field(..., min_length=8, max_length=128)
+    display_name: str = Field("", max_length=80)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=160)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+@app.post("/api/v1/auth/register", dependencies=[Depends(_chat_rate_limit_dependency)])
+def auth_register_endpoint(
+    payload: AuthRegisterRequest,
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    try:
+        secret = get_auth_secret()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        user = auth_store.register(payload.email, payload.password, display_name=payload.display_name)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+
+
+@app.post("/api/v1/auth/login", dependencies=[Depends(_chat_rate_limit_dependency)])
+def auth_login_endpoint(
+    payload: AuthLoginRequest,
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    try:
+        secret = get_auth_secret()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        user = auth_store.authenticate(payload.email, payload.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+
+
+@app.get("/api/v1/auth/me", dependencies=[Depends(_data_rate_limit_dependency)])
+def auth_me_endpoint(
+    authorization: Optional[str] = Header(default=None),
+    x_premium_key: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentification Bearer requise.")
+    tok = authorization.split(" ", 1)[1].strip()
+    sub_id = auth_store.verify_session_token(tok)
+    if not sub_id:
+        raise HTTPException(status_code=401, detail="Session invalide, révoquée ou expirée.")
+    user = auth_store.get_user(sub_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Compte introuvable.")
+    owner_id = f"user:{user['user_id']}"
+    sub = sub_store.get_subscription(owner_id)
+    is_pro = _has_pro_access(owner_id, x_premium_key, sub_store)
+    return {"user": user, "owner_id": owner_id, "subscription": sub, "is_pro": is_pro}
+
+
+@app.post("/api/v1/auth/logout", dependencies=[Depends(_data_rate_limit_dependency)])
+def auth_logout_endpoint(
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentification Bearer requise.")
+    tok = authorization.split(" ", 1)[1].strip()
+    auth_store.revoke_token(tok)
+    return {"logged_out": True}
 
 
 @app.get("/api/v1/billing/plans", dependencies=[Depends(_data_rate_limit_dependency)])
 def list_billing_plans_endpoint():
     return {
-        "plans": list(DEFAULT_PLANS.values()),
-        "payment_provider_status": "provider_agnostic_manual_activation_enabled",
+        "plans": get_configured_plans(),
+        "payment_provider_status": "mobile_money_and_stripe_ready",
         "note": "Aucun plan n'est illimité ; les quotas journaliers/mensuels sont appliqués côté serveur.",
     }
+
+
+@app.get("/api/v1/billing/payment-methods", dependencies=[Depends(_data_rate_limit_dependency)])
+def list_payment_methods_endpoint():
+    return get_payment_methods()
+
+
+class PaymentRequestCreate(BaseModel):
+    provider: Literal["airtel_money", "moov_money", "bank_transfer", "mobile_money", "stripe"] = "airtel_money"
+    plan_id: Literal["trial", "premium"] = "premium"
+    phone_or_ref: str = Field(..., min_length=3, max_length=80)
+    transaction_ref: str = Field(..., min_length=3, max_length=120)
+    amount_xaf: int = Field(0, ge=0, le=50_000_000)
+    note: str = Field("", max_length=400)
+
+
+class PaymentRequestReview(BaseModel):
+    decision: Literal["approved", "rejected"]
+    period_days: int = Field(30, ge=1, le=365)
+    note: str = Field("", max_length=400)
+
+
+@app.post("/api/v1/billing/payment-requests", dependencies=[Depends(_chat_rate_limit_dependency)])
+def create_payment_request_endpoint(
+    payload: PaymentRequestCreate,
+    owner_id: str = Depends(_require_project_owner),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    try:
+        return sub_store.create_payment_request(
+            owner_id,
+            provider=payload.provider,
+            plan_id=payload.plan_id,
+            phone_or_ref=payload.phone_or_ref,
+            transaction_ref=payload.transaction_ref,
+            amount_xaf=payload.amount_xaf,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/billing/payment-requests/me", dependencies=[Depends(_data_rate_limit_dependency)])
+def list_my_payment_requests_endpoint(
+    owner_id: str = Depends(_require_project_owner),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    items = sub_store.list_payment_requests(user_id=owner_id, limit=50)
+    return {"count": len(items), "requests": items}
+
+
+@app.get("/api/v1/admin/billing/payment-requests", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_list_payment_requests_endpoint(
+    status: Optional[str] = Query(None, pattern="^(pending|approved|rejected)$"),
+    limit: int = Query(50, ge=1, le=200),
+    x_admin_token: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    items = sub_store.list_payment_requests(status=status, limit=limit)
+    return {"count": len(items), "requests": items}
+
+
+@app.post("/api/v1/admin/billing/payment-requests/{request_id}/review", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_review_payment_request_endpoint(
+    request_id: str,
+    payload: PaymentRequestReview,
+    x_admin_token: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    try:
+        return sub_store.review_payment_request(
+            request_id,
+            actor=actor,
+            decision=payload.decision,
+            period_days=payload.period_days,
+            note=payload.note,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/billing/me", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -1938,8 +2160,9 @@ def get_my_billing_endpoint(
             limit_val = int(prem.get(lim_key, q.get("limit", 0)))
             used_val = int(q.get("used", 0))
             quotas[metric] = {**q, "limit": limit_val, "remaining": max(0, limit_val - used_val)}
-        return {**summary, "subscription": sub, "quotas": quotas}
-    return summary
+        return {**summary, "subscription": sub, "quotas": quotas, "is_pro": True}
+    is_pro = sub.get("effective_plan_id") in ("trial", "premium")
+    return {**summary, "is_pro": is_pro}
 
 
 class AdminSubscriptionActivateRequest(BaseModel):
@@ -1957,9 +2180,9 @@ def admin_activate_subscription_endpoint(
     x_admin_token: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
     return sub_store.admin_update_subscription(
-        actor="admin",
+        actor=actor,
         target_user_id=payload.target_user_id,
         plan_id=payload.plan_id,
         status=payload.status,
@@ -1975,15 +2198,26 @@ async def payment_webhook_endpoint(
     provider: str,
     request: Request,
     x_webhook_signature: Optional[str] = Header(default=None),
+    stripe_signature: Optional[str] = Header(default=None, alias="Stripe-Signature"),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    secret = os.getenv("PAYMENT_WEBHOOK_SECRET", "").strip()
+    is_stripe = provider.strip().lower() == "stripe"
+    if is_stripe:
+        secret = (os.getenv("STRIPE_WEBHOOK_SECRET", "") or os.getenv("PAYMENT_WEBHOOK_SECRET", "")).strip()
+        sig = stripe_signature or x_webhook_signature or ""
+        adapter: Any = StripeWebhookAdapter()
+    else:
+        secret = os.getenv("PAYMENT_WEBHOOK_SECRET", "").strip()
+        sig = x_webhook_signature or ""
+        adapter = HmacJsonWebhookAdapter(provider_name=provider)
     if not secret:
-        raise HTTPException(status_code=503, detail="Webhook paiement non configuré (PAYMENT_WEBHOOK_SECRET manquant).")
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook paiement non configuré (STRIPE_WEBHOOK_SECRET / PAYMENT_WEBHOOK_SECRET manquant).",
+        )
     raw_body = await request.body()
-    adapter = HmacJsonWebhookAdapter(provider_name=provider)
     try:
-        return sub_store.process_webhook_idempotent(adapter, raw_body, x_webhook_signature or "", secret)
+        return sub_store.process_webhook_idempotent(adapter, raw_body, sig, secret)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:

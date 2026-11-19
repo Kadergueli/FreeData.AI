@@ -33,7 +33,9 @@ class _PolishFakeApiService extends ApiService {
       };
 
   @override
-  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async => [
+  Future<List<dynamic>> getForecasts(
+          {String? province, String? commodity}) async =>
+      [
         {
           'market_name': "N'Djamena - Dembé",
           'source': 'WFP',
@@ -58,7 +60,8 @@ class _PolishFakeApiService extends ApiService {
           'province': 'Salamat',
           'grade': 'B (Risque Modéré)',
           'credit_score': 64.5,
-          'policy_recommendation': 'Éligible — Sous réserve de stockage warranté',
+          'policy_recommendation':
+              'Éligible — Sous réserve de stockage warranté',
           'recommended_max_loan_xaf': 650000,
           'cv_pct': 21.7,
           'max_drawdown_pct': 33.1,
@@ -95,8 +98,7 @@ void main() {
     expect(cleaned, contains('Synthèse Nationale — Millet'));
     expect(cleaned, contains('229 XAF/kg'));
 
-    const tableMd =
-        '### Prévisions — Mil à Moundou\n\n'
+    const tableMd = '### Prévisions — Mil à Moundou\n\n'
         '| Marché | Actuel → Prévu | Sac 100 kg |\n'
         '| :--- | :---: | ---: |\n'
         '| **Moundou** | 204 → **224** (+10.3%) | 22 445 XAF |\n\n'
@@ -110,10 +112,12 @@ void main() {
   });
 
   test('LocalConversationStorage refuses empty conversations', () async {
-    final emptyDraft = await LocalConversationStorage.instance.createConversation();
+    final emptyDraft =
+        await LocalConversationStorage.instance.createConversation();
     await LocalConversationStorage.instance.saveConversation(emptyDraft);
 
-    final loaded = await LocalConversationStorage.instance.loadConversations(includeDeleted: true);
+    final loaded = await LocalConversationStorage.instance
+        .loadConversations(includeDeleted: true);
     expect(loaded, isEmpty);
 
     // Legacy 0-message items already persisted in storage are filtered out too.
@@ -130,12 +134,15 @@ void main() {
       ]),
     });
 
-    final filtered = await LocalConversationStorage.instance.loadConversations(includeDeleted: true);
+    final filtered = await LocalConversationStorage.instance
+        .loadConversations(includeDeleted: true);
     expect(filtered.length, 1);
     expect(filtered.first.id, 'non-empty');
   });
 
-  testWidgets('ChatScreen removes double border, redundant top bar, and boxes disclaimer', (tester) async {
+  testWidgets(
+      'ChatScreen removes double border, redundant top bar, and boxes disclaimer',
+      (tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -187,7 +194,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('LibraryScreen strips markdown and hides 0-message threads on mobile', (tester) async {
+  testWidgets(
+      'LibraryScreen strips markdown and hides 0-message threads on mobile',
+      (tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -217,7 +226,8 @@ void main() {
     );
 
     SharedPreferences.setMockInitialValues({
-      LocalConversationStorage.storageKey: jsonEncode([emptyThread.toJson(), validThread.toJson()]),
+      LocalConversationStorage.storageKey:
+          jsonEncode([emptyThread.toJson(), validThread.toJson()]),
     });
 
     await tester.pumpWidget(
@@ -236,7 +246,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('ForecastScreen compacts top bar and formats XAF & CI bounds cleanly', (tester) async {
+  testWidgets(
+      'ForecastScreen compacts top bar and formats XAF & CI bounds cleanly',
+      (tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -260,11 +272,14 @@ void main() {
     expect(find.text('Copier CSV'), findsOneWidget);
     await tester.tap(find.text('Détails'));
     await tester.pumpAndSettle();
-    expect(find.text('Intervalle indicatif 80 % : 233 – 311 XAF/kg'), findsOneWidget);
+    expect(find.text('Intervalle indicatif 80 % : 233 – 311 XAF/kg'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('PassportScreen compacts filters, formats LTV, renders badges and disclaimer', (tester) async {
+  testWidgets(
+      'PassportScreen compacts filters, formats LTV, renders badges and disclaimer',
+      (tester) async {
     tester.view.physicalSize = const Size(375, 812);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -287,11 +302,13 @@ void main() {
     expect(find.text('CV : 21.7%'), findsOneWidget);
     expect(find.text('Baisse max : -33.1%'), findsOneWidget);
     expect(find.text('32 mois'), findsOneWidget);
-    expect(find.textContaining('Indicateur informatif fondé sur la volatilité'), findsOneWidget);
+    expect(find.textContaining('Indicateur informatif fondé sur la volatilité'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AssistantMessage renders structured Markdown tables and ChartCard cleanly on mobile and desktop',
+  testWidgets(
+      'AssistantMessage renders structured Markdown tables and ChartCard cleanly on mobile and desktop',
       (tester) async {
     const structuredReply = '''
 ### Prévisions — Mil à Moundou (Logone Occidental)
@@ -348,7 +365,8 @@ void main() {
     }
   });
 
-  testWidgets('ForecastScreen reads products, renders French commodity labels, and shows reduced confidence badge',
+  testWidgets(
+      'ForecastScreen reads products, renders French commodity labels, and shows reduced confidence badge',
       (tester) async {
     final reducedApi = _ReducedForecastFakeApi();
     await tester.pumpWidget(
@@ -366,7 +384,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('ApiService uses tier free by default, caches metadata, and retries only transient 5xx/network errors',
+  test(
+      'ApiService uses tier free by default, caches metadata, and retries only transient 5xx/network errors',
       () async {
     int metadataCalls = 0;
     int chat422Calls = 0;
@@ -377,13 +396,20 @@ void main() {
     final mockClient = MockClient((request) async {
       if (request.url.path == '/api/v1/metadata') {
         metadataCalls++;
-        return http.Response(jsonEncode({'products': ['Millet'], 'provinces': ["N'Djamena"]}), 200);
+        return http.Response(
+            jsonEncode({
+              'products': ['Millet'],
+              'provinces': ["N'Djamena"]
+            }),
+            200);
       }
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       final msg = body['message'] as String;
       if (msg == 'free-check') {
         capturedTier = body['tier'] as String?;
-        return http.Response(jsonEncode({'reply': 'OK', 'intent': 'forecast', 'sources': []}), 200);
+        return http.Response(
+            jsonEncode({'reply': 'OK', 'intent': 'forecast', 'sources': []}),
+            200);
       }
       if (msg == 'err-422') {
         chat422Calls++;
@@ -398,7 +424,10 @@ void main() {
         if (chat503Calls == 1) {
           return http.Response('Service Unavailable', 503);
         }
-        return http.Response(jsonEncode({'reply': 'Recovered', 'intent': 'forecast', 'sources': []}), 200);
+        return http.Response(
+            jsonEncode(
+                {'reply': 'Recovered', 'intent': 'forecast', 'sources': []}),
+            200);
       }
       return http.Response('{}', 404);
     });
@@ -416,9 +445,11 @@ void main() {
     expect(metadataCalls, 1);
 
     // 3. No retry on 422 or 400
-    await expectLater(service.sendChatMessage('err-422'), throwsA(isA<ApiHttpException>()));
+    await expectLater(
+        service.sendChatMessage('err-422'), throwsA(isA<ApiHttpException>()));
     expect(chat422Calls, 1);
-    await expectLater(service.sendChatMessage('err-400'), throwsA(isA<ApiHttpException>()));
+    await expectLater(
+        service.sendChatMessage('err-400'), throwsA(isA<ApiHttpException>()));
     expect(chat400Calls, 1);
 
     // 4. Retries once on 503
@@ -427,7 +458,8 @@ void main() {
     expect(recovered['reply'], 'Recovered');
   });
 
-  testWidgets('Switching conversation during pending sendChatMessage does not overwrite active thread',
+  testWidgets(
+      'Switching conversation during pending sendChatMessage does not overwrite active thread',
       (tester) async {
     final pendingResponse = Completer<Map<String, dynamic>>();
     final slowApi = _DelayedChatFakeApi(pendingResponse);
@@ -491,11 +523,14 @@ void main() {
     expect(find.text('Message initial 2'), findsOneWidget);
     expect(find.text('Réponse tardive de conv-1'), findsNothing);
 
-    final savedConv1 = await LocalConversationStorage.instance.getConversation('conv-1');
+    final savedConv1 =
+        await LocalConversationStorage.instance.getConversation('conv-1');
     expect(savedConv1?.messages.last.text, 'Réponse tardive de conv-1');
   });
 
-  test('cleanMarkdownForClipboard preserves newlines and cleans Markdown tables and headers', () {
+  test(
+      'cleanMarkdownForClipboard preserves newlines and cleans Markdown tables and headers',
+      () {
     const raw = '''
 ### Prévisions — Mil
 
@@ -518,7 +553,8 @@ void main() {
     expect(cleaned.contains('---'), isFalse);
   });
 
-  testWidgets('Multi-message ChatScreen shows Sauvegarder dans Library only on the last assistant message',
+  testWidgets(
+      'Multi-message ChatScreen shows Sauvegarder dans Library only on the last assistant message',
       (tester) async {
     final conv = ConversationThread(
       id: 'conv-multi',
@@ -551,7 +587,9 @@ void main() {
     expect(find.text('Sauvegarder dans Library'), findsOneWidget);
   });
 
-  testWidgets('ForecastScreen Alertes (>15%) chip loads and renders active alerts', (tester) async {
+  testWidgets(
+      'ForecastScreen Alertes (>15%) chip loads and renders active alerts',
+      (tester) async {
     final alertsApi = _ReducedForecastFakeApi();
     await tester.pumpWidget(
       MaterialApp(
@@ -572,7 +610,9 @@ void main() {
     expect(find.text('300 XAF/kg'), findsOneWidget);
   });
 
-  test('ApiService.getSeasonalityStudy sends X-Premium-Key and handles 200 and 403', () async {
+  test(
+      'ApiService.getSeasonalityStudy sends X-Premium-Key and handles 200 and 403',
+      () async {
     String? sentHeader;
     int statusToReturn = 200;
 
@@ -600,7 +640,8 @@ void main() {
     final service = ApiService(client: mockClient);
     service.setRuntimePremiumKey('secret-premium-key');
 
-    final study = await service.getSeasonalityStudy(commodity: 'Millet', province: 'Salamat');
+    final study = await service.getSeasonalityStudy(
+        commodity: 'Millet', province: 'Salamat');
     expect(sentHeader, 'secret-premium-key');
     expect(study['status'], 'ok');
     expect(study['calendar']['amplitude_pct'], 34.0);
@@ -608,12 +649,14 @@ void main() {
     statusToReturn = 403;
     await expectLater(
       service.getSeasonalityStudy(commodity: 'Millet'),
-      throwsA(isA<ApiHttpException>().having((e) => e.statusCode, 'statusCode', 403)),
+      throwsA(isA<ApiHttpException>()
+          .having((e) => e.statusCode, 'statusCode', 403)),
     );
     expect(service.hasPremiumKey, isFalse);
   });
 
-  test('ApiService.verifyPremiumKey validates via studies/seasonality cleanly', () async {
+  test('ApiService.verifyPremiumKey validates via studies/seasonality cleanly',
+      () async {
     const serverKey = 'FD-RENDER-SECRET-2026';
 
     final mockClient = MockClient((request) async {
@@ -622,7 +665,8 @@ void main() {
       if (request.headers['X-Premium-Key'] == serverKey) {
         return http.Response(jsonEncode({'status': 'ok'}), 200);
       }
-      return http.Response(jsonEncode({'detail': 'Clé premium invalide.'}), 403);
+      return http.Response(
+          jsonEncode({'detail': 'Clé premium invalide.'}), 403);
     });
 
     final service = ApiService(client: mockClient);
@@ -631,7 +675,8 @@ void main() {
     expect(await service.verifyPremiumKey(serverKey), isTrue);
   });
 
-  testWidgets('MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',
+  testWidgets(
+      'MainShell rejects forged ?key= or forged localStorage and activates only server-verified key',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -646,7 +691,8 @@ void main() {
       MaterialApp(
         home: MainShell(
           apiService: forgedUrlApi,
-          initialUri: Uri.parse('https://freedata-ai.web.app/?key=fausse-cle-123'),
+          initialUri:
+              Uri.parse('https://freedata-ai.web.app/?key=fausse-cle-123'),
         ),
       ),
     );
@@ -658,7 +704,8 @@ void main() {
     expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), isNull);
 
     // Tentative de falsification directe dans SharedPreferences / localStorage : nettoyée au démarrage
-    await prefsAfterForged.setString('fd_ai_premium_key_v1', 'fausse-cle-pirate');
+    await prefsAfterForged.setString(
+        'fd_ai_premium_key_v1', 'fausse-cle-pirate');
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
     final forgedStorageApi = _ReducedForecastFakeApi();
@@ -678,7 +725,8 @@ void main() {
       MaterialApp(
         home: MainShell(
           apiService: validUrlApi,
-          initialUri: Uri.parse('https://freedata-ai.web.app/?key=FD-RENDER-SECRET-2026'),
+          initialUri: Uri.parse(
+              'https://freedata-ai.web.app/?key=FD-RENDER-SECRET-2026'),
         ),
       ),
     );
@@ -687,13 +735,15 @@ void main() {
     expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
     expect(find.text('Accès Partenaire actif · Tchad'), findsOneWidget);
     expect(find.text('PRO'), findsOneWidget);
-    expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), 'FD-RENDER-SECRET-2026');
+    expect(prefsAfterForged.getString('fd_ai_premium_key_v1'),
+        'FD-RENDER-SECRET-2026');
 
     // Réouverture ultérieure sans ?key= dans l'URL : la clé vérifiée reste active définitivement
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
     await tester.pumpAndSettle();
     final persistedApi = _ReducedForecastFakeApi();
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: persistedApi)));
+    await tester
+        .pumpWidget(MaterialApp(home: MainShell(apiService: persistedApi)));
     await tester.pumpAndSettle();
 
     expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
@@ -701,7 +751,8 @@ void main() {
     expect(persistedApi.hasPremiumKey, isTrue);
   });
 
-  testWidgets('MainShell Clé Pro dialog rejects user-invented key, accepts Render key, and unlocks Saisonnalité & Stockage',
+  testWidgets(
+      'MainShell Clé Pro dialog rejects user-invented key, accepts Render key, and unlocks Saisonnalité & Stockage',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -719,7 +770,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Accès Partenaire & Clé Pro'), findsOneWidget);
     await tester.enterText(
-      find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+      find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField)),
       'cle-inventee-par-utilisateur',
     );
     await tester.tap(find.text('Activer'));
@@ -733,7 +785,8 @@ void main() {
     await tester.tap(find.text('Clé Pro'));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)),
+      find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField)),
       'FD-RENDER-SECRET-2026',
     );
     await tester.tap(find.text('Activer'));
@@ -770,10 +823,14 @@ void main() {
     await tester.tap(find.text('Stockage 1,5%/mois'));
     await tester.pumpAndSettle();
     expect(forecastApi.requestedStorageCostPctMonth, 1.5);
-    expect(find.textContaining('Rendement net après frais de stockage (1.5 %/mois)'), findsOneWidget);
+    expect(
+        find.textContaining(
+            'Rendement net après frais de stockage (1.5 %/mois)'),
+        findsOneWidget);
   });
 
-  testWidgets('ExploreScreen retries after failure and falls back to forecasts when metadata fails',
+  testWidgets(
+      'ExploreScreen retries after failure and falls back to forecasts when metadata fails',
       (tester) async {
     final fallbackApi = _ExploreRetryFallbackApi();
 
@@ -785,7 +842,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Premier essai : metadata + forecasts échouent -> message d'erreur + bouton Réessayer visible
-    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'), findsOneWidget);
+    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'),
+        findsOneWidget);
     expect(find.text('Réessayer'), findsOneWidget);
 
     // Second essai via Réessayer : metadata échoue encore, mais getForecasts() réussit en repli
@@ -793,12 +851,14 @@ void main() {
     await tester.tap(find.text('Réessayer'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'), findsNothing);
+    expect(find.text('Les métadonnées ne sont pas accessibles pour le moment.'),
+        findsNothing);
     expect(find.text('Mil (Millet)'), findsWidgets);
     expect(find.text('Am Timan'), findsOneWidget);
   });
 
-  testWidgets('ChartCard handles negative and zero values cleanly and ChatScreen enforces 4000 chars',
+  testWidgets(
+      'ChartCard handles negative and zero values cleanly and ChatScreen enforces 4000 chars',
       (tester) async {
     expect(ApiService.baseUrl, 'https://freedata-ai.onrender.com');
 
@@ -831,7 +891,8 @@ void main() {
     expect(field.controller!.text.length, 4000);
   });
 
-  testWidgets('Delete conversation SnackBar auto-dismisses even with accessibleNavigation enabled',
+  testWidgets(
+      'Delete conversation SnackBar auto-dismisses even with accessibleNavigation enabled',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -873,13 +934,17 @@ void main() {
     expect(find.text('Conversation mise à la corbeille'), findsNothing);
   });
 
-  test('ApiService.verifyPremiumKey surfaces 503 PREMIUM_API_KEYS diagnostic without retry delay',
+  test(
+      'ApiService.verifyPremiumKey surfaces 503 PREMIUM_API_KEYS diagnostic without retry delay',
       () async {
     int calls = 0;
     final mockClient = MockClient((request) async {
       calls++;
       return http.Response(
-        jsonEncode({'detail': 'Études avancées désactivées : PREMIUM_API_KEYS non configuré.'}),
+        jsonEncode({
+          'detail':
+              'Études avancées désactivées : PREMIUM_API_KEYS non configuré.'
+        }),
         503,
       );
     });
@@ -896,7 +961,8 @@ void main() {
     expect(calls, 1);
   });
 
-  testWidgets('First message keeps LoadingIndicator active while MainShell updates conversationId',
+  testWidgets(
+      'First message keeps LoadingIndicator active while MainShell updates conversationId',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -908,7 +974,8 @@ void main() {
     final pending = Completer<Map<String, dynamic>>();
     final delayedApi = _DelayedChatFakeApi(pending);
 
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: delayedApi)));
+    await tester
+        .pumpWidget(MaterialApp(home: MainShell(apiService: delayedApi)));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Premier message test');
@@ -919,14 +986,16 @@ void main() {
     // Même après que MainShell ait attribué un ID au nouveau fil, le spinner reste affiché
     expect(find.byType(LoadingIndicator), findsOneWidget);
 
-    pending.complete({'reply': 'Réponse du serveur', 'intent': 'forecast', 'sources': []});
+    pending.complete(
+        {'reply': 'Réponse du serveur', 'intent': 'forecast', 'sources': []});
     await tester.pumpAndSettle();
 
     expect(find.byType(LoadingIndicator), findsNothing);
     expect(find.text('Réponse du serveur'), findsOneWidget);
   });
 
-  testWidgets('Deleting active conversation from Library resets Assistant IA welcome state',
+  testWidgets(
+      'Deleting active conversation from Library resets Assistant IA welcome state',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -947,7 +1016,8 @@ void main() {
     );
     await LocalConversationStorage.instance.saveAll([conv]);
 
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpWidget(
+        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
     await tester.pumpAndSettle();
     expect(find.text('Question unique'), findsOneWidget);
 
@@ -964,7 +1034,8 @@ void main() {
     expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
   });
 
-  testWidgets('ExploreScreen translates all Render products, shows forecast horizon, and expands/collapses markets',
+  testWidgets(
+      'ExploreScreen translates all Render products, shows forecast horizon, and expands/collapses markets',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1.0;
@@ -1030,7 +1101,8 @@ void main() {
     expect(find.text('Sarh'), findsNothing);
   });
 
-  testWidgets('New conversation buttons in sidebar and mobile AppBar start a fresh chat even when history exists',
+  testWidgets(
+      'New conversation buttons in sidebar and mobile AppBar start a fresh chat even when history exists',
       (tester) async {
     final existing = ConversationThread(
       id: 'conv-existing',
@@ -1052,7 +1124,8 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
     });
 
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpWidget(
+        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
@@ -1064,7 +1137,8 @@ void main() {
     expect(find.text('Prix du mil à Moundou ?'), findsNothing);
     expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
     expect(find.text('Analyse Mil Moundou'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text, isEmpty);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        isEmpty);
 
     // 2. Mobile : bouton icône en haut à droite (AppBar actions)
     tester.view.physicalSize = const Size(390, 844);
@@ -1072,7 +1146,8 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+    await tester.pumpWidget(
+        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
@@ -1084,7 +1159,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('PassportScreen prioritizes passport_products from metadata when provided',
+  testWidgets(
+      'PassportScreen prioritizes passport_products from metadata when provided',
       (tester) async {
     final fullPassportApi = _FullCatalogFakeApi();
     await tester.pumpWidget(
@@ -1104,28 +1180,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Premium B2B features: TrackRecord banner, Anomalies & Qualité tab, and Chat Pro quick actions',
+  testWidgets(
+      'Premium B2B features: TrackRecord banner, Anomalies & Qualité tab, and Chat Pro quick actions',
       (tester) async {
     final proApi = _ReducedForecastFakeApi();
 
     // 1. En mode standard, les actions rapides Pro ne sont pas affichées
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
     await tester.pumpAndSettle();
     expect(find.text('Saisonnalité & Stockage · Mil'), findsNothing);
     expect(find.text('Radar Anomalies & Qualité'), findsNothing);
 
     // 2. En mode Partenaire / Pro, les 2 actions rapides B2B apparaissent
     proApi.setRuntimePremiumKey(_ReducedForecastFakeApi._expectedRenderKey);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
     await tester.pumpAndSettle();
     expect(find.text('Saisonnalité & Stockage · Mil'), findsOneWidget);
     expect(find.text('Radar Anomalies & Qualité'), findsOneWidget);
 
     // 3. ForecastScreen en mode Pro : bandeau Track Record + onglet Anomalies & Qualité
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ForecastScreen(apiService: proApi))));
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: ForecastScreen(apiService: proApi))));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Fiabilité vérifiée (12 mois · Mil (Millet)) : +18 %'), findsOneWidget);
+    expect(
+        find.textContaining(
+            'Fiabilité vérifiée (12 mois · Mil (Millet)) : +18 %'),
+        findsOneWidget);
     expect(find.text('Anomalies & Qualité'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Anomalies & Qualité'));
@@ -1134,10 +1217,12 @@ void main() {
 
     expect(find.text('Écart inter-marchés'), findsOneWidget);
     expect(find.text('Collecte arrêtée'), findsOneWidget);
-    expect(find.textContaining('piste potentielle d’approvisionnement B2B'), findsOneWidget);
+    expect(find.textContaining('piste potentielle d’approvisionnement B2B'),
+        findsOneWidget);
 
     // Filtre Qualité relevés
-    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Qualité relevés'));
+    await tester
+        .ensureVisible(find.widgetWithText(ChoiceChip, 'Qualité relevés'));
     await tester.tap(find.widgetWithText(ChoiceChip, 'Qualité relevés'));
     await tester.pumpAndSettle();
     expect(find.text('Collecte arrêtée'), findsOneWidget);
@@ -1156,7 +1241,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Clicking a product in Explore opens and displays the prompt and reply in a new active chat',
+  testWidgets(
+      'Clicking a product in Explore opens and displays the prompt and reply in a new active chat',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1.0;
@@ -1204,7 +1290,8 @@ void main() {
       return http.Response('{}', 404);
     });
 
-    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: ApiService(client: mockClient))));
+    await tester.pumpWidget(MaterialApp(
+        home: MainShell(apiService: ApiService(client: mockClient))));
     await tester.pumpAndSettle();
     expect(find.text('Question précédente'), findsOneWidget);
 
@@ -1218,7 +1305,8 @@ void main() {
     // L'utilisateur voit directement la question et la réponse sur l'écran actif (pas un écran vide)
     expect(find.text('Que souhaitez-vous analyser ?'), findsNothing);
     expect(
-      find.text('Quelle est la prévision du prix et la tendance pour le produit Mil (Millet) au Tchad ?'),
+      find.text(
+          'Quelle est la prévision du prix et la tendance pour le produit Mil (Millet) au Tchad ?'),
       findsOneWidget,
     );
     expect(find.text('Analyse Mil générée depuis Explore.'), findsOneWidget);
@@ -1313,7 +1401,8 @@ class _ExploreRetryFallbackApi extends ApiService {
   }
 
   @override
-  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async {
+  Future<List<dynamic>> getForecasts(
+      {String? province, String? commodity}) async {
     if (!allowForecastsFallback) {
       throw const ApiHttpException(503, 'Indisponible');
     }
@@ -1391,7 +1480,8 @@ class _ReducedForecastFakeApi extends ApiService {
       ];
 
   @override
-  Future<List<dynamic>> getForecasts({String? province, String? commodity}) async {
+  Future<List<dynamic>> getForecasts(
+      {String? province, String? commodity}) async {
     requestedCommodity = commodity;
     return [
       {
@@ -1446,8 +1536,22 @@ class _ReducedForecastFakeApi extends ApiService {
         'min_years_observed': 4,
       },
       'profile': [
-        {'month': 10, 'label': 'Octobre', 'index': 0.86, 'pct_vs_avg': -14.0, 'consistency': 0.85, 'n': 12},
-        {'month': 7, 'label': 'Juillet', 'index': 1.18, 'pct_vs_avg': 18.0, 'consistency': 0.90, 'n': 12},
+        {
+          'month': 10,
+          'label': 'Octobre',
+          'index': 0.86,
+          'pct_vs_avg': -14.0,
+          'consistency': 0.85,
+          'n': 12
+        },
+        {
+          'month': 7,
+          'label': 'Juillet',
+          'index': 1.18,
+          'pct_vs_avg': 18.0,
+          'consistency': 0.90,
+          'n': 12
+        },
       ],
       'provinces': [
         {
@@ -1499,4 +1603,3 @@ class _DelayedChatFakeApi extends ApiService {
   }) =>
       completer.future;
 }
-

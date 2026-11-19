@@ -46,7 +46,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
       final rawProducts = _asStringList(meta['products']);
       final forecasts = rawProducts.isEmpty
-          ? await widget.apiService.getForecasts().catchError((_) => <dynamic>[])
+          ? await widget.apiService
+              .getForecasts()
+              .catchError((_) => <dynamic>[])
           : const <dynamic>[];
       if (!mounted) return;
 
@@ -84,7 +86,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sélection : $fallbackLabel. Ouvrez l’Assistant IA pour analyser.'),
+          content: Text(
+              'Sélection : $fallbackLabel. Ouvrez l’Assistant IA pour analyser.'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -142,8 +145,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (raw is Map) {
         final m = Map<String, dynamic>.from(raw);
         if (m['commodity'] != null) productsSet.add(m['commodity'].toString());
-        if (m['commodity_std'] != null) productsSet.add(m['commodity_std'].toString());
-        if (m['market_name'] != null) marketsSet.add(m['market_name'].toString());
+        if (m['commodity_std'] != null)
+          productsSet.add(m['commodity_std'].toString());
+        if (m['market_name'] != null)
+          marketsSet.add(m['market_name'].toString());
         if (m['province'] != null) provincesSet.add(m['province'].toString());
         if (m['source'] != null) sourcesSet.add(m['source'].toString());
 
@@ -169,26 +174,56 @@ class _ExploreScreenState extends State<ExploreScreen> {
         : const <String, dynamic>{};
     final startPeriod = periods['start']?.toString() ?? minObs;
     final endPeriod = periods['end']?.toString() ?? maxObs;
-    final lastUpdated = metadata['last_updated']?.toString() ?? maxObs ?? endPeriod;
+    final lastUpdated =
+        metadata['last_updated']?.toString() ?? maxObs ?? endPeriod;
     final forecastMonth = periods['forecast_month']?.toString() ??
         metadata['forecast_month']?.toString() ??
         fallbackForecastMonth ??
         _nextYearMonth(endPeriod);
 
     final futureDomains = [
-      {'slug': 'agriculture', 'label': 'Agriculture', 'desc': 'Surfaces cultivées, rendements et intrants'},
-      {'slug': 'economy', 'label': 'Économie', 'desc': 'Indices des prix, inflation et commerce transfrontalier'},
-      {'slug': 'health', 'label': 'Santé', 'desc': 'Centres de santé, accès aux soins et nutrition'},
-      {'slug': 'population', 'label': 'Population', 'desc': 'Démographie, mouvements et sécurité alimentaire'},
-      {'slug': 'environment', 'label': 'Environnement', 'desc': 'Précipitations, stress hydrique et végétation NDVI'},
-      {'slug': 'infrastructure', 'label': 'Infrastructures', 'desc': 'Réseaux routiers, marchés physiques et stockage'},
-      {'slug': 'transport', 'label': 'Transport', 'desc': 'Corridors logistiques et coûts d’acheminement'},
+      {
+        'slug': 'agriculture',
+        'label': 'Agriculture',
+        'desc': 'Surfaces cultivées, rendements et intrants'
+      },
+      {
+        'slug': 'economy',
+        'label': 'Économie',
+        'desc': 'Indices des prix, inflation et commerce transfrontalier'
+      },
+      {
+        'slug': 'health',
+        'label': 'Santé',
+        'desc': 'Centres de santé, accès aux soins et nutrition'
+      },
+      {
+        'slug': 'population',
+        'label': 'Population',
+        'desc': 'Démographie, mouvements et sécurité alimentaire'
+      },
+      {
+        'slug': 'environment',
+        'label': 'Environnement',
+        'desc': 'Précipitations, stress hydrique et végétation NDVI'
+      },
+      {
+        'slug': 'infrastructure',
+        'label': 'Infrastructures',
+        'desc': 'Réseaux routiers, marchés physiques et stockage'
+      },
+      {
+        'slug': 'transport',
+        'label': 'Transport',
+        'desc': 'Corridors logistiques et coûts d’acheminement'
+      },
     ];
 
     return Material(
       color: Colors.white,
       child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(compact ? 14 : 24, compact ? 14 : 20, compact ? 14 : 24, 32),
+        padding: EdgeInsets.fromLTRB(
+            compact ? 14 : 24, compact ? 14 : 20, compact ? 14 : 24, 32),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1120),
@@ -223,11 +258,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.storefront_outlined, color: FDTheme.blue),
+                            const Icon(Icons.storefront_outlined,
+                                color: FDTheme.blue),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                domain['label']?.toString() ?? 'Marchés et prix des produits',
+                                domain['label']?.toString() ??
+                                    'Marchés et prix des produits',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 19,
@@ -238,7 +275,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             FDBadge(
                               label: 'OPÉRATIONNEL',
                               color: FDTheme.green,
-                              backgroundColor: FDTheme.green.withValues(alpha: 0.10),
+                              backgroundColor:
+                                  FDTheme.green.withValues(alpha: 0.10),
                             ),
                           ],
                         ),
@@ -246,24 +284,41 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         Text(
                           domain['description']?.toString() ??
                               'Premier domaine exploitable de FreeData.AI : marchés, produits alimentaires, provinces et sources suivies en temps réel.',
-                          style: const TextStyle(color: FDTheme.muted, height: 1.45),
+                          style: const TextStyle(
+                              color: FDTheme.muted, height: 1.45),
                         ),
                         const SizedBox(height: 16),
                         Wrap(
                           spacing: 12,
                           runSpacing: 12,
                           children: [
-                            FDMetricCard(label: 'Produits', value: '${products.length}', icon: Icons.inventory_2_outlined),
-                            FDMetricCard(label: 'Céréales', value: '${cereals.length}', icon: Icons.grass_outlined),
-                            FDMetricCard(label: 'Marchés', value: '${markets.length}', icon: Icons.storefront_rounded),
-                            FDMetricCard(label: 'Provinces', value: '${provinces.length}', icon: Icons.location_on_outlined),
-                            FDMetricCard(label: 'Sources', value: '${sources.length}', icon: Icons.source_outlined),
+                            FDMetricCard(
+                                label: 'Produits',
+                                value: '${products.length}',
+                                icon: Icons.inventory_2_outlined),
+                            FDMetricCard(
+                                label: 'Céréales',
+                                value: '${cereals.length}',
+                                icon: Icons.grass_outlined),
+                            FDMetricCard(
+                                label: 'Marchés',
+                                value: '${markets.length}',
+                                icon: Icons.storefront_rounded),
+                            FDMetricCard(
+                                label: 'Provinces',
+                                value: '${provinces.length}',
+                                icon: Icons.location_on_outlined),
+                            FDMetricCard(
+                                label: 'Sources',
+                                value: '${sources.length}',
+                                icon: Icons.source_outlined),
                           ],
                         ),
                         const SizedBox(height: 12),
                         const Text(
                           'Périmètre : séries actives des 3 derniers mois (prévisions temps réel) · L’onglet Credit Passport couvre l’historique multi-annuel complet.',
-                          style: TextStyle(fontSize: 12, color: FDTheme.subtle, height: 1.4),
+                          style: TextStyle(
+                              fontSize: 12, color: FDTheme.subtle, height: 1.4),
                         ),
                       ],
                     ),
@@ -272,7 +327,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final twoCols = constraints.maxWidth >= 700;
-                      final itemWidth = twoCols ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
+                      final itemWidth = twoCols
+                          ? (constraints.maxWidth - 16) / 2
+                          : constraints.maxWidth;
                       return Wrap(
                         spacing: 16,
                         runSpacing: 16,
@@ -285,7 +342,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               color: FDTheme.blue,
                               initialLimit: _defaultVisiblePills,
                               labelBuilder: commodityLabelFr,
-                              onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
+                              onTapItem: (item) =>
+                                  _triggerPrompt(commodityLabelFr(item), true),
                             ),
                           ),
                           SizedBox(
@@ -296,14 +354,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               color: FDTheme.green,
                               initialLimit: _defaultVisiblePills,
                               labelBuilder: commodityLabelFr,
-                              onTapItem: (item) => _triggerPrompt(commodityLabelFr(item), true),
+                              onTapItem: (item) =>
+                                  _triggerPrompt(commodityLabelFr(item), true),
                             ),
                           ),
                           SizedBox(
                             width: itemWidth,
                             child: _InfoPanelCard(
                               title: 'Marchés',
-                              subtitle: markets.isEmpty ? 'Aucun marché référencé' : '${markets.length} marchés disponibles',
+                              subtitle: markets.isEmpty
+                                  ? 'Aucun marché référencé'
+                                  : '${markets.length} marchés disponibles',
                               values: markets,
                               initialLimit: _defaultVisiblePills,
                               onTapItem: _triggerMarketPrompt,
@@ -313,7 +374,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             width: itemWidth,
                             child: _InfoPanelCard(
                               title: 'Provinces',
-                              subtitle: provinces.isEmpty ? 'Aucune province référencée' : '${provinces.length} provinces couvertes',
+                              subtitle: provinces.isEmpty
+                                  ? 'Aucune province référencée'
+                                  : '${provinces.length} provinces couvertes',
                               values: provinces,
                               initialLimit: _defaultVisiblePills,
                               onTapItem: (item) => _triggerPrompt(item, false),
@@ -323,7 +386,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             width: itemWidth,
                             child: _InfoPanelCard(
                               title: 'Sources',
-                              subtitle: sources.isEmpty ? 'Aucune source disponible' : '${sources.length} source(s) active(s)',
+                              subtitle: sources.isEmpty
+                                  ? 'Aucune source disponible'
+                                  : '${sources.length} source(s) active(s)',
                               values: sources,
                               initialLimit: _defaultVisiblePills,
                             ),
@@ -338,7 +403,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               values: [
                                 if (startPeriod != null) 'Début : $startPeriod',
                                 if (endPeriod != null) 'Fin : $endPeriod',
-                                if (forecastMonth != null) 'Horizon prévisionnel : $forecastMonth',
+                                if (forecastMonth != null)
+                                  'Horizon prévisionnel : $forecastMonth',
                               ],
                               initialLimit: _defaultVisiblePills,
                             ),
@@ -349,11 +415,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   ),
                   const SizedBox(height: 16),
                   FDCard(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 14),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const Icon(Icons.update_rounded, color: FDTheme.blue, size: 20),
+                        const Icon(Icons.update_rounded,
+                            color: FDTheme.blue, size: 20),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -361,14 +429,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             children: [
                               const Text(
                                 'Dates de mise à jour',
-                                style: TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 16),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: FDTheme.ink,
+                                    fontSize: 16),
                               ),
                               const SizedBox(height: 3),
                               Text(
                                 lastUpdated != null
                                     ? 'Dernier relevé actif : $lastUpdated${forecastMonth != null ? '  ·  Prochaine échéance : $forecastMonth' : ''}'
                                     : 'Aucune date de mise à jour fournie par le backend.',
-                                style: const TextStyle(color: FDTheme.muted, fontSize: 13, height: 1.4),
+                                style: const TextStyle(
+                                    color: FDTheme.muted,
+                                    fontSize: 13,
+                                    height: 1.4),
                               ),
                             ],
                           ),
@@ -379,12 +453,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   const SizedBox(height: 24),
                   const Text(
                     'Architecture Multidomaine Extensible',
-                    style: TextStyle(fontSize: 18.5, fontWeight: FontWeight.w800, color: FDTheme.ink),
+                    style: TextStyle(
+                        fontSize: 18.5,
+                        fontWeight: FontWeight.w800,
+                        color: FDTheme.ink),
                   ),
                   const SizedBox(height: 6),
                   const Text(
                     'Les domaines ci-dessous constituent la feuille de route d’extension de FreeData.AI. Le raccordement de chaque pipeline est documenté de manière transparente.',
-                    style: TextStyle(color: FDTheme.muted, fontSize: 13, height: 1.45),
+                    style: TextStyle(
+                        color: FDTheme.muted, fontSize: 13, height: 1.45),
                   ),
                   const SizedBox(height: 14),
                   LayoutBuilder(
@@ -392,7 +470,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       final cols = constraints.maxWidth < 560
                           ? 1
                           : (constraints.maxWidth < 980 ? 2 : 4);
-                      final cardWidth = (constraints.maxWidth - (cols - 1) * 12) / cols;
+                      final cardWidth =
+                          (constraints.maxWidth - (cols - 1) * 12) / cols;
                       return Wrap(
                         spacing: 12,
                         runSpacing: 12,
@@ -409,7 +488,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                   builder: (ctx) => AlertDialog(
                                     title: Row(
                                       children: [
-                                        Icon(_domainIcon(entry['slug']!), color: const Color(0xFF64748B)),
+                                        Icon(_domainIcon(entry['slug']!),
+                                            color: const Color(0xFF64748B)),
                                         const SizedBox(width: 8),
                                         Flexible(child: Text(entry['label']!)),
                                       ],
@@ -451,7 +531,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   List<String> _asStringList(dynamic value) {
     if (value is List) {
-      return value.map((item) => item?.toString() ?? '').where((item) => item.isNotEmpty).toList();
+      return value
+          .map((item) => item?.toString() ?? '')
+          .where((item) => item.isNotEmpty)
+          .toList();
     }
     return const <String>[];
   }
@@ -514,9 +597,13 @@ class _ExpandablePillListState extends State<_ExpandablePillList> {
       children: [
         ...visible.map(
           (value) => _Pill(
-            text: widget.labelBuilder != null ? widget.labelBuilder!(value) : value,
+            text: widget.labelBuilder != null
+                ? widget.labelBuilder!(value)
+                : value,
             color: widget.color,
-            onTap: widget.onTapItem != null ? () => widget.onTapItem!(value) : null,
+            onTap: widget.onTapItem != null
+                ? () => widget.onTapItem!(value)
+                : null,
           ),
         ),
         if (hasOverflow)
@@ -556,18 +643,25 @@ class _MetadataSection extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 17.5),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: FDTheme.ink,
+                    fontSize: 17.5),
               ),
               const SizedBox(width: 8),
               Text(
                 '(${values.length})',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: FDTheme.muted),
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: FDTheme.muted),
               ),
             ],
           ),
           const SizedBox(height: 12),
           if (values.isEmpty)
-            const Text('Aucune valeur disponible dans les métadonnées backend.', style: TextStyle(color: FDTheme.muted))
+            const Text('Aucune valeur disponible dans les métadonnées backend.',
+                style: TextStyle(color: FDTheme.muted))
           else
             _ExpandablePillList(
               values: values,
@@ -603,12 +697,18 @@ class _InfoPanelCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800, color: FDTheme.ink, fontSize: 17)),
+          Text(title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: FDTheme.ink,
+                  fontSize: 17)),
           const SizedBox(height: 4),
-          Text(subtitle, style: const TextStyle(color: FDTheme.muted, fontSize: 12)),
+          Text(subtitle,
+              style: const TextStyle(color: FDTheme.muted, fontSize: 12)),
           const SizedBox(height: 12),
           if (values.isEmpty)
-            const Text('Aucune donnée liée à ce critère.', style: TextStyle(color: FDTheme.muted, fontSize: 12))
+            const Text('Aucune donnée liée à ce critère.',
+                style: TextStyle(color: FDTheme.muted, fontSize: 12))
           else
             _ExpandablePillList(
               values: values,
@@ -635,7 +735,8 @@ class _Pill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       child: Text(
         text,
-        style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+        style:
+            TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
 
@@ -738,9 +839,13 @@ class _ComingCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: FDTheme.ink)),
+          Text(title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: FDTheme.ink)),
           const SizedBox(height: 4),
-          Text(desc, style: const TextStyle(fontSize: 12, color: FDTheme.muted, height: 1.4)),
+          Text(desc,
+              style: const TextStyle(
+                  fontSize: 12, color: FDTheme.muted, height: 1.4)),
         ],
       ),
     );

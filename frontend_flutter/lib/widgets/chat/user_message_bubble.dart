@@ -34,4 +34,3 @@ class UserMessageBubble extends StatelessWidget {
     );
   }
 }
-

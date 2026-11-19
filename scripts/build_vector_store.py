@@ -1,4 +1,5 @@
 
+import argparse
 import hashlib
 import json
 import os
@@ -114,17 +115,64 @@ def fetch_existing_hashes(document_id: str) -> dict[int, str]:
     return {row["chunk_index"]: row["content_hash"] for row in resp.json()}
 
 
-def main():
+_REQUIRED_MANIFEST_FIELDS = ("filename", "titre", "editeur")
+
+
+def validate_manifest(manifest_path: Path = MANIFEST_PATH, docs_dir: Path = DOCS_DIR) -> dict:
+    """Valide le schéma de docs/manifest.json et vérifie la présence locale des fichiers déclarés."""
+    if not manifest_path.exists():
+        return {"status": "empty", "entries_count": 0, "present_files": [], "missing_files": [], "errors": []}
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("docs/manifest.json doit contenir une liste JSON d'entrées documentaires.")
+    present: list[str] = []
+    missing: list[str] = []
+    errors: list[str] = []
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            errors.append(f"Entrée #{idx} invalide (objet attendu).")
+            continue
+        for field in _REQUIRED_MANIFEST_FIELDS:
+            if not str(entry.get(field) or "").strip():
+                errors.append(f"Entrée #{idx} : champ obligatoire '{field}' manquant.")
+        fname = str(entry.get("filename") or "").strip()
+        if fname:
+            if (docs_dir / fname).exists():
+                present.append(fname)
+            else:
+                missing.append(fname)
+    return {
+        "status": "invalid" if errors else ("ok" if raw else "empty"),
+        "entries_count": len(raw),
+        "present_files": present,
+        "missing_files": missing,
+        "errors": errors,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Indexation documentaire RAG FreeData.AI (Supabase pgvector).")
+    ap.add_argument("--dry-run", action="store_true", help="Valide docs/manifest.json et liste les fichiers sans appel API.")
+    args = ap.parse_args(argv)
+
     DOCS_DIR.mkdir(exist_ok=True)
     if not MANIFEST_PATH.exists():
         MANIFEST_PATH.write_text("[]\n", encoding="utf-8")
         print(f"[FreeData.AI RAG] Manifeste vierge créé dans {MANIFEST_PATH}. Aucun PDF à indexer.")
-        return
+        return 0
+
+    summary = validate_manifest(MANIFEST_PATH, DOCS_DIR)
+    if args.dry_run:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 1 if summary["errors"] else 0
+
+    if summary["errors"]:
+        raise RuntimeError("Manifeste RAG invalide : " + " ; ".join(summary["errors"]))
 
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     if not manifest:
         print("[FreeData.AI RAG] Manifeste vide (0 PDF). Base vectorielle prête en attente de documents.")
-        return
+        return 0
 
     base = settings.supabase_url.rstrip("/")
     chunks_endpoint = f"{base}/rest/v1/rag_chunks?on_conflict=document_id,chunk_index"
@@ -185,7 +233,8 @@ def main():
             _raise_for_api_error(resp, "insertion rag_chunks")
 
         print(f"[FreeData.AI RAG] '{entry['titre']}' : {len(pending)} extraits indexés.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

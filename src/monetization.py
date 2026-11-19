@@ -116,6 +116,156 @@ class HmacJsonWebhookAdapter(PaymentProviderAdapter):
         }
 
 
+class StripeWebhookAdapter(PaymentProviderAdapter):
+    """Stripe webhook signature verifier (t=...,v1=...) & event normalizer."""
+
+    provider_name: str = "stripe"
+
+    def __init__(self, tolerance_seconds: int = 300) -> None:
+        self.tolerance_seconds = tolerance_seconds
+
+    def verify_signature(self, raw_body: bytes, signature_header: str, secret: str) -> bool:
+        if not secret or not signature_header:
+            return False
+        parts: dict[str, list[str]] = {}
+        for item in signature_header.split(","):
+            if "=" not in item:
+                continue
+            k, v = item.split("=", 1)
+            parts.setdefault(k.strip(), []).append(v.strip())
+        ts_list = parts.get("t") or []
+        sigs = parts.get("v1") or []
+        if not ts_list or not sigs:
+            return False
+        try:
+            ts = int(ts_list[0])
+        except ValueError:
+            return False
+        if self.tolerance_seconds > 0:
+            now_ts = int(_utc_now().timestamp())
+            if abs(now_ts - ts) > self.tolerance_seconds:
+                return False
+        signed_payload = f"{ts}.".encode("utf-8") + raw_body
+        expected = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        return any(hmac.compare_digest(expected, s) for s in sigs)
+
+    def parse_webhook_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ev_id = str(payload.get("id") or payload.get("event_id") or "")
+        ev_type = str(payload.get("type") or payload.get("event_type") or "")
+        obj = (payload.get("data") or {}).get("object") or {}
+        meta = obj.get("metadata") if isinstance(obj, dict) else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        user_id = str(meta.get("user_id") or obj.get("client_reference_id") or payload.get("user_id") or "").strip()
+        if user_id and not user_id.startswith("user:") and not user_id.startswith("key:"):
+            user_id = f"user:{user_id}"
+        plan_id = str(meta.get("plan_id") or "premium").strip()
+        if plan_id not in DEFAULT_PLANS:
+            plan_id = "premium"
+        status = "cancelled" if "deleted" in ev_type or "canceled" in ev_type else "active"
+        try:
+            period_days = int(meta.get("period_days") or 30)
+        except (TypeError, ValueError):
+            period_days = 30
+        return {
+            "event_id": ev_id,
+            "event_type": ev_type,
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "status": status,
+            "period_days": max(1, min(365, period_days)),
+        }
+
+
+def _env_int(name: str, default: int = 0) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+        return val if val >= 0 else default
+    except ValueError:
+        return default
+
+
+def get_configured_plans() -> list[dict[str, Any]]:
+    """Retourne les plans enrichis par la tarification environnementale si définie."""
+    premium_price = _env_int("PLAN_PREMIUM_PRICE_XAF", 0)
+    stripe_url = os.getenv("STRIPE_CHECKOUT_URL", "").strip()
+    plans = []
+    for pid in ("free", "trial", "premium"):
+        plan = dict(DEFAULT_PLANS[pid])
+        if pid == "premium" and (premium_price > 0 or stripe_url):
+            plan["price_configured"] = True
+            if premium_price > 0:
+                plan["price_xaf_month"] = premium_price
+        plans.append(plan)
+    return plans
+
+
+def get_payment_methods() -> dict[str, Any]:
+    """Catalogue dynamique des moyens de paiement configurés (Tchad Mobile Money + International Stripe)."""
+    airtel = os.getenv("MOBILE_MONEY_AIRTEL_NUMBER", "").strip()
+    moov = os.getenv("MOBILE_MONEY_MOOV_NUMBER", "").strip()
+    bank = os.getenv("BANK_TRANSFER_DETAILS", "").strip()
+    stripe_url = os.getenv("STRIPE_CHECKOUT_URL", "").strip()
+    price_xaf = _env_int("PLAN_PREMIUM_PRICE_XAF", 0)
+
+    methods: list[dict[str, Any]] = [
+        {
+            "provider": "airtel_money",
+            "label": "Airtel Money (Tchad)",
+            "kind": "mobile_money",
+            "configured": bool(airtel),
+            "destination": airtel or None,
+            "instructions": (
+                f"Envoyez le montant au numéro marchand Airtel Money {airtel}, puis renseignez la référence de transaction ci-dessous."
+                if airtel
+                else "Soumettez votre référence Airtel Money ; notre équipe confirmera le numéro marchand et activera votre compte PRO."
+            ),
+        },
+        {
+            "provider": "moov_money",
+            "label": "Moov Money (Tchad)",
+            "kind": "mobile_money",
+            "configured": bool(moov),
+            "destination": moov or None,
+            "instructions": (
+                f"Envoyez le montant au numéro marchand Moov Money {moov}, puis renseignez la référence de transaction ci-dessous."
+                if moov
+                else "Soumettez votre référence Moov Money ; notre équipe confirmera la réception et activera votre compte PRO."
+            ),
+        },
+        {
+            "provider": "bank_transfer",
+            "label": "Virement bancaire / Facture B2B",
+            "kind": "bank_transfer",
+            "configured": bool(bank),
+            "destination": bank or None,
+            "instructions": bank or "Indiquez la référence du virement ou du bon de commande entreprise pour validation sous 24 h ouvrées.",
+        },
+    ]
+    if stripe_url:
+        methods.append(
+            {
+                "provider": "stripe",
+                "label": "Carte bancaire internationale (Stripe)",
+                "kind": "checkout_url",
+                "configured": True,
+                "checkout_url": stripe_url,
+                "instructions": "Paiement sécurisé par carte bancaire ; activation automatique dès confirmation webhook.",
+            }
+        )
+    return {
+        "currency": "XAF",
+        "premium_price_xaf_month": price_xaf if price_xaf > 0 else None,
+        "methods": methods,
+    }
+
+
+_ALLOWED_PAYMENT_PROVIDERS = {"airtel_money", "moov_money", "bank_transfer", "mobile_money", "stripe"}
+
+
 class SubscriptionStore:
     """SQLite-backed subscription lifecycle, atomic quota consumption, usage metering, and audit log."""
 
@@ -188,6 +338,22 @@ class SubscriptionStore:
                     reason TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS payment_requests (
+                    request_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL DEFAULT 'premium',
+                    provider TEXT NOT NULL,
+                    amount_xaf INTEGER NOT NULL DEFAULT 0,
+                    phone_or_ref TEXT NOT NULL,
+                    transaction_ref TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    note TEXT NOT NULL DEFAULT '',
+                    reviewed_by TEXT,
+                    reviewed_at TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests(user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests(status, created_at DESC);
                 """
             )
             if self._pg_url:
@@ -409,6 +575,106 @@ class SubscriptionStore:
                 (limit,),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def create_payment_request(
+        self,
+        user_id: str,
+        *,
+        provider: str,
+        phone_or_ref: str,
+        transaction_ref: str,
+        plan_id: str = "premium",
+        amount_xaf: int = 0,
+        note: str = "",
+    ) -> dict[str, Any]:
+        clean_provider = (provider or "").strip().lower()
+        if clean_provider not in _ALLOWED_PAYMENT_PROVIDERS:
+            raise ValueError(f"Moyen de paiement non supporté : {provider}")
+        if plan_id not in ("trial", "premium"):
+            raise ValueError("Plan cible invalide (trial ou premium requis).")
+        clean_phone = (phone_or_ref or "").strip()[:80]
+        clean_tx = (transaction_ref or "").strip()[:120]
+        if len(clean_phone) < 3 or len(clean_tx) < 3:
+            raise ValueError("Numéro / identifiant payeur et référence de transaction requis (min. 3 caractères).")
+        req_id = f"PAY-{uuid.uuid4().hex[:10].upper()}"
+        now = _iso(_utc_now()) or ""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO payment_requests (
+                    request_id, user_id, plan_id, provider, amount_xaf,
+                    phone_or_ref, transaction_ref, status, note, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (req_id, user_id, plan_id, clean_provider, max(0, int(amount_xaf)), clean_phone, clean_tx, (note or "").strip()[:400], now),
+            )
+            row = conn.execute("SELECT * FROM payment_requests WHERE request_id = ?", (req_id,)).fetchone()
+        return dict(row)
+
+    def list_payment_requests(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM payment_requests WHERE 1=1"
+        params: list[Any] = []
+        if user_id:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(max(1, min(200, int(limit))))
+        with self._connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def review_payment_request(
+        self,
+        request_id: str,
+        *,
+        actor: str,
+        decision: str,
+        period_days: int = 30,
+        note: str = "",
+    ) -> dict[str, Any]:
+        if decision not in ("approved", "rejected"):
+            raise ValueError("Décision invalide : 'approved' ou 'rejected' attendu.")
+        now = _iso(_utc_now()) or ""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM payment_requests WHERE request_id = ?", (request_id,)).fetchone()
+            if not row:
+                raise KeyError(f"Demande de paiement introuvable : {request_id}")
+            req = dict(row)
+            if req["status"] != "pending":
+                raise ValueError(f"Demande déjà traitée (statut : {req['status']}).")
+            final_note = (note or "").strip()[:400] or req.get("note", "")
+            conn.execute(
+                """
+                UPDATE payment_requests
+                SET status = ?, note = ?, reviewed_by = ?, reviewed_at = ?
+                WHERE request_id = ?
+                """,
+                (decision, final_note, actor, now, request_id),
+            )
+            updated = dict(conn.execute("SELECT * FROM payment_requests WHERE request_id = ?", (request_id,)).fetchone())
+
+        subscription = None
+        if decision == "approved":
+            subscription = self.admin_update_subscription(
+                actor=actor,
+                target_user_id=updated["user_id"],
+                plan_id=updated["plan_id"],
+                status="active",
+                period_days=max(1, min(365, int(period_days))),
+                provider=updated["provider"],
+                reason=f"Paiement validé ({request_id} · réf. {updated['transaction_ref']})",
+            )
+        return {"request": updated, "subscription": subscription}
 
 
 def simulate_unit_economics(

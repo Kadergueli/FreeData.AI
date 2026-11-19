@@ -8,7 +8,8 @@ export '../core/models/chat_models.dart' show ConversationThread;
 export '../core/utils/formatters.dart' show stripMarkdown;
 
 abstract class ConversationRepository {
-  Future<List<ConversationThread>> loadConversations({bool includeDeleted = false});
+  Future<List<ConversationThread>> loadConversations(
+      {bool includeDeleted = false});
   Future<ConversationThread?> getConversation(String id);
   Future<void> saveConversation(ConversationThread thread);
   Future<void> saveAll(List<ConversationThread> threads);
@@ -47,7 +48,8 @@ class LocalConversationStorage implements ConversationRepository {
     return completer.future;
   }
 
-  Future<List<ConversationThread>> _loadInternal({bool includeDeleted = false}) async {
+  Future<List<ConversationThread>> _loadInternal(
+      {bool includeDeleted = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(storageKey);
     if (raw == null || raw.isEmpty) return [];
@@ -55,7 +57,8 @@ class LocalConversationStorage implements ConversationRepository {
     try {
       final decoded = jsonDecode(raw) as List;
       final all = decoded
-          .map((item) => ConversationThread.fromJson(Map<String, dynamic>.from(item as Map)))
+          .map((item) => ConversationThread.fromJson(
+              Map<String, dynamic>.from(item as Map)))
           .where((c) => c.messages.isNotEmpty)
           .toList();
       if (includeDeleted) return all;
@@ -71,9 +74,12 @@ class LocalConversationStorage implements ConversationRepository {
     final nonEmpty = threads.where((c) => c.messages.isNotEmpty).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     // Préserver les conversations enregistrées en Library lors du plafonnement à maxStoredConversations.
-    final pinned = nonEmpty.where((c) => c.isSavedInLibrary && !c.isDeleted).toList();
-    final others = nonEmpty.where((c) => !(c.isSavedInLibrary && !c.isDeleted)).toList();
-    final remainingSlots = (maxStoredConversations - pinned.length).clamp(0, maxStoredConversations);
+    final pinned =
+        nonEmpty.where((c) => c.isSavedInLibrary && !c.isDeleted).toList();
+    final others =
+        nonEmpty.where((c) => !(c.isSavedInLibrary && !c.isDeleted)).toList();
+    final remainingSlots = (maxStoredConversations - pinned.length)
+        .clamp(0, maxStoredConversations);
     final kept = <ConversationThread>[
       ...pinned,
       ...others.take(remainingSlots),
@@ -83,7 +89,8 @@ class LocalConversationStorage implements ConversationRepository {
   }
 
   @override
-  Future<List<ConversationThread>> loadConversations({bool includeDeleted = false}) {
+  Future<List<ConversationThread>> loadConversations(
+      {bool includeDeleted = false}) {
     return _loadInternal(includeDeleted: includeDeleted);
   }
 
@@ -136,7 +143,8 @@ class LocalConversationStorage implements ConversationRepository {
       final all = await _loadInternal(includeDeleted: true);
       final index = all.indexWhere((c) => c.id == id);
       if (index >= 0) {
-        all[index] = all[index].copyWith(title: newTitle, updatedAt: DateTime.now());
+        all[index] =
+            all[index].copyWith(title: newTitle, updatedAt: DateTime.now());
         await _saveAllInternal(all);
       }
     });
@@ -148,7 +156,8 @@ class LocalConversationStorage implements ConversationRepository {
       final all = await _loadInternal(includeDeleted: true);
       final index = all.indexWhere((c) => c.id == id);
       if (index >= 0) {
-        all[index] = all[index].copyWith(isDeleted: true, updatedAt: DateTime.now());
+        all[index] =
+            all[index].copyWith(isDeleted: true, updatedAt: DateTime.now());
         await _saveAllInternal(all);
       }
     });
@@ -160,7 +169,8 @@ class LocalConversationStorage implements ConversationRepository {
       final all = await _loadInternal(includeDeleted: true);
       final index = all.indexWhere((c) => c.id == id);
       if (index >= 0) {
-        all[index] = all[index].copyWith(isDeleted: false, updatedAt: DateTime.now());
+        all[index] =
+            all[index].copyWith(isDeleted: false, updatedAt: DateTime.now());
         await _saveAllInternal(all);
       }
     });
@@ -174,7 +184,8 @@ class LocalConversationStorage implements ConversationRepository {
       if (index >= 0) {
         final current = all[index];
         final nextSaved = saved ?? !current.isSavedInLibrary;
-        all[index] = current.copyWith(isSavedInLibrary: nextSaved, updatedAt: DateTime.now());
+        all[index] = current.copyWith(
+            isSavedInLibrary: nextSaved, updatedAt: DateTime.now());
         await _saveAllInternal(all);
       }
     });
@@ -189,4 +200,3 @@ class LocalConversationStorage implements ConversationRepository {
     });
   }
 }
-

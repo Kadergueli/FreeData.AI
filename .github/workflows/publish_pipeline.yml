@@ -1,4 +1,4 @@
-name: Monthly Data Publication
+name: Monthly Data & RAG Publication
 
 on:
   schedule:
@@ -11,6 +11,11 @@ on:
         required: false
         default: "true"
         type: string
+      rebuild_rag:
+        description: "Réindexer également les documents RAG (docs/manifest.json)"
+        required: false
+        default: "true"
+        type: string
 
 permissions:
   contents: read
@@ -18,13 +23,14 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       DATA_BACKEND: supabase_rest
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       API_BASE_URL: ${{ secrets.API_BASE_URL }}
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      EMBED_API_KEY: ${{ secrets.EMBED_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +40,7 @@ jobs:
           cache-dependency-path: requirements*.txt
       - name: Installer les dépendances
         run: pip install -r requirements.txt
-      - name: Exécuter le pipeline de publication
+      - name: Exécuter le pipeline de publication Gold
         run: |
           if [ "${{ github.event.inputs.dry_run }}" = "true" ] || [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ]; then
             echo "Mode dry-run (secrets absents ou dry_run=true)."
@@ -42,4 +48,32 @@ jobs:
           else
             python -m scripts.publish_pipeline --api-url "${API_BASE_URL}"
           fi
-
+      - name: Synchroniser l'index documentaire RAG
+        if: ${{ github.event.inputs.rebuild_rag != 'false' }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ] || [ -z "${EMBED_API_KEY}" ] || [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ]; then
+            echo "Validation manifeste RAG (dry-run)."
+            python scripts/build_vector_store.py --dry-run
+          else
+            python scripts/build_vector_store.py
+          fi
+      - name: Vérifier la santé & fraîcheur de l'API après publication
+        if: ${{ github.event.inputs.dry_run != 'true' && env.API_BASE_URL != '' }}
+        run: |
+          python -c '
+          import json, os, sys, urllib.request
+          url = os.environ["API_BASE_URL"].rstrip("/") + "/api/v1/health"
+          with urllib.request.urlopen(url, timeout=30) as r:
+              data = json.loads(r.read().decode("utf-8"))
+          print(json.dumps(data, ensure_ascii=False, indent=2))
+          if data.get("status") != "ok":
+              sys.exit("API health degraded after publication")
+          '
+      - name: Archiver le rapport de publication
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-report
+          path: reports/last_publication_report.json
+          if-no-files-found: ignore
+          retention-days: 90

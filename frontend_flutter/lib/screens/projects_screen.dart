@@ -22,8 +22,19 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   List<Map<String, dynamic>> _projects = [];
-  List<String> _commodities = const ['Millet', 'Sorghum (red)', 'Maize (white)', 'Rice (imported)'];
-  List<String> _provinces = const ['Lac', "N'Djamena", 'Salamat', 'Logone Occidental', 'Ouaddai'];
+  List<String> _commodities = const [
+    'Millet',
+    'Sorghum (red)',
+    'Maize (white)',
+    'Rice (imported)'
+  ];
+  List<String> _provinces = const [
+    'Lac',
+    "N'Djamena",
+    'Salamat',
+    'Logone Occidental',
+    'Ouaddai'
+  ];
   bool _loading = true;
   bool _includeArchived = false;
   String? _error;
@@ -53,7 +64,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Action impossible : $msg')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Action impossible : $msg')));
     }
   }
 
@@ -71,14 +83,26 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       final rawComms = meta['products'] ??
           meta['commodities'] ??
           meta['passport_products'] ??
-          (legacy is Map ? (legacy['products'] ?? legacy['commodities']) : null) ??
+          (legacy is Map
+              ? (legacy['products'] ?? legacy['commodities'])
+              : null) ??
           const [];
-      final rawProvs = meta['provinces'] ?? (legacy is Map ? legacy['provinces'] : null) ?? const [];
+      final rawProvs = meta['provinces'] ??
+          (legacy is Map ? legacy['provinces'] : null) ??
+          const [];
       final comms = rawComms is List
-          ? rawComms.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          ? rawComms
+              .map((e) => e.toString().trim())
+              .where((s) => s.isNotEmpty)
+              .toSet()
+              .toList()
           : <String>[];
       final provs = rawProvs is List
-          ? rawProvs.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toSet().toList()
+          ? rawProvs
+              .map((e) => e.toString().trim())
+              .where((s) => s.isNotEmpty)
+              .toSet()
+              .toList()
           : <String>[];
       comms.sort((a, b) => commodityLabelFr(a).compareTo(commodityLabelFr(b)));
       provs.sort();
@@ -97,7 +121,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     });
     final uid = widget.apiService.userId;
     try {
-      final list = await widget.apiService.listProjects(includeArchived: _includeArchived);
+      final list = await widget.apiService
+          .listProjects(includeArchived: _includeArchived);
       if (!mounted || uid != widget.apiService.userId) return;
       setState(() {
         _projects = list;
@@ -125,15 +150,25 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom du projet (min. 2 car.)')),
+                TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Nom du projet (min. 2 car.)')),
                 const SizedBox(height: 8),
-                TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description / Objectif')),
+                TextField(
+                    controller: descCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Description / Objectif')),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Créer')),
           ],
         ),
       );
@@ -142,13 +177,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (name.length < 2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Le nom du projet doit contenir au moins 2 caractères.')),
+            const SnackBar(
+                content: Text(
+                    'Le nom du projet doit contenir au moins 2 caractères.')),
           );
         }
         return;
       }
       await _guard(() async {
-        await widget.apiService.createProject(name: name, description: descCtrl.text.trim());
+        await widget.apiService
+            .createProject(name: name, description: descCtrl.text.trim());
         await _load();
       });
     } finally {
@@ -164,10 +202,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Renommer le projet'),
-          content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nouveau nom (min. 2 car.)')),
+          content: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                  labelText: 'Nouveau nom (min. 2 car.)')),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Enregistrer')),
           ],
         ),
       );
@@ -176,13 +221,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (name.length < 2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Le nouveau nom doit contenir au moins 2 caractères.')),
+            const SnackBar(
+                content: Text(
+                    'Le nouveau nom doit contenir au moins 2 caractères.')),
           );
         }
         return;
       }
       await _guard(() async {
-        await widget.apiService.updateProject(proj['project_id'].toString(), name: name);
+        await widget.apiService
+            .updateProject(proj['project_id'].toString(), name: name);
         await _load();
       });
     } finally {
@@ -195,11 +243,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer le projet ?'),
-        content: Text('Cette action est irréversible pour « ${proj['name']} » et ses versions d’études.'),
+        content: Text(
+            'Cette action est irréversible pour « ${proj['name']} » et ses versions d’études.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: FDTheme.danger, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: FDTheme.danger, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Supprimer'),
           ),
@@ -215,16 +267,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   Future<void> _generateStudyDialog(Map<String, dynamic> proj) async {
-    String commodity = _commodities.contains('Millet') ? 'Millet' : _commodities.first;
+    String commodity =
+        _commodities.contains('Millet') ? 'Millet' : _commodities.first;
     String origin = _provinces.contains('Lac') ? 'Lac' : _provinces.first;
-    String dest = _provinces.contains("N'Djamena") ? "N'Djamena" : _provinces.first;
+    String dest =
+        _provinces.contains("N'Djamena") ? "N'Djamena" : _provinces.first;
     final capCtrl = TextEditingController(text: '2000000');
     try {
       // Études déjà présentes : permet de créer une NOUVELLE VERSION (historique + comparaison).
       List<Map<String, dynamic>> existing = const [];
       try {
-        final full = await widget.apiService.getProject(proj['project_id'].toString());
-        existing = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+        final full =
+            await widget.apiService.getProject(proj['project_id'].toString());
+        existing = (full['studies'] as List? ?? [])
+            .whereType<Map>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList();
       } catch (_) {}
       if (!mounted) return;
       String? targetStudyId; // null = nouvelle étude
@@ -242,7 +300,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'Étude cible'),
                     items: [
-                      const DropdownMenuItem<String?>(value: null, child: Text('Nouvelle étude')),
+                      const DropdownMenuItem<String?>(
+                          value: null, child: Text('Nouvelle étude')),
                       ...existing.map((st) => DropdownMenuItem<String?>(
                             value: st['study_id'].toString(),
                             child: Text(
@@ -258,11 +317,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: commodity,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Produit / Céréale'),
+                  decoration:
+                      const InputDecoration(labelText: 'Produit / Céréale'),
                   items: _commodities
                       .map((c) => DropdownMenuItem(
                             value: c,
-                            child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
+                            child: Text(commodityLabelFr(c),
+                                overflow: TextOverflow.ellipsis),
                           ))
                       .toList(),
                   onChanged: (v) => commodity = v ?? commodity,
@@ -271,9 +332,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: origin,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Province d\'origine'),
+                  decoration:
+                      const InputDecoration(labelText: 'Province d\'origine'),
                   items: _provinces
-                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .map((p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(p, overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (v) => origin = v ?? origin,
                 ),
@@ -281,9 +345,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: dest,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Province de destination'),
+                  decoration: const InputDecoration(
+                      labelText: 'Province de destination'),
                   items: _provinces
-                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .map((p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(p, overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (v) => dest = v ?? dest,
                 ),
@@ -297,8 +364,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Générer & Sauvegarder')),
           ],
         ),
       );
@@ -307,7 +378,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (cap == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Capital invalide : saisissez un nombre positif (ex. 2 000 000).')),
+            const SnackBar(
+                content: Text(
+                    'Capital invalide : saisissez un nombre positif (ex. 2 000 000).')),
           );
         }
         return;
@@ -338,7 +411,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         }
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
       }
     } finally {
       capCtrl.dispose();
@@ -351,39 +425,52 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       full = await widget.apiService.getProject(proj['project_id'].toString());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
       return;
     }
     if (!mounted) return;
-    final studies = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+    final studies = (full['studies'] as List? ?? [])
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => SafeArea(
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Études & Versions — ${full['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text('Études & Versions — ${full['name']}',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 if (studies.isEmpty)
                   const Text('Aucune étude générée pour ce projet.')
                 else
                   ...studies.map((s) => ListTile(
-                        title: Text(s['title']?.toString() ?? s['study_id'].toString()),
-                        subtitle: Text('Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
+                        title: Text(
+                            s['title']?.toString() ?? s['study_id'].toString()),
+                        subtitle: Text(
+                            'Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
                         trailing: TextButton(
                           onPressed: () => _guard(() async {
-                            final versions = await widget.apiService.listStudyVersions(
+                            final versions =
+                                await widget.apiService.listStudyVersions(
                               full['project_id'].toString(),
                               s['study_id'].toString(),
                             );
                             if (!ctx.mounted) return;
-                            _showVersionHistoryDialog(full['project_id'].toString(), s['study_id'].toString(), versions);
+                            _showVersionHistoryDialog(
+                                full['project_id'].toString(),
+                                s['study_id'].toString(),
+                                versions);
                           }),
                           child: const Text('Historique'),
                         ),
@@ -398,7 +485,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   /// Rend la différence de métriques lisible (une ligne par métrique) au lieu d'un Map brut.
   String _formatDiff(dynamic raw) {
-    if (raw is! Map || raw.isEmpty) return 'Aucune différence de métrique détectée.';
+    if (raw is! Map || raw.isEmpty)
+      return 'Aucune différence de métrique détectée.';
     final lines = <String>[];
     raw.forEach((k, v) {
       if (v is Map) {
@@ -407,7 +495,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         if (before != null || after != null) {
           lines.add('• $k : ${before ?? '—'} → ${after ?? '—'}');
         } else {
-          lines.add('• $k : ${v.entries.map((e) => '${e.key}=${e.value}').join(', ')}');
+          lines.add(
+              '• $k : ${v.entries.map((e) => '${e.key}=${e.value}').join(', ')}');
         }
       } else {
         lines.add('• $k : $v');
@@ -416,7 +505,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     return lines.join('\n');
   }
 
-  void _showVersionHistoryDialog(String projectId, String studyId, List<Map<String, dynamic>> versions) {
+  void _showVersionHistoryDialog(
+      String projectId, String studyId, List<Map<String, dynamic>> versions) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -429,7 +519,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
               children: [
                 ...versions.map((v) {
                   final vNum = (v['version_number'] as num).toInt();
-                  final qaStatus = (v['validation'] as Map?)?['overall_status'] ?? '—';
+                  final qaStatus =
+                      (v['validation'] as Map?)?['overall_status'] ?? '—';
                   final avail = v['artifact_available'] == true;
                   return ListTile(
                     dense: true,
@@ -437,20 +528,27 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     subtitle: Text(v['created_at']?.toString() ?? ''),
                     trailing: avail
                         ? IconButton(
-                            icon: const Icon(Icons.picture_as_pdf_rounded, color: FDTheme.blue),
+                            icon: const Icon(Icons.picture_as_pdf_rounded,
+                                color: FDTheme.blue),
                             onPressed: () => _guard(() async {
-                              final bytes = await widget.apiService.downloadStudyVersionPdf(projectId, studyId, vNum);
-                              triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+                              final bytes = await widget.apiService
+                                  .downloadStudyVersionPdf(
+                                      projectId, studyId, vNum);
+                              triggerPdfDownload(
+                                  bytes, 'freedata_${studyId}_v$vNum.pdf');
                             }),
                           )
-                        : const Text('PDF absent', style: TextStyle(fontSize: 11, color: FDTheme.muted)),
+                        : const Text('PDF absent',
+                            style:
+                                TextStyle(fontSize: 11, color: FDTheme.muted)),
                   );
                 }),
                 if (versions.length >= 2) ...[
                   const Divider(),
                   TextButton.icon(
                     icon: const Icon(Icons.compare_arrows_rounded),
-                    label: Text('Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
+                    label: Text(
+                        'Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
                     onPressed: () => _guard(() async {
                       final diff = await widget.apiService.compareStudyVersions(
                         projectId,
@@ -463,8 +561,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         context: ctx,
                         builder: (c2) => AlertDialog(
                           title: const Text('Comparaison de versions'),
-                          content: SingleChildScrollView(child: Text(_formatDiff(diff['metrics_diff']))),
-                          actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Fermer'))],
+                          content: SingleChildScrollView(
+                              child: Text(_formatDiff(diff['metrics_diff']))),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(c2),
+                                child: const Text('Fermer'))
+                          ],
                         ),
                       );
                     }),
@@ -474,7 +577,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             ),
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer'))],
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Fermer'))
+        ],
       ),
     );
   }
@@ -515,76 +621,103 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   Widget _buildBody() {
     return _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: const TextStyle(color: FDTheme.danger))))
-              : _projects.isEmpty
-                  ? const Center(child: Text('Aucun projet enregistré. Créez-en un avec « Nouveau projet ».'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _projects.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (_, i) {
-                        final p = _projects[i];
-                        final isArchived = p['status'] == 'archived';
-                        return FDCard(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          child: Column(children: [ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(p['name']?.toString() ?? 'Projet', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
-                            subtitle: Text(
-                              'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
-                              style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+            ? Center(
+                child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(_error!,
+                        style: const TextStyle(color: FDTheme.danger))))
+            : _projects.isEmpty
+                ? const Center(
+                    child: Text(
+                        'Aucun projet enregistré. Créez-en un avec « Nouveau projet ».'))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _projects.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, i) {
+                      final p = _projects[i];
+                      final isArchived = p['status'] == 'archived';
+                      return FDCard(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(p['name']?.toString() ?? 'Projet',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.ink)),
+                              subtitle: Text(
+                                'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
+                                style: const TextStyle(
+                                    fontSize: 12.5, color: AppColors.muted),
+                              ),
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (act) => _guard(() async {
+                                  if (act == 'rename') await _renameProject(p);
+                                  if (act == 'archive') {
+                                    await widget.apiService.updateProject(
+                                      p['project_id'].toString(),
+                                      status:
+                                          isArchived ? 'active' : 'archived',
+                                    );
+                                    await _load();
+                                  }
+                                  if (act == 'delete') await _confirmDelete(p);
+                                }),
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(
+                                      value: 'rename', child: Text('Renommer')),
+                                  PopupMenuItem(
+                                      value: 'archive',
+                                      child: Text(isArchived
+                                          ? 'Restaurer'
+                                          : 'Archiver')),
+                                  const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Supprimer')),
+                                ],
+                              ),
                             ),
-                            trailing: PopupMenuButton<String>(
-                              onSelected: (act) => _guard(() async {
-                                if (act == 'rename') await _renameProject(p);
-                                if (act == 'archive') {
-                                  await widget.apiService.updateProject(
-                                    p['project_id'].toString(),
-                                    status: isArchived ? 'active' : 'archived',
-                                  );
-                                  await _load();
-                                }
-                                if (act == 'delete') await _confirmDelete(p);
-                              }),
-                              itemBuilder: (_) => [
-                                const PopupMenuItem(value: 'rename', child: Text('Renommer')),
-                                PopupMenuItem(value: 'archive', child: Text(isArchived ? 'Restaurer' : 'Archiver')),
-                                const PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 0,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(
+                                      Icons.picture_as_pdf_outlined,
+                                      color: FDTheme.green,
+                                      size: 18),
+                                  label: const Text('Étude PDF'),
+                                  onPressed: () =>
+                                      _guard(() => _generateStudyDialog(p)),
+                                ),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.play_arrow_rounded,
+                                      color: FDTheme.blue, size: 18),
+                                  label: const Text('Reprendre'),
+                                  onPressed: () => _guard(() async {
+                                    final full = await widget.apiService
+                                        .getProject(p['project_id'].toString());
+                                    widget.onResumeProject?.call(full);
+                                  }),
+                                ),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.history_rounded,
+                                      size: 18),
+                                  label: const Text('Versions'),
+                                  onPressed: () => _openStudiesAndVersions(p),
+                                ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Wrap(
-                            spacing: 4,
-                            runSpacing: 0,
-                            children: [
-                              TextButton.icon(
-                                icon: const Icon(Icons.picture_as_pdf_outlined, color: FDTheme.green, size: 18),
-                                label: const Text('Étude PDF'),
-                                onPressed: () => _guard(() => _generateStudyDialog(p)),
-                              ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.play_arrow_rounded, color: FDTheme.blue, size: 18),
-                                label: const Text('Reprendre'),
-                                onPressed: () => _guard(() async {
-                                  final full = await widget.apiService.getProject(p['project_id'].toString());
-                                  widget.onResumeProject?.call(full);
-                                }),
-                              ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.history_rounded, size: 18),
-                                label: const Text('Versions'),
-                                onPressed: () => _openStudiesAndVersions(p),
-                              ),
-                            ],
-                          ),
                           ],
-                          ),
-                        );
-                      },
-                    );
+                        ),
+                      );
+                    },
+                  );
   }
 }
-

@@ -1,0 +1,46 @@
+name: Weekly Freshness & RAG Manifest Monitor
+
+on:
+  schedule:
+    # Contrôle hebdomadaire chaque lundi à 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Valider le manifeste RAG
+        run: python scripts/build_vector_store.py --dry-run
+      - name: Vérifier la fraîcheur et santé de l'API en production
+        run: |
+          if [ -z "${API_BASE_URL}" ]; then
+            echo "Secret API_BASE_URL non défini : contrôle distant ignoré."
+            exit 0
+          fi
+          python -c '
+          import json, os, sys, urllib.request
+          url = os.environ["API_BASE_URL"].rstrip("/") + "/api/v1/health"
+          with urllib.request.urlopen(url, timeout=30) as r:
+              data = json.loads(r.read().decode("utf-8"))
+          print(json.dumps({
+              "status": data.get("status"),
+              "engine_mode": data.get("engine_mode"),
+              "series_count": data.get("series_count"),
+              "latest_observation_month": data.get("latest_observation_month"),
+              "freshness_status": data.get("freshness_status"),
+          }, ensure_ascii=False, indent=2))
+          if data.get("status") != "ok":
+              sys.exit("API non opérationnelle (status != ok)")
+          '
+

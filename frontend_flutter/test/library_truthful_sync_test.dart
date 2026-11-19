@@ -10,7 +10,8 @@ import 'package:freedata_ai/services/conversation_storage.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Local persistence, restart reload, delete/restore and Markdown export', () async {
+  test('Local persistence, restart reload, delete/restore and Markdown export',
+      () async {
     SharedPreferences.setMockInitialValues({});
     final storage = LocalConversationStorage.instance;
 
@@ -42,7 +43,9 @@ void main() {
     expect((await storage.loadConversations(includeDeleted: true)).length, 0);
   });
 
-  testWidgets('LibraryScreen displays truthful local-only status and never claims cloud sync', (tester) async {
+  testWidgets(
+      'LibraryScreen displays truthful local-only status and never claims cloud sync',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       MaterialApp(
@@ -61,4 +64,3 @@ void main() {
     expect(find.text('Synchronisé'), findsNothing);
   });
 }
-

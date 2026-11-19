@@ -9,7 +9,8 @@ class AnalysisSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = summary['title']?.toString() ?? 'Synthèse de l’analyse';
-    final items = summary['items'] is List ? summary['items'] as List : const <dynamic>[];
+    final items =
+        summary['items'] is List ? summary['items'] as List : const <dynamic>[];
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -24,7 +25,8 @@ class AnalysisSummary extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.check_circle_outline_rounded, size: 16, color: FDTheme.green),
+              const Icon(Icons.check_circle_outline_rounded,
+                  size: 16, color: FDTheme.green),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -45,11 +47,17 @@ class AnalysisSummary extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('• ', style: TextStyle(color: FDTheme.green, fontWeight: FontWeight.bold)),
+                      const Text('• ',
+                          style: TextStyle(
+                              color: FDTheme.green,
+                              fontWeight: FontWeight.bold)),
                       Expanded(
                         child: Text(
                           item.toString(),
-                          style: const TextStyle(fontSize: 12.5, color: FDTheme.greenDark, height: 1.4),
+                          style: const TextStyle(
+                              fontSize: 12.5,
+                              color: FDTheme.greenDark,
+                              height: 1.4),
                         ),
                       ),
                     ],
@@ -91,7 +99,8 @@ class DataTableCard extends StatelessWidget {
             ),
             child: const Row(
               children: [
-                Icon(Icons.table_chart_outlined, size: 15, color: FDTheme.subtle),
+                Icon(Icons.table_chart_outlined,
+                    size: 15, color: FDTheme.subtle),
                 SizedBox(width: 6),
                 Text(
                   'Données structurées',
@@ -132,7 +141,8 @@ class DataTableCard extends StatelessWidget {
                             (h) => DataCell(
                               Text(
                                 r[h]?.toString() ?? '—',
-                                style: const TextStyle(fontSize: 12, color: FDTheme.body),
+                                style: const TextStyle(
+                                    fontSize: 12, color: FDTheme.body),
                               ),
                             ),
                           )
@@ -155,14 +165,17 @@ class ChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final values = data is Map ? Map<String, dynamic>.from(data as Map) : <String, dynamic>{};
+    final values = data is Map
+        ? Map<String, dynamic>.from(data as Map)
+        : <String, dynamic>{};
     final entries = values.entries.toList();
 
     if (entries.isEmpty) return const SizedBox.shrink();
 
     final maxValue = entries
         .map((e) => num.tryParse(e.value.toString()) ?? 0)
-        .fold<double>(0, (max, val) => max > val.toDouble() ? max : val.toDouble());
+        .fold<double>(
+            0, (max, val) => max > val.toDouble() ? max : val.toDouble());
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -209,20 +222,27 @@ class ChartCard extends StatelessWidget {
                         children: [
                           Text(
                             val.toStringAsFixed(0),
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: FDTheme.subtle),
+                            style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: FDTheme.subtle),
                           ),
                           const SizedBox(height: 4),
                           Container(
                             height: 70 * ratio,
                             decoration: const BoxDecoration(
                               color: FDTheme.blue,
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+                              borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(4)),
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            e.key.length > 10 ? '${e.key.substring(0, 9)}…' : e.key,
-                            style: const TextStyle(fontSize: 10, color: FDTheme.subtle),
+                            e.key.length > 10
+                                ? '${e.key.substring(0, 9)}…'
+                                : e.key,
+                            style: const TextStyle(
+                                fontSize: 10, color: FDTheme.subtle),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -238,4 +258,3 @@ class ChartCard extends StatelessWidget {
     );
   }
 }
-

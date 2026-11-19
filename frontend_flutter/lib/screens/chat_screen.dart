@@ -72,7 +72,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _QuickAction(
       icon: Icons.shield_outlined,
       label: "Crédit 3M FCFA · Salamat",
-      prompt: "Évalue le risque de financer 3 millions de FCFA de mil au Salamat.",
+      prompt:
+          "Évalue le risque de financer 3 millions de FCFA de mil au Salamat.",
     ),
     _QuickAction(
       icon: Icons.warning_amber_rounded,
@@ -90,12 +91,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _QuickAction(
       icon: Icons.calendar_month_rounded,
       label: "Saisonnalité & Stockage · Mil",
-      prompt: "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
+      prompt:
+          "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
     ),
     _QuickAction(
       icon: Icons.radar_rounded,
       label: "Radar Anomalies & Qualité",
-      prompt: "Quelles sont les anomalies de prix ou séries figées récentes sur les marchés ?",
+      prompt:
+          "Quelles sont les anomalies de prix ou séries figées récentes sur les marchés ?",
     ),
   ];
 
@@ -109,7 +112,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
         ..showSnackBar(const SnackBar(
-          content: Text('Stockage local plein ou indisponible : cette conversation n’a pas pu être sauvegardée.'),
+          content: Text(
+              'Stockage local plein ou indisponible : cette conversation n’a pas pu être sauvegardée.'),
         ));
     }
   }
@@ -169,7 +173,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadConversation(String? id) async {
-    if (id != null && _thread?.id == id && (_thread?.messages.isNotEmpty ?? false)) {
+    if (id != null &&
+        _thread?.id == id &&
+        (_thread?.messages.isNotEmpty ?? false)) {
       return;
     }
 
@@ -206,13 +212,15 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     // Sinon, charger la plus récente active ou préparer un brouillon vide en mémoire
-    final conversations = await LocalConversationStorage.instance.loadConversations();
+    final conversations =
+        await LocalConversationStorage.instance.loadConversations();
     if (!mounted || widget.conversationId != null) return;
 
     if (conversations.isNotEmpty) {
       setState(() => _thread = conversations.first);
     } else {
-      final draft = await LocalConversationStorage.instance.createConversation();
+      final draft =
+          await LocalConversationStorage.instance.createConversation();
       if (!mounted || widget.conversationId != null) return;
       setState(() => _thread = draft);
     }
@@ -240,7 +248,9 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Map<String, dynamic>> _extractSources(Map<String, dynamic> response) {
     final rawSources = response['sources'];
     if (rawSources is List) {
-      return rawSources.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+      return rawSources
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
     }
     final metadataSources = response['metadata'];
     if (metadataSources is Map && metadataSources['sources'] is List) {
@@ -352,7 +362,8 @@ class _ChatScreenState extends State<ChatScreen> {
           'chart': raw['chart'] ?? raw['chart_data'],
           if (raw['client_state'] is Map) 'client_state': raw['client_state'],
           if (raw['follow_ups'] is List) 'follow_ups': raw['follow_ups'],
-          if (raw['disclaimer'] != null) 'disclaimer': raw['disclaimer'].toString(),
+          if (raw['disclaimer'] != null)
+            'disclaimer': raw['disclaimer'].toString(),
           'error': false,
         },
       );
@@ -405,7 +416,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _toggleSaveLibrary() async {
     if (_thread == null || _thread!.messages.isEmpty) return;
     final next = !_thread!.isSavedInLibrary;
-    final updated = _thread!.copyWith(isSavedInLibrary: next, updatedAt: DateTime.now());
+    final updated =
+        _thread!.copyWith(isSavedInLibrary: next, updatedAt: DateTime.now());
     setState(() => _thread = updated);
     await LocalConversationStorage.instance.saveConversation(updated);
     widget.onConversationUpdated?.call();
@@ -467,7 +479,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   ..._quickActions.map((a) => _buildQuickActionButton(a)),
                   if (widget.apiService.hasPremiumKey)
-                    ..._proQuickActions.map((a) => _buildQuickActionButton(a, isPro: true)),
+                    ..._proQuickActions
+                        .map((a) => _buildQuickActionButton(a, isPro: true)),
                 ],
               ),
             ],
@@ -482,7 +495,8 @@ class _ChatScreenState extends State<ChatScreen> {
       color: isPro ? FDTheme.greenSoft : FDTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: isPro ? FDTheme.greenBorder : FDTheme.line, width: 1),
+        side: BorderSide(
+            color: isPro ? FDTheme.greenBorder : FDTheme.line, width: 1),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -492,7 +506,8 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(action.icon, size: 16, color: isPro ? FDTheme.green : FDTheme.blue),
+              Icon(action.icon,
+                  size: 16, color: isPro ? FDTheme.green : FDTheme.blue),
               const SizedBox(width: 7),
               Flexible(
                 child: Text(
@@ -535,7 +550,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 message: msg,
                 isSavedInLibrary: isSaved,
                 showSaveButton: index == lastAssistantIndex,
-                onRetry: _lastPrompt != null ? () => _sendMessage(_lastPrompt!) : null,
+                onRetry: _lastPrompt != null
+                    ? () => _sendMessage(_lastPrompt!)
+                    : null,
                 onSaveToLibrary: _toggleSaveLibrary,
               );
             }
@@ -545,7 +562,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _exportMarketStudyPdf(Map<String, dynamic> kp, List<String> instructions) async {
+  Future<void> _exportMarketStudyPdf(
+      Map<String, dynamic> kp, List<String> instructions) async {
     final comm = kp['commodity']?.toString() ?? '';
     final orig = kp['origin_province']?.toString() ?? '';
     final cap = (kp['capital_xaf'] as num?)?.toDouble() ?? 0;
@@ -553,7 +571,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      ..showSnackBar(const SnackBar(content: Text('Génération du dossier PDF PRO en cours...')));
+      ..showSnackBar(const SnackBar(
+          content: Text('Génération du dossier PDF PRO en cours...')));
     try {
       final bytes = await widget.apiService.downloadMarketStudyPdf(
         commodity: comm,
@@ -570,7 +589,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('Étude PDF PRO téléchargée.')));
+        ..showSnackBar(
+            const SnackBar(content: Text('Étude PDF PRO téléchargée.')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
@@ -595,16 +615,23 @@ class _ChatScreenState extends State<ChatScreen> {
         : null;
     final rawFollowUps = lastAssistant?.metadata['follow_ups'];
     final followUps = rawFollowUps is List
-        ? rawFollowUps.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).take(3).toList()
+        ? rawFollowUps
+            .map((e) => e.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .take(3)
+            .toList()
         : <String>[];
     final stateMap = lastAssistant?.metadata['client_state'] is Map
-        ? Map<String, dynamic>.from(lastAssistant!.metadata['client_state'] as Map)
+        ? Map<String, dynamic>.from(
+            lastAssistant!.metadata['client_state'] as Map)
         : const <String, dynamic>{};
     final kp = stateMap['known_params'] is Map
         ? Map<String, dynamic>.from(stateMap['known_params'] as Map)
         : const <String, dynamic>{};
     final instructions = stateMap['user_instructions'] is List
-        ? (stateMap['user_instructions'] as List).map((e) => e.toString()).toList()
+        ? (stateMap['user_instructions'] as List)
+            .map((e) => e.toString())
+            .toList()
         : <String>[];
     final canExportPdf = widget.apiService.hasPremiumKey &&
         kp['commodity'] != null &&
@@ -650,7 +677,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!_loading) _sendMessage(_controller.text);
                   },
                   decoration: const InputDecoration(
-                    hintText: 'Posez une question, analysez un marché ou rédigez un projet...',
+                    hintText:
+                        'Posez une question, analysez un marché ou rédigez un projet...',
                     hintStyle: TextStyle(
                       color: FDTheme.subtle,
                       fontSize: 15,
@@ -673,16 +701,21 @@ class _ChatScreenState extends State<ChatScreen> {
                     // Sélecteur de domaine compact (style ChatGPT / Claude)
                     PopupMenuButton<String>(
                       tooltip: 'Choisir le domaine IA',
-                      onSelected: (val) => setState(() => _selectedDomain = val),
+                      onSelected: (val) =>
+                          setState(() => _selectedDomain = val),
                       itemBuilder: (_) => _domainChoices
                           .map((d) => PopupMenuItem<String>(
                                 value: d['id']!,
                                 child: Row(
                                   children: [
                                     Icon(
-                                      _selectedDomain == d['id'] ? Icons.check_rounded : Icons.circle_outlined,
+                                      _selectedDomain == d['id']
+                                          ? Icons.check_rounded
+                                          : Icons.circle_outlined,
                                       size: 16,
-                                      color: _selectedDomain == d['id'] ? FDTheme.blue : FDTheme.subtle,
+                                      color: _selectedDomain == d['id']
+                                          ? FDTheme.blue
+                                          : FDTheme.subtle,
                                     ),
                                     const SizedBox(width: 8),
                                     Text(d['label'] ?? 'Auto'),
@@ -691,7 +724,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               ))
                           .toList(),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: FDTheme.canvasSoft,
                           borderRadius: BorderRadius.circular(99),
@@ -699,14 +733,19 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.auto_awesome_outlined, size: 14, color: FDTheme.blue),
+                            const Icon(Icons.auto_awesome_outlined,
+                                size: 14, color: FDTheme.blue),
                             const SizedBox(width: 5),
                             Text(
                               _selectedDomainLabel(),
-                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.ink),
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: FDTheme.ink),
                             ),
                             const SizedBox(width: 2),
-                            const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: FDTheme.muted),
+                            const Icon(Icons.keyboard_arrow_down_rounded,
+                                size: 16, color: FDTheme.muted),
                           ],
                         ),
                       ),
@@ -719,11 +758,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemBuilder: (_) => followUps
                             .map((p) => PopupMenuItem<String>(
                                   value: p,
-                                  child: Text(p, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  child: Text(p,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis),
                                 ))
                             .toList(),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: FDTheme.canvasSoft,
                             borderRadius: BorderRadius.circular(99),
@@ -731,9 +773,14 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.lightbulb_outline_rounded, size: 14, color: FDTheme.muted),
+                              Icon(Icons.lightbulb_outline_rounded,
+                                  size: 14, color: FDTheme.muted),
                               SizedBox(width: 4),
-                              Text('Suite', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.ink)),
+                              Text('Suite',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: FDTheme.ink)),
                             ],
                           ),
                         ),
@@ -745,7 +792,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         borderRadius: BorderRadius.circular(99),
                         onTap: () => _exportMarketStudyPdf(kp, instructions),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: FDTheme.blueSoft,
                             borderRadius: BorderRadius.circular(99),
@@ -753,9 +801,14 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.picture_as_pdf_outlined, size: 14, color: FDTheme.blue),
+                              Icon(Icons.picture_as_pdf_outlined,
+                                  size: 14, color: FDTheme.blue),
                               SizedBox(width: 4),
-                              Text('PDF PRO', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: FDTheme.blue)),
+                              Text('PDF PRO',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: FDTheme.blue)),
                             ],
                           ),
                         ),
@@ -764,7 +817,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     const Spacer(),
                     IconButton(
                       tooltip: 'Envoyer le message',
-                      onPressed: _loading ? null : () => _sendMessage(_controller.text),
+                      onPressed: _loading
+                          ? null
+                          : () => _sendMessage(_controller.text),
                       icon: const Icon(Icons.arrow_upward_rounded, size: 20),
                       style: IconButton.styleFrom(
                         backgroundColor: FDTheme.blue,

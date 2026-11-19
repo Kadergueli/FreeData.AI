@@ -57,10 +57,13 @@ class ConversationThread {
         .toList();
 
     return ConversationThread(
-      id: json['id']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      id: json['id']?.toString() ??
+          DateTime.now().microsecondsSinceEpoch.toString(),
       title: json['title']?.toString() ?? 'Nouvelle conversation',
-      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
       isSavedInLibrary: json['isSavedInLibrary'] == true,
       isDeleted: json['isDeleted'] == true,
       messages: list,
@@ -103,7 +106,8 @@ class ChatMessage {
     required String text,
     List<Map<String, dynamic>> sources = const [],
     Map<String, dynamic> metadata = const {},
-  }) => ChatMessage(
+  }) =>
+      ChatMessage(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         role: 'assistant',
         text: text,
@@ -128,12 +132,16 @@ class ChatMessage {
         : <Map<String, dynamic>>[];
 
     return ChatMessage(
-      id: json['id']?.toString() ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      id: json['id']?.toString() ??
+          DateTime.now().microsecondsSinceEpoch.toString(),
       role: json['role']?.toString() ?? 'assistant',
       text: json['text']?.toString() ?? '',
       sources: listSources,
-      metadata: json['metadata'] is Map ? Map<String, dynamic>.from(json['metadata'] as Map) : const {},
-      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      metadata: json['metadata'] is Map
+          ? Map<String, dynamic>.from(json['metadata'] as Map)
+          : const {},
+      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 }

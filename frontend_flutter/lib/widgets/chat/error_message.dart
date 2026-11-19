@@ -45,7 +45,8 @@ class _ErrorMessageState extends State<ErrorMessage> {
         children: [
           const Row(
             children: [
-              Icon(Icons.error_outline_rounded, color: FDTheme.danger, size: 18),
+              Icon(Icons.error_outline_rounded,
+                  color: FDTheme.danger, size: 18),
               SizedBox(width: 8),
               Text(
                 'Échec de communication',
@@ -74,9 +75,11 @@ class _ErrorMessageState extends State<ErrorMessage> {
                   ? const SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: FDTheme.danger),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: FDTheme.danger),
                     )
-                  : const Icon(Icons.refresh_rounded, size: 16, color: FDTheme.danger),
+                  : const Icon(Icons.refresh_rounded,
+                      size: 16, color: FDTheme.danger),
               label: Text(
                 _retrying ? 'Tentative en cours...' : 'Réessayer',
                 style: const TextStyle(
@@ -86,7 +89,8 @@ class _ErrorMessageState extends State<ErrorMessage> {
                 ),
               ),
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 backgroundColor: FDTheme.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -100,4 +104,3 @@ class _ErrorMessageState extends State<ErrorMessage> {
     );
   }
 }
-

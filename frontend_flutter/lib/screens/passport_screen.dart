@@ -7,7 +7,8 @@ import '../services/api_service.dart';
 class PassportScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onSelectPrompt;
-  const PassportScreen({super.key, required this.apiService, this.onSelectPrompt});
+  const PassportScreen(
+      {super.key, required this.apiService, this.onSelectPrompt});
 
   @override
   State<PassportScreen> createState() => _PassportScreenState();
@@ -52,7 +53,8 @@ class _PassportScreenState extends State<PassportScreen> {
               (legacy is Map ? legacy['commodities'] : null) ??
               meta['commodities'] ??
               const []);
-      final comms = List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
+      final comms =
+          List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
       if (mounted && comms.isNotEmpty) {
         setState(() {
           _commodities = comms;
@@ -85,7 +87,8 @@ class _PassportScreenState extends State<PassportScreen> {
       if (mounted && token == _requestToken) setState(() => _passports = items);
     } catch (_) {
       if (mounted && token == _requestToken) {
-        setState(() => _error = 'Les données Credit Passport ne sont pas accessibles pour le moment.');
+        setState(() => _error =
+            'Les données Credit Passport ne sont pas accessibles pour le moment.');
       }
     } finally {
       if (mounted && token == _requestToken) setState(() => _loading = false);
@@ -137,12 +140,15 @@ class _PassportScreenState extends State<PassportScreen> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         key: ValueKey(_commodity),
-                        initialValue: _commodities.contains(_commodity) ? _commodity : null,
+                        initialValue: _commodities.contains(_commodity)
+                            ? _commodity
+                            : null,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Produit',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
                         items: _commodities
                             .map((c) => DropdownMenuItem(
@@ -170,24 +176,29 @@ class _PassportScreenState extends State<PassportScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Valeur du stock / garantie',
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                         ),
                         items: const [
                           DropdownMenuItem(
                             value: 500000,
-                            child: Text('500 000 XAF', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text('500 000 XAF',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                           DropdownMenuItem(
                             value: 1000000,
-                            child: Text('1 000 000 XAF', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text('1 000 000 XAF',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                           DropdownMenuItem(
                             value: 3000000,
-                            child: Text('3 000 000 XAF', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text('3 000 000 XAF',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                           DropdownMenuItem(
                             value: 10000000,
-                            child: Text('10 000 000 XAF', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text('10 000 000 XAF',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                         ],
                         onChanged: (v) {
@@ -205,7 +216,8 @@ class _PassportScreenState extends State<PassportScreen> {
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 14),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
@@ -216,7 +228,8 @@ class _PassportScreenState extends State<PassportScreen> {
                   children: [
                     const Padding(
                       padding: EdgeInsets.only(top: 1),
-                      child: Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF64748B)),
+                      child: Icon(Icons.info_outline_rounded,
+                          size: 16, color: Color(0xFF64748B)),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -241,7 +254,8 @@ class _PassportScreenState extends State<PassportScreen> {
                 FDCard(
                   child: Column(
                     children: [
-                      Text(_error!, style: const TextStyle(color: FDTheme.muted)),
+                      Text(_error!,
+                          style: const TextStyle(color: FDTheme.muted)),
                       TextButton.icon(
                         onPressed: _load,
                         icon: const Icon(Icons.refresh),
@@ -281,9 +295,12 @@ class _PassportScreenState extends State<PassportScreen> {
                           );
                         },
                         icon: const Icon(Icons.auto_awesome_outlined, size: 16),
-                        label: const Text('Analyser dossier (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        label: const Text('Analyser dossier (IA)',
+                            style: TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w600)),
                         style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           minimumSize: const Size(0, 36),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
@@ -291,10 +308,13 @@ class _PassportScreenState extends State<PassportScreen> {
                     TextButton.icon(
                       onPressed: _copyPassportCsv,
                       icon: const Icon(Icons.download_rounded, size: 16),
-                      label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      label: const Text('Copier CSV',
+                          style: TextStyle(
+                              fontSize: 12.5, fontWeight: FontWeight.w600)),
                       style: TextButton.styleFrom(
                         foregroundColor: FDTheme.subtle,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         minimumSize: const Size(0, 36),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
@@ -306,13 +326,16 @@ class _PassportScreenState extends State<PassportScreen> {
                   final r = Map<String, dynamic>.from(raw as Map);
                   final score = parseNum(r['credit_score'])?.toDouble() ?? 0;
                   final maxLoan = parseNum(r['recommended_max_loan_xaf']);
-                  final maxLoanLabel = maxLoan != null ? '${formatXaf(maxLoan)} XAF' : '— XAF';
+                  final maxLoanLabel =
+                      maxLoan != null ? '${formatXaf(maxLoan)} XAF' : '— XAF';
                   final cvLabel = _formatCv(r['cv_pct']);
                   final drawdownLabel = _formatDrawdown(r['max_drawdown_pct']);
                   final obsMonths = r['obs_months'] ?? '—';
                   final color = score >= 60
                       ? FDTheme.green
-                      : (score >= 45 ? const Color(0xFFD98B24) : const Color(0xFFB54745));
+                      : (score >= 45
+                          ? const Color(0xFFD98B24)
+                          : const Color(0xFFB54745));
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -325,7 +348,8 @@ class _PassportScreenState extends State<PassportScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Semantics(
-                                label: 'Indice de stabilité marché ${score.toStringAsFixed(0)} sur 100 (pas une décision de crédit bancaire)',
+                                label:
+                                    'Indice de stabilité marché ${score.toStringAsFixed(0)} sur 100 (pas une décision de crédit bancaire)',
                                 child: Container(
                                   width: 48,
                                   height: 48,
@@ -376,7 +400,8 @@ class _PassportScreenState extends State<PassportScreen> {
                                 children: [
                                   const Text(
                                     'Plafond LTV',
-                                    style: TextStyle(fontSize: 10.5, color: FDTheme.muted),
+                                    style: TextStyle(
+                                        fontSize: 10.5, color: FDTheme.muted),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
@@ -397,7 +422,8 @@ class _PassportScreenState extends State<PassportScreen> {
                             runSpacing: 6,
                             children: [
                               _MetricBadge(text: 'CV : $cvLabel%'),
-                              _MetricBadge(text: 'Baisse max : $drawdownLabel%'),
+                              _MetricBadge(
+                                  text: 'Baisse max : $drawdownLabel%'),
                               _MetricBadge(text: '$obsMonths mois'),
                             ],
                           ),
@@ -411,19 +437,28 @@ class _PassportScreenState extends State<PassportScreen> {
                                   children: [
                                     GestureDetector(
                                       behavior: HitTestBehavior.opaque,
-                                      onTap: () => setLocal(() => expanded = !expanded),
+                                      onTap: () =>
+                                          setLocal(() => expanded = !expanded),
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 4),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             const Text(
                                               'Détails du calcul',
-                                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: FDTheme.blue),
+                                              style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: FDTheme.blue),
                                             ),
                                             const SizedBox(width: 4),
                                             Icon(
-                                              expanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                              expanded
+                                                  ? Icons
+                                                      .keyboard_arrow_up_rounded
+                                                  : Icons
+                                                      .keyboard_arrow_down_rounded,
                                               size: 16,
                                               color: FDTheme.blue,
                                             ),
@@ -438,7 +473,10 @@ class _PassportScreenState extends State<PassportScreen> {
                                           'Score marché : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
                                           '(volatilité CV = $cvLabel %, baisse max = $drawdownLabel %, ratio LTV indicatif = $maxLoanLabel). '
                                           'Indicateur de stabilité des prix uniquement (non calibré sur défauts bancaires).',
-                                          style: const TextStyle(fontSize: 12, height: 1.45, color: FDTheme.muted),
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              height: 1.45,
+                                              color: FDTheme.muted),
                                         ),
                                       ),
                                   ],

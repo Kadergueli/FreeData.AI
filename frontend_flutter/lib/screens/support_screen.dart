@@ -56,7 +56,9 @@ class _SupportScreenState extends State<SupportScreen> {
     final desc = _descCtrl.text.trim();
     if (subj.length < 3 || desc.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez saisir un sujet (min. 3 car.) et une description (min. 5 car.).')),
+        const SnackBar(
+            content: Text(
+                'Veuillez saisir un sujet (min. 3 car.) et une description (min. 5 car.).')),
       );
       return;
     }
@@ -71,10 +73,12 @@ class _SupportScreenState extends State<SupportScreen> {
       _descCtrl.clear();
       await _loadTickets();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ticket envoyé au support.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ticket envoyé au support.')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur envoi ticket : $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur envoi ticket : $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -91,10 +95,12 @@ class _SupportScreenState extends State<SupportScreen> {
       );
       _fbCommentCtrl.clear();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merci pour votre avis !')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Merci pour votre avis !')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur envoi avis : $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur envoi avis : $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -112,7 +118,9 @@ class _SupportScreenState extends State<SupportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: AppBar(title: const Text('Assistance & Avis', style: TextStyle(fontWeight: FontWeight.w700))),
+      appBar: AppBar(
+          title: const Text('Assistance & Avis',
+              style: TextStyle(fontWeight: FontWeight.w700))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -122,25 +130,45 @@ class _SupportScreenState extends State<SupportScreen> {
               children: [
                 const Text(
                   'Signaler un problème ou proposer une amélioration',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
                   decoration: const InputDecoration(labelText: 'Catégorie'),
                   items: const [
-                    DropdownMenuItem(value: 'technical_bug', child: Text('Problème technique')),
-                    DropdownMenuItem(value: 'incorrect_ai', child: Text('Réponse IA incorrecte')),
-                    DropdownMenuItem(value: 'pdf_issue', child: Text('Problème génération PDF')),
-                    DropdownMenuItem(value: 'account_help', child: Text('Assistance compte / abonnement')),
-                    DropdownMenuItem(value: 'feature_request', child: Text('Suggestion de fonctionnalité')),
+                    DropdownMenuItem(
+                        value: 'technical_bug',
+                        child: Text('Problème technique')),
+                    DropdownMenuItem(
+                        value: 'incorrect_ai',
+                        child: Text('Réponse IA incorrecte')),
+                    DropdownMenuItem(
+                        value: 'pdf_issue',
+                        child: Text('Problème génération PDF')),
+                    DropdownMenuItem(
+                        value: 'account_help',
+                        child: Text('Assistance compte / abonnement')),
+                    DropdownMenuItem(
+                        value: 'feature_request',
+                        child: Text('Suggestion de fonctionnalité')),
                   ],
-                  onChanged: (v) => setState(() => _category = v ?? 'technical_bug'),
+                  onChanged: (v) =>
+                      setState(() => _category = v ?? 'technical_bug'),
                 ),
                 const SizedBox(height: 10),
-                TextField(controller: _subjCtrl, decoration: const InputDecoration(labelText: 'Sujet')),
+                TextField(
+                    controller: _subjCtrl,
+                    decoration: const InputDecoration(labelText: 'Sujet')),
                 const SizedBox(height: 10),
-                TextField(controller: _descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Description')),
+                TextField(
+                    controller: _descCtrl,
+                    maxLines: 3,
+                    decoration:
+                        const InputDecoration(labelText: 'Description')),
                 const SizedBox(height: 12),
                 FDPrimaryButton(
                   label: 'Envoyer la demande',
@@ -157,30 +185,47 @@ class _SupportScreenState extends State<SupportScreen> {
               children: [
                 const Text(
                   'Évaluer une fonctionnalité',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _fbFeature,
-                  decoration: const InputDecoration(labelText: 'Fonctionnalité'),
+                  decoration:
+                      const InputDecoration(labelText: 'Fonctionnalité'),
                   items: const [
-                    DropdownMenuItem(value: 'ai_response', child: Text('Qualité des réponses IA')),
-                    DropdownMenuItem(value: 'rag_relevance', child: Text('Pertinence des sources RAG')),
-                    DropdownMenuItem(value: 'ml_prediction', child: Text('Prévisions ML')),
-                    DropdownMenuItem(value: 'pdf_quality', child: Text('Qualité des rapports PDF')),
-                    DropdownMenuItem(value: 'usability', child: Text('Ergonomie générale')),
+                    DropdownMenuItem(
+                        value: 'ai_response',
+                        child: Text('Qualité des réponses IA')),
+                    DropdownMenuItem(
+                        value: 'rag_relevance',
+                        child: Text('Pertinence des sources RAG')),
+                    DropdownMenuItem(
+                        value: 'ml_prediction', child: Text('Prévisions ML')),
+                    DropdownMenuItem(
+                        value: 'pdf_quality',
+                        child: Text('Qualité des rapports PDF')),
+                    DropdownMenuItem(
+                        value: 'usability', child: Text('Ergonomie générale')),
                   ],
-                  onChanged: (v) => setState(() => _fbFeature = v ?? 'ai_response'),
+                  onChanged: (v) =>
+                      setState(() => _fbFeature = v ?? 'ai_response'),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Text('Note : ', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                    const Text('Note : ',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600, color: AppColors.ink)),
                     ...List.generate(5, (i) {
                       final star = i + 1;
                       return IconButton(
                         icon: Icon(
-                          star <= _fbRating ? Icons.star_rounded : Icons.star_border_rounded,
+                          star <= _fbRating
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
                           color: AppColors.blue,
                         ),
                         onPressed: () => setState(() => _fbRating = star),
@@ -188,7 +233,10 @@ class _SupportScreenState extends State<SupportScreen> {
                     }),
                   ],
                 ),
-                TextField(controller: _fbCommentCtrl, decoration: const InputDecoration(labelText: 'Commentaire (optionnel)')),
+                TextField(
+                    controller: _fbCommentCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Commentaire (optionnel)')),
                 const SizedBox(height: 12),
                 FDSecondaryButton(
                   label: 'Envoyer mon avis',
@@ -205,15 +253,22 @@ class _SupportScreenState extends State<SupportScreen> {
               children: [
                 const Text(
                   'Mes demandes récentes',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 8),
                 if (_loading)
-                  const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+                  const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Center(child: CircularProgressIndicator()))
                 else if (_loadError != null)
-                  Text(_loadError!, style: const TextStyle(color: AppColors.danger))
+                  Text(_loadError!,
+                      style: const TextStyle(color: AppColors.danger))
                 else if (_tickets.isEmpty)
-                  const Text('Aucune demande envoyée.', style: TextStyle(color: AppColors.muted))
+                  const Text('Aucune demande envoyée.',
+                      style: TextStyle(color: AppColors.muted))
                 else
                   ..._tickets.map(
                     (t) => Padding(
@@ -225,23 +280,31 @@ class _SupportScreenState extends State<SupportScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(t['subject'].toString(), style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink)),
+                                Text(t['subject'].toString(),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.ink)),
                                 Text(
                                   '${t['category']} · Priorité : ${t['priority']}',
-                                  style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                                  style: const TextStyle(
+                                      fontSize: 12.5, color: AppColors.muted),
                                 ),
                               ],
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: AppColors.blueSoft,
                               borderRadius: BorderRadius.circular(99),
                             ),
                             child: Text(
                               t['status'].toString(),
-                              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.blue),
+                              style: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.blue),
                             ),
                           ),
                         ],
@@ -256,4 +319,3 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 }
-

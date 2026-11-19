@@ -15,6 +15,7 @@ import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'screens/support_screen.dart';
+import 'widgets/auth_dialog.dart';
 
 void main() => runApp(const FreeDataAIApp());
 
@@ -73,7 +74,9 @@ class _MainShellState extends State<MainShell> {
       } catch (_) {}
       if (!mounted) return;
       setState(() {});
-      _showSnackBar(const SnackBar(content: Text('Clé PRO refusée par le serveur : accès PRO désactivé. Saisissez une clé valide.')));
+      _showSnackBar(const SnackBar(
+          content: Text(
+              'Clé PRO refusée par le serveur : accès PRO désactivé. Saisissez une clé valide.')));
     };
     _loadPremiumKey();
     _reloadConversations();
@@ -94,7 +97,9 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _loadPremiumKey() async {
     final uri = widget.initialUri ?? Uri.base;
-    final urlKey = (uri.queryParameters['key'] ?? uri.queryParameters['premium_key'])?.trim();
+    final urlKey =
+        (uri.queryParameters['key'] ?? uri.queryParameters['premium_key'])
+            ?.trim();
     final prefs = await SharedPreferences.getInstance();
     var uid = prefs.getString('fd_pref_user_id');
     if (uid == null || !ApiService.isStrongUserId(uid)) {
@@ -102,6 +107,20 @@ class _MainShellState extends State<MainShell> {
       await prefs.setString('fd_pref_user_id', uid);
     }
     _apiService.setUserId(uid);
+    final savedAuthToken = prefs.getString(kAuthTokenStorageKey);
+    if (savedAuthToken != null && savedAuthToken.trim().isNotEmpty) {
+      _apiService.setAuthSession(token: savedAuthToken);
+      try {
+        await _apiService.getAuthMe();
+        if (mounted) setState(() {});
+      } on ApiHttpException catch (e) {
+        if (e.statusCode == 401) {
+          await prefs.remove(kAuthTokenStorageKey);
+          _apiService.clearAuthSession();
+          if (mounted) setState(() {});
+        }
+      } catch (_) {}
+    }
     if (urlKey != null && urlKey.isNotEmpty) {
       try {
         final isValid = await _apiService.verifyPremiumKey(urlKey);
@@ -270,7 +289,8 @@ class _MainShellState extends State<MainShell> {
       if (list.isNotEmpty) {
         replacementId = list.first.id;
       } else {
-        final draft = await LocalConversationStorage.instance.createConversation();
+        final draft =
+            await LocalConversationStorage.instance.createConversation();
         if (!mounted) return;
         replacementId = draft.id;
       }
@@ -289,7 +309,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _createNewConversation() async {
-    final newThread = await LocalConversationStorage.instance.createConversation();
+    final newThread =
+        await LocalConversationStorage.instance.createConversation();
     if (!mounted) return;
     setState(() {
       _selectedIndex = 0;
@@ -301,7 +322,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _openPromptInChat(String prompt) async {
-    final newThread = await LocalConversationStorage.instance.createConversation();
+    final newThread =
+        await LocalConversationStorage.instance.createConversation();
     if (!mounted) return;
     setState(() {
       _selectedIndex = 0;
@@ -350,11 +372,13 @@ class _MainShellState extends State<MainShell> {
               child: const Text('Restaurer'),
             ),
             IconButton(
-              icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white70),
+              icon: const Icon(Icons.close_rounded,
+                  size: 18, color: Colors.white70),
               tooltip: 'Fermer',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              onPressed: () => ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar(),
+              onPressed: () =>
+                  ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar(),
             ),
           ],
         ),
@@ -395,24 +419,52 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  Future<void> _openAuthDialog() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AuthDialog(apiService: _apiService),
+    );
+    if (ok == true && mounted) {
+      setState(() {});
+      final email = _apiService.authUser?['email']?.toString() ?? '';
+      _showSnackBar(
+        SnackBar(
+          content:
+              Text(email.isNotEmpty ? 'Connecté : $email' : 'Session activée.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Widget _buildUtilityMenu({bool includeSubscription = false}) {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
       tooltip: 'Plus d\'options',
       onSelected: (value) {
-        if (value == 'support') {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
-          );
-        } else if (value == 'subscription') {
+        if (value == 'account') {
+          _openAuthDialog();
+        } else if (value == 'support') {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
-            ),
+                builder: (_) => SupportScreen(apiService: _apiService)),
           );
+        } else if (value == 'subscription') {
+          Navigator.of(context)
+              .push(
+            MaterialPageRoute(
+              builder: (_) => SubscriptionScreen(
+                  apiService: _apiService,
+                  onConfigureKey: _configurePremiumKey),
+            ),
+          )
+              .then((_) {
+            if (mounted) setState(() {});
+          });
         } else if (value == 'settings') {
           Navigator.of(context)
-              .push(MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)))
+              .push(MaterialPageRoute(
+                  builder: (_) => SettingsScreen(apiService: _apiService)))
               .then((_) {
             if (mounted) setState(() {});
           });
@@ -423,7 +475,17 @@ class _MainShellState extends State<MainShell> {
         }
       },
       itemBuilder: (context) => [
-        if (includeSubscription && _apiService.hasPremiumKey)
+        if (!_apiService.isAuthenticated)
+          const PopupMenuItem(
+            value: 'account',
+            child: ListTile(
+              leading: Icon(Icons.login_rounded),
+              title: Text('Connexion / Compte'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (includeSubscription || !_apiService.hasPremiumKey)
           const PopupMenuItem(
             value: 'subscription',
             child: ListTile(
@@ -524,16 +586,19 @@ class _MainShellState extends State<MainShell> {
           apiService: _apiService,
           onResumeProject: (proj) {
             // Le chat n'a pas de canal « study_context » : on injecte le contexte du projet dans le prompt.
-            final buf = StringBuffer('Reprendre le projet « ${proj['name']} ».');
+            final buf =
+                StringBuffer('Reprendre le projet « ${proj['name']} ».');
             final desc = proj['description']?.toString().trim() ?? '';
             if (desc.isNotEmpty) buf.write('\nObjectif : $desc');
             final ctx = proj['study_context'];
             if (ctx is Map && ctx.isNotEmpty) {
               final parts = ctx.entries
-                  .where((e) => e.value != null && e.value.toString().trim().isNotEmpty)
+                  .where((e) =>
+                      e.value != null && e.value.toString().trim().isNotEmpty)
                   .map((e) => '${e.key} = ${e.value}')
                   .take(12);
-              if (parts.isNotEmpty) buf.write('\nContexte enregistré : ${parts.join(' ; ')}');
+              if (parts.isNotEmpty)
+                buf.write('\nContexte enregistré : ${parts.join(' ; ')}');
             }
             final studies = proj['studies'];
             if (studies is List && studies.isNotEmpty) {
@@ -553,7 +618,9 @@ class _MainShellState extends State<MainShell> {
         const SizedBox.shrink(),
     ];
 
-    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5) ? 0 : _selectedIndex;
+    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5)
+        ? 0
+        : _selectedIndex;
 
     if (isDesktop) {
       return Scaffold(
@@ -592,7 +659,9 @@ class _MainShellState extends State<MainShell> {
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     decoration: const BoxDecoration(
                       color: FDTheme.surface,
-                      border: Border(bottom: BorderSide(color: FDTheme.canvasSoft, width: 1)),
+                      border: Border(
+                          bottom:
+                              BorderSide(color: FDTheme.canvasSoft, width: 1)),
                     ),
                     child: Row(
                       children: [
@@ -614,18 +683,25 @@ class _MainShellState extends State<MainShell> {
                             onTap: _configurePremiumKey,
                             borderRadius: BorderRadius.circular(99),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
-                                color: _apiService.hasPremiumKey ? FDTheme.greenSoft : FDTheme.blueSoft,
+                                color: _apiService.hasPremiumKey
+                                    ? FDTheme.greenSoft
+                                    : FDTheme.blueSoft,
                                 borderRadius: BorderRadius.circular(99),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    _apiService.hasPremiumKey ? Icons.verified_rounded : Icons.circle,
+                                    _apiService.hasPremiumKey
+                                        ? Icons.verified_rounded
+                                        : Icons.circle,
                                     size: _apiService.hasPremiumKey ? 13 : 7,
-                                    color: _apiService.hasPremiumKey ? FDTheme.green : FDTheme.blue,
+                                    color: _apiService.hasPremiumKey
+                                        ? FDTheme.green
+                                        : FDTheme.blue,
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
@@ -634,7 +710,9 @@ class _MainShellState extends State<MainShell> {
                                         : 'Tchad · Marchés et Prix',
                                     style: TextStyle(
                                       fontSize: 11.5,
-                                      color: _apiService.hasPremiumKey ? FDTheme.greenDark : FDTheme.blue,
+                                      color: _apiService.hasPremiumKey
+                                          ? FDTheme.greenDark
+                                          : FDTheme.blue,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -724,11 +802,13 @@ class _MainShellState extends State<MainShell> {
                   onTap: _configurePremiumKey,
                   borderRadius: BorderRadius.circular(99),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       color: FDTheme.greenSoft,
                       borderRadius: BorderRadius.circular(99),
-                      border: Border.all(color: FDTheme.green.withValues(alpha: 0.3)),
+                      border: Border.all(
+                          color: FDTheme.green.withValues(alpha: 0.3)),
                     ),
                     child: const Text(
                       'PRO',
@@ -857,12 +937,14 @@ class _SidebarContent extends StatelessWidget {
           child: FilledButton.icon(
             onPressed: onNewConversation,
             icon: const Icon(Icons.add_rounded, size: 20),
-            label: const Text('Nouvelle conversation', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            label: const Text('Nouvelle conversation',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
             style: FilledButton.styleFrom(
               backgroundColor: FDTheme.blue,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(46),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),
@@ -903,9 +985,11 @@ class _SidebarContent extends StatelessWidget {
                 ),
                 _navItem(5, Icons.analytics_outlined, 'Analytics PRO'),
                 _navItem(6, Icons.folder_special_outlined, 'Projets PRO'),
-                _navItem(7, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
+                _navItem(
+                    7, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
               ],
-              const Divider(height: 18, thickness: 1, color: FDTheme.canvasSoft),
+              const Divider(
+                  height: 18, thickness: 1, color: FDTheme.canvasSoft),
               const Padding(
                 padding: EdgeInsets.fromLTRB(20, 8, 20, 6),
                 child: Text(
@@ -928,7 +1012,8 @@ class _SidebarContent extends StatelessWidget {
                 )
               else
                 ...conversations.map((conv) {
-                  final isSelected = currentIndex == 0 && conv.id == activeConversationId;
+                  final isSelected =
+                      currentIndex == 0 && conv.id == activeConversationId;
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
                     child: Material(
@@ -936,10 +1021,14 @@ class _SidebarContent extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       child: ListTile(
                         dense: false,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.only(left: 10, right: 4),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        contentPadding:
+                            const EdgeInsets.only(left: 10, right: 4),
                         leading: Icon(
-                          conv.isSavedInLibrary ? Icons.bookmark_rounded : Icons.chat_bubble_outline_rounded,
+                          conv.isSavedInLibrary
+                              ? Icons.bookmark_rounded
+                              : Icons.chat_bubble_outline_rounded,
                           size: 18,
                           color: isSelected ? FDTheme.blue : FDTheme.subtle,
                         ),
@@ -949,12 +1038,14 @@ class _SidebarContent extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 14.5,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            fontWeight:
+                                isSelected ? FontWeight.w600 : FontWeight.w500,
                             color: isSelected ? FDTheme.blue : FDTheme.body,
                           ),
                         ),
                         trailing: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert_rounded, size: 16, color: FDTheme.subtle),
+                          icon: const Icon(Icons.more_vert_rounded,
+                              size: 16, color: FDTheme.subtle),
                           padding: EdgeInsets.zero,
                           tooltip: 'Options',
                           onSelected: (val) {
@@ -986,11 +1077,17 @@ class _SidebarContent extends StatelessWidget {
                               value: 'library',
                               child: Row(
                                 children: [
-                                  Icon(conv.isSavedInLibrary ? Icons.bookmark_remove_outlined : Icons.bookmark_add_outlined, size: 16),
+                                  Icon(
+                                      conv.isSavedInLibrary
+                                          ? Icons.bookmark_remove_outlined
+                                          : Icons.bookmark_add_outlined,
+                                      size: 16),
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
-                                      conv.isSavedInLibrary ? 'Retirer de Library' : 'Sauvegarder dans Library',
+                                      conv.isSavedInLibrary
+                                          ? 'Retirer de Library'
+                                          : 'Sauvegarder dans Library',
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -1001,13 +1098,15 @@ class _SidebarContent extends StatelessWidget {
                               value: 'delete',
                               child: Row(
                                 children: [
-                                  Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
+                                  Icon(Icons.delete_outline_rounded,
+                                      size: 16, color: Color(0xFFDC2626)),
                                   SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
                                       'Supprimer',
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: Color(0xFFDC2626)),
+                                      style:
+                                          TextStyle(color: Color(0xFFDC2626)),
                                     ),
                                   ),
                                 ],
@@ -1033,7 +1132,8 @@ class _SidebarContent extends StatelessWidget {
               onTap: onConfigurePremiumKey,
               borderRadius: BorderRadius.circular(10),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 child: Row(
                   children: [
                     Semantics(
@@ -1077,7 +1177,9 @@ class _SidebarContent extends StatelessWidget {
                                 : 'Intelligence des Marchés · Tchad',
                             style: TextStyle(
                               fontSize: 12.0,
-                              color: hasPremiumKey ? FDTheme.greenDark : FDTheme.subtle,
+                              color: hasPremiumKey
+                                  ? FDTheme.greenDark
+                                  : FDTheme.subtle,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1086,9 +1188,11 @@ class _SidebarContent extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: hasPremiumKey ? FDTheme.greenSoft : FDTheme.canvas,
+                        color:
+                            hasPremiumKey ? FDTheme.greenSoft : FDTheme.canvas,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
                           color: hasPremiumKey
@@ -1101,7 +1205,8 @@ class _SidebarContent extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: hasPremiumKey ? FDTheme.greenDark : FDTheme.muted,
+                          color:
+                              hasPremiumKey ? FDTheme.greenDark : FDTheme.muted,
                         ),
                       ),
                     ),
@@ -1156,7 +1261,8 @@ class _PremiumKeyDialog extends StatefulWidget {
 }
 
 class _PremiumKeyDialogState extends State<_PremiumKeyDialog> {
-  late final TextEditingController _controller = TextEditingController(text: widget.initialKey);
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialKey);
 
   @override
   void dispose() {
@@ -1188,11 +1294,14 @@ class _PremiumKeyDialogState extends State<_PremiumKeyDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler')),
         if (widget.hasActiveKey)
           TextButton(
             onPressed: () => Navigator.pop(context, ''),
-            child: const Text('Désactiver la clé', style: TextStyle(color: FDTheme.danger)),
+            child: const Text('Désactiver la clé',
+                style: TextStyle(color: FDTheme.danger)),
           ),
         FilledButton(
           onPressed: () => Navigator.pop(context, _controller.text.trim()),
@@ -1209,11 +1318,13 @@ class _RenameConversationDialog extends StatefulWidget {
   const _RenameConversationDialog({required this.initialTitle});
 
   @override
-  State<_RenameConversationDialog> createState() => _RenameConversationDialogState();
+  State<_RenameConversationDialog> createState() =>
+      _RenameConversationDialogState();
 }
 
 class _RenameConversationDialogState extends State<_RenameConversationDialog> {
-  late final TextEditingController _controller = TextEditingController(text: widget.initialTitle);
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialTitle);
 
   @override
   void dispose() {
@@ -1228,10 +1339,13 @@ class _RenameConversationDialogState extends State<_RenameConversationDialog> {
       content: TextField(
         controller: _controller,
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Titre de la conversation'),
+        decoration:
+            const InputDecoration(labelText: 'Titre de la conversation'),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler')),
         FilledButton(
           onPressed: () => Navigator.pop(context, _controller.text.trim()),
           child: const Text('Enregistrer'),

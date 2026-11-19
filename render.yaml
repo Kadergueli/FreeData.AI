@@ -22,11 +22,29 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
       - key: PREMIUM_API_KEYS
         sync: false
       - key: ADMIN_TOKEN
         sync: false
+      - key: ADMIN_TOKENS
+        sync: false
       - key: AUTH_SECRET
+        sync: false
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CHECKOUT_URL
+        sync: false
+      - key: PLAN_PREMIUM_PRICE_XAF
+        sync: false
+      - key: MOBILE_MONEY_AIRTEL_NUMBER
+        sync: false
+      - key: MOBILE_MONEY_MOOV_NUMBER
+        sync: false
+      - key: BANK_TRANSFER_DETAILS
         sync: false
       - key: LLM_API_KEY
         sync: false

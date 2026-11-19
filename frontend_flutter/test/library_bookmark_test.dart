@@ -10,7 +10,9 @@ import 'package:freedata_ai/core/models/chat_models.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('LibraryScreen displays saved conversations and handles dynamic updates', (tester) async {
+  testWidgets(
+      'LibraryScreen displays saved conversations and handles dynamic updates',
+      (tester) async {
     final conv1 = ConversationThread(
       id: 'conv-saved',
       title: 'Analyse Mil N\'Djamena',
@@ -35,7 +37,8 @@ void main() {
     );
 
     SharedPreferences.setMockInitialValues({
-      LocalConversationStorage.storageKey: jsonEncode([conv1.toJson(), conv2.toJson()]),
+      LocalConversationStorage.storageKey:
+          jsonEncode([conv1.toJson(), conv2.toJson()]),
     });
 
     await tester.pumpWidget(
@@ -61,4 +64,3 @@ void main() {
     expect(find.text('Question Sorgho'), findsNothing);
   });
 }
-

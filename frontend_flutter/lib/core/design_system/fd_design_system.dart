@@ -147,7 +147,8 @@ class FDSecondaryButton extends StatelessWidget {
           foregroundColor: AppColors.ink,
           shadowColor: Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
@@ -311,7 +312,10 @@ class FDEmptyState extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
+            style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 6),
@@ -351,12 +355,14 @@ class FDErrorState extends StatelessWidget {
               const SizedBox(width: 10),
               const Text(
                 'Une erreur est survenue',
-                style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink),
+                style: TextStyle(
+                    fontWeight: FontWeight.w700, color: AppColors.ink),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(message, style: const TextStyle(color: AppColors.muted, height: 1.5)),
+          Text(message,
+              style: const TextStyle(color: AppColors.muted, height: 1.5)),
           if (onRetry != null) ...[
             const SizedBox(height: 14),
             TextButton.icon(
