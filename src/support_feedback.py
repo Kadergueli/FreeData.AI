@@ -76,6 +76,20 @@ class SupportFeedbackStore:
             if self._pg_url:
                 _db.harden_tables(conn)
 
+    def purge_owner(self, owner_id: str) -> dict[str, int]:
+        """Efface tickets, avis et événements produit de cet utilisateur."""
+        h = self._hash_user(owner_id)
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            for table, col, val in (
+                ("support_tickets", "owner_id", owner_id),
+                ("user_feedback", "owner_hash", h),
+                ("product_events", "user_hash", h),
+            ):
+                cur = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (val,))
+                counts[table] = int(cur.rowcount or 0)
+        return counts
+
     @staticmethod
     def _hash_user(owner_id: str) -> str:
         return hashlib.sha256(owner_id.encode("utf-8")).hexdigest()[:16]

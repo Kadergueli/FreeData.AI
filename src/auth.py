@@ -14,11 +14,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src import db as _db
-from src.security import issue_signed_user_token, revoke_user_token, verify_signed_user_token
+from src.security import issue_signed_user_token, revoke_user_token, token_claims, verify_signed_user_token
 
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 _PBKDF2_ITERATIONS = 260_000
 DEFAULT_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 jours
+MAX_SESSION_LIFETIME_SECONDS = 30 * 24 * 3600  # durée totale max d'une session renouvelée (30 jours)
 
 
 def _utc_now_iso() -> str:
@@ -105,6 +106,18 @@ class AuthStore:
                 );
                 """
             )
+            # Migration douce : date avant laquelle les jetons émis sont invalides (changement de mot de passe).
+            alter_kw = "ADD COLUMN IF NOT EXISTS" if self._pg_url else "ADD COLUMN"
+            try:
+                if self._pg_url:
+                    conn.execute("SAVEPOINT sp_auth_mig")
+                conn.execute(f"ALTER TABLE user_accounts {alter_kw} tokens_valid_after INTEGER NOT NULL DEFAULT 0")
+                if self._pg_url:
+                    conn.execute("RELEASE SAVEPOINT sp_auth_mig")
+            except Exception:
+                if self._pg_url:
+                    conn.execute("ROLLBACK TO SAVEPOINT sp_auth_mig")
+                    conn.execute("RELEASE SAVEPOINT sp_auth_mig")
             if self._pg_url:
                 _db.harden_tables(conn)
 
@@ -227,9 +240,10 @@ class AuthStore:
                 raise PermissionError("Mot de passe actuel incorrect.")
             new_salt = secrets.token_hex(16)
             new_hash = _hash_password(new_password, new_salt)
+            # Tous les jetons émis jusqu'ici deviennent invalides (session volée / ancien appareil).
             conn.execute(
-                "UPDATE user_accounts SET password_hash = ?, password_salt = ? WHERE user_id = ?",
-                (new_hash, new_salt, clean),
+                "UPDATE user_accounts SET password_hash = ?, password_salt = ?, tokens_valid_after = ? WHERE user_id = ?",
+                (new_hash, new_salt, int(time.time()), clean),
             )
             updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
         return self._public_user(updated)
@@ -252,9 +266,12 @@ class AuthStore:
         *,
         secret: Optional[str] = None,
         ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS,
+        original_iat: Optional[int] = None,
     ) -> dict[str, Any]:
         auth_secret = secret if secret is not None else get_auth_secret()
-        token = issue_signed_user_token(user["user_id"], auth_secret, ttl_seconds=ttl_seconds)
+        token = issue_signed_user_token(
+            user["user_id"], auth_secret, ttl_seconds=ttl_seconds, original_iat=original_iat
+        )
         return {
             "token": token,
             "token_type": "bearer",
@@ -290,6 +307,22 @@ class AuthStore:
                 """,
                 (digest, exp_ts, _utc_now_iso()),
             )
+
+    def is_token_stale(self, token: str, user_id: str) -> bool:
+        """True si le jeton a été émis avant le dernier changement de mot de passe du compte."""
+        clean = (user_id or "").strip().removeprefix("user:")
+        with self._connect() as conn:
+            row = conn.execute("SELECT tokens_valid_after FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+        valid_after = int(row["tokens_valid_after"] or 0) if row else 0
+        if valid_after <= 0:
+            return False
+        return int(token_claims(token).get("iat") or 0) < valid_after
+
+    def session_age_seconds(self, token: str) -> int:
+        """Âge de la session d'origine (connexion par mot de passe) ; 0 si le jeton ne porte pas `oiat`."""
+        claims = token_claims(token)
+        oiat = int(claims.get("oiat") or claims.get("iat") or 0)
+        return max(0, int(time.time()) - oiat) if oiat else 0
 
     def is_token_revoked(self, token: str) -> bool:
         if not token:

@@ -586,6 +586,15 @@ class SubscriptionStore:
             )
         return {"status": "processed", "event_id": ev_id, "user_id": ev["user_id"], "plan_id": ev["plan_id"]}
 
+    def purge_user(self, user_id: str) -> dict[str, int]:
+        """Efface abonnement, compteurs, événements d'usage et demandes de paiement (le journal d'audit financier est conservé)."""
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            for table in ("subscriptions", "usage_counters", "usage_events", "payment_requests"):
+                cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+                counts[table] = int(cur.rowcount or 0)
+        return counts
+
     def get_audit_logs(self, limit: int = 50) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

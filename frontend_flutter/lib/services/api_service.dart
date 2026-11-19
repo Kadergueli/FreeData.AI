@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class ApiHttpException implements Exception {
@@ -1418,6 +1419,17 @@ class ApiService {
       throw ApiHttpException(resp.statusCode,
           _extractErrorDetail(resp, 'Changement de mot de passe refusé'));
     }
+    // Les anciens jetons sont invalidés côté serveur : adopter la session neuve renvoyée.
+    try {
+      final data = jsonDecode(utf8.decode(resp.bodyBytes));
+      final session = data is Map ? data['session'] : null;
+      final newTok = session is Map ? session['token']?.toString() ?? '' : '';
+      if (newTok.isNotEmpty) {
+        setAuthSession(token: newTok, user: _authUser);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fd_auth_token_v1', newTok);
+      }
+    } catch (_) {}
   }
 
   Future<void> deleteAccount({required String password}) async {

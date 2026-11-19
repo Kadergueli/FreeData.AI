@@ -33,7 +33,13 @@ _TOKEN_ISSUER = "freedata-ai"
 _TOKEN_AUDIENCE = "freedata-app"
 
 
-def issue_signed_user_token(user_id: str, secret: str, *, ttl_seconds: int = 3600) -> str:
+def issue_signed_user_token(
+    user_id: str,
+    secret: str,
+    *,
+    ttl_seconds: int = 3600,
+    original_iat: Optional[int] = None,
+) -> str:
     if not secret or len(secret) < 16:
         raise ValueError("AUTH_SECRET doit contenir au moins 16 caractères.")
     now = int(time.time())
@@ -42,6 +48,8 @@ def issue_signed_user_token(user_id: str, secret: str, *, ttl_seconds: int = 360
         "iss": _TOKEN_ISSUER,
         "aud": _TOKEN_AUDIENCE,
         "iat": now,
+        # Date de la connexion initiale (par mot de passe) : conservée à chaque renouvellement pour borner la durée totale.
+        "oiat": int(original_iat) if original_iat else now,
         "exp": now + ttl_seconds,
         "jti": secrets.token_hex(8),
     }
@@ -73,6 +81,16 @@ def verify_signed_user_token(token: str, secret: str) -> Optional[str]:
         return sub if len(sub) >= 3 else None
     except Exception:
         return None
+
+
+def token_claims(token: str) -> dict[str, Any]:
+    """Revendications d'un jeton (SANS vérifier la signature) : à n'utiliser qu'après verify_signed_user_token."""
+    try:
+        raw = token.split(".", 1)[0]
+        payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 def revoke_user_token(token: str) -> None:
