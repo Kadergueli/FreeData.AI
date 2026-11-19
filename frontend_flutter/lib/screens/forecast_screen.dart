@@ -130,7 +130,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
     }
   }
 
+  int _requestToken = 0;
+
   Future<void> _loadForecasts() async {
+    final token = ++_requestToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -140,17 +143,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
         province: _selectedProvince,
         commodity: _selectedCommodity,
       );
-      if (mounted) setState(() => _items = items);
+      if (mounted && token == _requestToken) setState(() => _items = items);
     } catch (_) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         setState(() => _error = 'Les prévisions ne sont pas accessibles pour le moment.');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _requestToken) setState(() => _loading = false);
     }
   }
 
   Future<void> _loadAlerts() async {
+    final token = ++_requestToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -160,17 +164,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
         province: _selectedProvince,
         commodity: _selectedCommodity,
       );
-      if (mounted) setState(() => _alerts = items);
+      if (mounted && token == _requestToken) setState(() => _alerts = items);
     } catch (_) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         setState(() => _error = 'Les alertes ne sont pas accessibles pour le moment.');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _requestToken) setState(() => _loading = false);
     }
   }
 
   Future<void> _loadAnomalies() async {
+    final token = ++_requestToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -180,17 +185,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
         province: _anomaliesAllProvinces ? null : _selectedProvince,
         commodity: _selectedCommodity,
       );
-      if (mounted) setState(() => _anomalies = items);
+      if (mounted && token == _requestToken) setState(() => _anomalies = items);
     } catch (_) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         setState(() => _error = 'Le radar d’anomalies n’est pas accessible pour le moment.');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _requestToken) setState(() => _loading = false);
     }
   }
 
   Future<void> _loadSeasonality() async {
+    final token = ++_requestToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -201,9 +207,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
         province: _selectedProvince,
         storageCostPctMonth: _storageCostPctMonth,
       );
-      if (mounted) setState(() => _seasonality = study);
+      if (mounted && token == _requestToken) setState(() => _seasonality = study);
     } on ApiHttpException catch (e) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         if (e.statusCode == 403 || e.statusCode == 503) {
           setState(
             () => _error =
@@ -214,11 +220,11 @@ class _ForecastScreenState extends State<ForecastScreen> {
         }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && token == _requestToken) {
         setState(() => _error = 'L’étude saisonnière n’est pas accessible pour le moment.');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _requestToken) setState(() => _loading = false);
     }
   }
 
@@ -431,10 +437,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
               else ...[
                 _buildForecastKpis(),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.spaceBetween,
+                    children: [
+                      Text(
                         '${_items.length} résultat(s)',
                         style: const TextStyle(
                           color: FDTheme.muted,
@@ -442,53 +453,60 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                    if (widget.onSelectPrompt != null)
-                      TextButton.icon(
-                        onPressed: () {
-                          final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
-                          final prov = _selectedProvince ?? 'Moundou';
-                          widget.onSelectPrompt!(
-                            'Simule la rentabilité pour acheter du $comm à $prov et le revendre sur un autre marché au Tchad.',
-                          );
-                        },
-                        icon: const Icon(Icons.auto_awesome_outlined, size: 16),
-                        label: const Text('Simuler marge (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          minimumSize: const Size(0, 36),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (widget.onSelectPrompt != null)
+                            TextButton.icon(
+                              onPressed: () {
+                                final comm = commodityLabelFr(_selectedCommodity ?? 'Millet');
+                                final prov = _selectedProvince ?? 'Moundou';
+                                widget.onSelectPrompt!(
+                                  'Simule la rentabilité pour acheter du $comm à $prov et le revendre sur un autre marché au Tchad.',
+                                );
+                              },
+                              icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+                              label: const Text('Simuler marge (IA)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                minimumSize: const Size(0, 36),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          TextButton.icon(
+                            onPressed: () => setState(() => _showTechnicalDetails = !_showTechnicalDetails),
+                            icon: Icon(
+                              _showTechnicalDetails ? Icons.visibility_off_outlined : Icons.tune_rounded,
+                              size: 16,
+                            ),
+                            label: Text(
+                              _showTechnicalDetails ? 'Vue simple' : 'Détails',
+                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                            ),
+                            style: TextButton.styleFrom(
+                              foregroundColor: FDTheme.subtle,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: _copyForecastsCsv,
+                            icon: const Icon(Icons.download_rounded, size: 16),
+                            label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                            style: TextButton.styleFrom(
+                              foregroundColor: FDTheme.subtle,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
                       ),
-                    TextButton.icon(
-                      onPressed: () => setState(() => _showTechnicalDetails = !_showTechnicalDetails),
-                      icon: Icon(
-                        _showTechnicalDetails ? Icons.visibility_off_outlined : Icons.tune_rounded,
-                        size: 16,
-                      ),
-                      label: Text(
-                        _showTechnicalDetails ? 'Vue simple' : 'Détails',
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                      ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: FDTheme.subtle,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        minimumSize: const Size(0, 36),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: _copyForecastsCsv,
-                      icon: const Icon(Icons.download_rounded, size: 16),
-                      label: const Text('Copier CSV', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                      style: TextButton.styleFrom(
-                        foregroundColor: FDTheme.subtle,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        minimumSize: const Size(0, 36),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 10),
                 ..._items.map((raw) {

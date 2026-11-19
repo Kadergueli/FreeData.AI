@@ -652,6 +652,17 @@ class ApiService {
     throw ApiHttpException(resp.statusCode, 'Erreur chargement abonnement (${resp.statusCode})');
   }
 
+  Future<Map<String, dynamic>> getAdminMe(String adminToken) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/me');
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 15));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode, 'Accès admin refusé (${resp.statusCode})');
+  }
+
   Future<Map<String, dynamic>> getAdminOverview(String adminToken) async {
     final uri = Uri.parse('$baseUrl/api/v1/admin/overview');
     final resp = await _client

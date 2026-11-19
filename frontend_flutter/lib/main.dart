@@ -395,6 +395,75 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  Widget _buildUtilityMenu({bool includeSubscription = false}) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
+      tooltip: 'Plus d\'options',
+      onSelected: (value) {
+        if (value == 'support') {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
+          );
+        } else if (value == 'subscription') {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
+            ),
+          );
+        } else if (value == 'settings') {
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)))
+              .then((_) {
+            if (mounted) setState(() {});
+          });
+        } else if (value == 'docs') {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DocsScreen()),
+          );
+        }
+      },
+      itemBuilder: (context) => [
+        if (includeSubscription && _apiService.hasPremiumKey)
+          const PopupMenuItem(
+            value: 'subscription',
+            child: ListTile(
+              leading: Icon(Icons.workspace_premium_outlined),
+              title: Text('Abonnement & Quotas'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'support',
+          child: ListTile(
+            leading: Icon(Icons.support_agent_outlined),
+            title: Text('Assistance & Avis'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'docs',
+          child: ListTile(
+            leading: Icon(Icons.menu_book_outlined),
+            title: Text('Documentation'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'settings',
+          child: ListTile(
+            leading: Icon(Icons.tune_rounded),
+            title: Text('Préférences'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
@@ -574,6 +643,8 @@ class _MainShellState extends State<MainShell> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        _buildUtilityMenu(),
                       ],
                     ),
                   ),
@@ -674,72 +745,7 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
-            tooltip: 'Plus d\'options',
-            onSelected: (value) {
-              if (value == 'support') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
-                );
-              } else if (value == 'subscription') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SubscriptionScreen(apiService: _apiService, onConfigureKey: _configurePremiumKey),
-                  ),
-                );
-              } else if (value == 'settings') {
-                Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => SettingsScreen(apiService: _apiService)))
-                    .then((_) {
-                  if (mounted) setState(() {});
-                });
-              } else if (value == 'docs') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DocsScreen()),
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              if (_apiService.hasPremiumKey)
-                const PopupMenuItem(
-                  value: 'subscription',
-                  child: ListTile(
-                    leading: Icon(Icons.workspace_premium_outlined),
-                    title: Text('Abonnement & Quotas'),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'support',
-                child: ListTile(
-                  leading: Icon(Icons.support_agent_outlined),
-                  title: Text('Assistance & Avis'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'docs',
-                child: ListTile(
-                  leading: Icon(Icons.menu_book_outlined),
-                  title: Text('Documentation'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  leading: Icon(Icons.tune_rounded),
-                  title: Text('Préférences'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
-          ),
+          _buildUtilityMenu(includeSubscription: true),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(

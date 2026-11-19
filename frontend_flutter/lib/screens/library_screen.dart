@@ -53,15 +53,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void didUpdateWidget(covariant LibraryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     final incoming = widget.conversations;
-    if (incoming != null) {
-      // La liste du parent ne contient que les conversations actives : on conserve la corbeille déjà chargée
-      // (sinon elle est vidée à chaque redessin), sauf les éléments restaurés ou redevenus actifs.
-      final activeIds = incoming.map((c) => c.id).toSet();
-      final keptDeleted = _allConversations.where((c) => c.isDeleted && !activeIds.contains(c.id));
-      setState(() {
-        _allConversations = [...incoming, ...keptDeleted];
-        _loading = false;
-      });
+    if (incoming != null && incoming != oldWidget.conversations) {
+      // Recharger le stockage complet (y compris corbeille) pour capter les suppressions faites depuis la barre latérale.
+      _load();
     }
   }
 

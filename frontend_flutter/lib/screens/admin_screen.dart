@@ -16,6 +16,7 @@ class AdminScreen extends StatefulWidget {
 class _AdminScreenState extends State<AdminScreen> {
   final _tokenCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
+  Map<String, dynamic>? _adminMe;
   Map<String, dynamic>? _overview;
   List<Map<String, dynamic>> _users = const [];
   List<Map<String, dynamic>> _tickets = const [];
@@ -25,6 +26,14 @@ class _AdminScreenState extends State<AdminScreen> {
 
   String get _token => _tokenCtrl.text.trim();
 
+  Set<String> get _permissions {
+    final raw = _adminMe?['permissions'];
+    if (raw is List) return raw.map((e) => e.toString()).toSet();
+    return const {};
+  }
+
+  bool _hasPerm(String perm) => _permissions.contains(perm);
+
   Future<void> _loadAll() async {
     if (_token.isEmpty) return;
     setState(() {
@@ -32,6 +41,7 @@ class _AdminScreenState extends State<AdminScreen> {
       _error = null;
     });
     try {
+      final me = await widget.apiService.getAdminMe(_token);
       final results = await Future.wait([
         widget.apiService.getAdminOverview(_token),
         widget.apiService.getAdminUsers(_token, search: _searchCtrl.text),
@@ -39,6 +49,7 @@ class _AdminScreenState extends State<AdminScreen> {
       ]);
       if (!mounted) return;
       setState(() {
+        _adminMe = me;
         _overview = results[0] as Map<String, dynamic>;
         _users = results[1] as List<Map<String, dynamic>>;
         _tickets = results[2] as List<Map<String, dynamic>>;
@@ -69,53 +80,60 @@ class _AdminScreenState extends State<AdminScreen> {
     final userCtrl = TextEditingController(text: prefillUserId ?? '');
     String planId = 'premium';
     final daysCtrl = TextEditingController(text: '30');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Activer / Modifier un abonnement'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: userCtrl,
-              decoration: const InputDecoration(labelText: 'Identifiant utilisateur (user_id)'),
-            ),
-            const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: planId,
-              decoration: const InputDecoration(labelText: 'Plan'),
-              items: const [
-                DropdownMenuItem(value: 'free', child: Text('Gratuit (free)')),
-                DropdownMenuItem(value: 'trial', child: Text('Essai PRO (trial)')),
-                DropdownMenuItem(value: 'premium', child: Text('Partenaire PRO (premium)')),
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Activer / Modifier un abonnement'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: userCtrl,
+                  decoration: const InputDecoration(labelText: 'Identifiant utilisateur (user_id)'),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: planId,
+                  decoration: const InputDecoration(labelText: 'Plan'),
+                  items: const [
+                    DropdownMenuItem(value: 'free', child: Text('Gratuit (free)')),
+                    DropdownMenuItem(value: 'trial', child: Text('Essai PRO (trial)')),
+                    DropdownMenuItem(value: 'premium', child: Text('Partenaire PRO (premium)')),
+                  ],
+                  onChanged: (v) => planId = v ?? 'premium',
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: daysCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Durée (jours)'),
+                ),
               ],
-              onChanged: (v) => planId = v ?? 'premium',
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: daysCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Durée (jours)'),
-            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Appliquer')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Appliquer')),
-        ],
-      ),
-    );
-    if (ok == true && userCtrl.text.trim().isNotEmpty) {
-      final days = int.tryParse(daysCtrl.text.trim()) ?? 30;
-      await _runAction(
-        () => widget.apiService.activateAdminSubscription(
-          _token,
-          targetUserId: userCtrl.text.trim(),
-          planId: planId,
-          periodDays: days,
-        ),
-        'Abonnement mis à jour ($planId).',
       );
+      if (ok == true && userCtrl.text.trim().isNotEmpty) {
+        final days = int.tryParse(daysCtrl.text.trim()) ?? 30;
+        await _runAction(
+          () => widget.apiService.activateAdminSubscription(
+            _token,
+            targetUserId: userCtrl.text.trim(),
+            planId: planId,
+            periodDays: days,
+          ),
+          'Abonnement mis à jour ($planId).',
+        );
+      }
+    } finally {
+      userCtrl.dispose();
+      daysCtrl.dispose();
     }
   }
 
@@ -189,6 +207,33 @@ class _AdminScreenState extends State<AdminScreen> {
             FDCard(child: Text(_error!, style: const TextStyle(color: AppColors.danger))),
           ],
           if (_overview != null) ...[
+            if (_adminMe != null) ...[
+              const SizedBox(height: 12),
+              FDCard(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.verified_user_outlined, size: 18, color: AppColors.blue),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Connecté : ${_adminMe!['actor']} · Rôle : ${_adminMe!['role']}',
+                        style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink),
+                      ),
+                    ),
+                    if (!_hasPerm('manage_users') && !_hasPerm('manage_system'))
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.canvasSoft,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: const Text('Lecture seule', style: TextStyle(fontSize: 11.5, color: AppColors.muted, fontWeight: FontWeight.w600)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             Wrap(
               spacing: 8,
@@ -230,23 +275,25 @@ class _AdminScreenState extends State<AdminScreen> {
                         _kpiPill('Utilisateurs', '${usersSum['total_known_users'] ?? 0}'),
                       ],
                     ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        FDSecondaryButton(
-                          label: 'Rafraîchir données Gold',
-                          icon: Icons.refresh_rounded,
-                          onPressed: () => _runAction(() => widget.apiService.refreshAdminData(_token), 'Données Gold rechargées.'),
-                        ),
-                        FDSecondaryButton(
-                          label: 'Sauvegarde SQLite',
-                          icon: Icons.backup_outlined,
-                          onPressed: () => _runAction(() => widget.apiService.triggerAdminBackup(_token), 'Sauvegarde exécutée.'),
-                        ),
-                      ],
-                    ),
+                    if (_hasPerm('manage_system')) ...[
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          FDSecondaryButton(
+                            label: 'Rafraîchir données Gold',
+                            icon: Icons.refresh_rounded,
+                            onPressed: () => _runAction(() => widget.apiService.refreshAdminData(_token), 'Données Gold rechargées.'),
+                          ),
+                          FDSecondaryButton(
+                            label: 'Sauvegarde SQLite',
+                            icon: Icons.backup_outlined,
+                            onPressed: () => _runAction(() => widget.apiService.triggerAdminBackup(_token), 'Sauvegarde exécutée.'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -265,10 +312,12 @@ class _AdminScreenState extends State<AdminScreen> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600)),
                           value: enabled,
-                          onChanged: (v) => _runAction(
-                            () => widget.apiService.toggleAdminModel(_token, e.key, v),
-                            'Profil ${e.key} ${v ? 'activé' : 'désactivé'}.',
-                          ),
+                          onChanged: _hasPerm('manage_models')
+                              ? (v) => _runAction(
+                                    () => widget.apiService.toggleAdminModel(_token, e.key, v),
+                                    'Profil ${e.key} ${v ? 'activé' : 'désactivé'}.',
+                                  )
+                              : null,
                         );
                       }),
                     ],
@@ -327,12 +376,14 @@ class _AdminScreenState extends State<AdminScreen> {
                         ),
                         const SizedBox(width: 8),
                         FDSecondaryButton(label: 'Filtrer', icon: Icons.search_rounded, onPressed: _loadAll),
-                        const SizedBox(width: 8),
-                        FDPrimaryButton(
-                          label: 'Activer plan',
-                          icon: Icons.workspace_premium_outlined,
-                          onPressed: () => _showActivatePlanDialog(),
-                        ),
+                        if (_hasPerm('manage_subscriptions')) ...[
+                          const SizedBox(width: 8),
+                          FDPrimaryButton(
+                            label: 'Activer plan',
+                            icon: Icons.workspace_premium_outlined,
+                            onPressed: () => _showActivatePlanDialog(),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -348,22 +399,26 @@ class _AdminScreenState extends State<AdminScreen> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(uid, style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text('Plan : ${u['plan_id']} · Statut : $status · Rôle : ${u['role']}'),
-                          trailing: Wrap(
-                            spacing: 6,
-                            children: [
-                              TextButton(
-                                onPressed: () => _showActivatePlanDialog(prefillUserId: uid),
-                                child: const Text('Plan'),
-                              ),
-                              TextButton(
-                                onPressed: () => _runAction(
-                                  () => widget.apiService.setAdminUserStatus(_token, uid, suspended ? 'active' : 'suspended'),
-                                  suspended ? 'Utilisateur réactivé.' : 'Utilisateur suspendu.',
-                                ),
-                                child: Text(suspended ? 'Réactiver' : 'Suspendre', style: TextStyle(color: suspended ? AppColors.green : AppColors.danger)),
-                              ),
-                            ],
-                          ),
+                          trailing: (_hasPerm('manage_subscriptions') || _hasPerm('manage_users'))
+                              ? Wrap(
+                                  spacing: 6,
+                                  children: [
+                                    if (_hasPerm('manage_subscriptions'))
+                                      TextButton(
+                                        onPressed: () => _showActivatePlanDialog(prefillUserId: uid),
+                                        child: const Text('Plan'),
+                                      ),
+                                    if (_hasPerm('manage_users'))
+                                      TextButton(
+                                        onPressed: () => _runAction(
+                                          () => widget.apiService.setAdminUserStatus(_token, uid, suspended ? 'active' : 'suspended'),
+                                          suspended ? 'Utilisateur réactivé.' : 'Utilisateur suspendu.',
+                                        ),
+                                        child: Text(suspended ? 'Réactiver' : 'Suspendre', style: TextStyle(color: suspended ? AppColors.green : AppColors.danger)),
+                                      ),
+                                  ],
+                                )
+                              : null,
                         );
                       }),
                   ],
@@ -386,17 +441,19 @@ class _AdminScreenState extends State<AdminScreen> {
                           contentPadding: EdgeInsets.zero,
                           title: Text('${t['subject']} (${t['category']})', style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text('De : ${t['owner_id']} · Statut : ${t['status']} · Priorité : ${t['priority']}\n${t['description']}'),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (s) => _runAction(
-                              () => widget.apiService.updateAdminTicketStatus(_token, tid, s),
-                              'Ticket passé à $s.',
-                            ),
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'in_progress', child: Text('En cours')),
-                              PopupMenuItem(value: 'resolved', child: Text('Résolu')),
-                              PopupMenuItem(value: 'closed', child: Text('Fermé')),
-                            ],
-                          ),
+                          trailing: _hasPerm('manage_users')
+                              ? PopupMenuButton<String>(
+                                  onSelected: (s) => _runAction(
+                                    () => widget.apiService.updateAdminTicketStatus(_token, tid, s),
+                                    'Ticket passé à $s.',
+                                  ),
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(value: 'in_progress', child: Text('En cours')),
+                                    PopupMenuItem(value: 'resolved', child: Text('Résolu')),
+                                    PopupMenuItem(value: 'closed', child: Text('Fermé')),
+                                  ],
+                                )
+                              : null,
                         );
                       }),
                   ],

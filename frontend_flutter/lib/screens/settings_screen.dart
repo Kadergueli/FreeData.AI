@@ -15,6 +15,18 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const List<Map<String, String>> _domainOptions = [
+    {'id': 'auto', 'label': 'Détection automatique'},
+    {'id': 'chad_intelligence', 'label': 'Intelligence Tchad'},
+    {'id': 'business_entrepreneurship', 'label': 'Business & Études'},
+    {'id': 'finance', 'label': 'Finance & Risque'},
+    {'id': 'agriculture', 'label': 'Agriculture & Marchés'},
+    {'id': 'data_science', 'label': 'Data Science & ML'},
+    {'id': 'education', 'label': 'Éducation & Révisions'},
+    {'id': 'tech_programming', 'label': 'Tech & Code'},
+    {'id': 'productivity', 'label': 'Productivité & Gestion'},
+  ];
+
   String _defaultDomain = 'auto';
   final _userCtrl = TextEditingController();
 
@@ -27,8 +39,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
+    final stored = prefs.getString('fd_pref_domain') ?? 'auto';
+    final validDomain = _domainOptions.any((d) => d['id'] == stored) ? stored : 'auto';
     setState(() {
-      _defaultDomain = prefs.getString('fd_pref_domain') ?? 'auto';
+      _defaultDomain = validDomain;
       _userCtrl.text = prefs.getString('fd_pref_user_id') ?? widget.apiService.userId;
     });
   }
@@ -72,14 +86,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<String>(
+                  key: ValueKey(_defaultDomain),
                   initialValue: _defaultDomain,
+                  isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Domaine par défaut du chat', helperText: 'Appliqué à l’ouverture du chat.'),
-                  items: const [
-                    DropdownMenuItem(value: 'auto', child: Text('Détection automatique')),
-                    DropdownMenuItem(value: 'chad_intelligence', child: Text('Intelligence Tchad')),
-                    DropdownMenuItem(value: 'business_entrepreneurship', child: Text('Business & Études')),
-                    DropdownMenuItem(value: 'tech_programming', child: Text('Tech & Code')),
-                  ],
+                  items: _domainOptions
+                      .map((d) => DropdownMenuItem<String>(value: d['id'], child: Text(d['label']!)))
+                      .toList(),
                   onChanged: (v) => setState(() => _defaultDomain = v ?? 'auto'),
                 ),
                 const SizedBox(height: 12),

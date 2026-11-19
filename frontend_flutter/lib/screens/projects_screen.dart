@@ -67,7 +67,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _loadMetadata() async {
     try {
       final meta = await widget.apiService.getMetadata();
-      final legacy = meta['legacy'];
+      final legacy = meta['legacy_fields'] ?? meta['legacy'];
       final rawComms = meta['products'] ??
           meta['commodities'] ??
           meta['passport_products'] ??
@@ -116,50 +116,77 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _createProjectDialog() async {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Nouveau Projet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom du projet')),
-            const SizedBox(height: 8),
-            TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description / Objectif')),
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nouveau Projet'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom du projet (min. 2 car.)')),
+                const SizedBox(height: 8),
+                TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Description / Objectif')),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
-        ],
-      ),
-    );
-    if (ok == true && nameCtrl.text.trim().length >= 2) {
+      );
+      if (ok != true) return;
+      final name = nameCtrl.text.trim();
+      if (name.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Le nom du projet doit contenir au moins 2 caractères.')),
+          );
+        }
+        return;
+      }
       await _guard(() async {
-        await widget.apiService.createProject(name: nameCtrl.text.trim(), description: descCtrl.text.trim());
+        await widget.apiService.createProject(name: name, description: descCtrl.text.trim());
         await _load();
       });
+    } finally {
+      nameCtrl.dispose();
+      descCtrl.dispose();
     }
   }
 
   Future<void> _renameProject(Map<String, dynamic> proj) async {
     final ctrl = TextEditingController(text: proj['name']?.toString() ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Renommer le projet'),
-        content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nouveau nom')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
-        ],
-      ),
-    );
-    if (ok == true && ctrl.text.trim().length >= 2) {
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Renommer le projet'),
+          content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Nouveau nom (min. 2 car.)')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Enregistrer')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      final name = ctrl.text.trim();
+      if (name.length < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Le nouveau nom doit contenir au moins 2 caractères.')),
+          );
+        }
+        return;
+      }
       await _guard(() async {
-        await widget.apiService.updateProject(proj['project_id'].toString(), name: ctrl.text.trim());
+        await widget.apiService.updateProject(proj['project_id'].toString(), name: name);
         await _load();
       });
+    } finally {
+      ctrl.dispose();
     }
   }
 
@@ -192,121 +219,129 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     String origin = _provinces.contains('Lac') ? 'Lac' : _provinces.first;
     String dest = _provinces.contains("N'Djamena") ? "N'Djamena" : _provinces.first;
     final capCtrl = TextEditingController(text: '2000000');
-    // Études déjà présentes : permet de créer une NOUVELLE VERSION (historique + comparaison).
-    List<Map<String, dynamic>> existing = const [];
     try {
-      final full = await widget.apiService.getProject(proj['project_id'].toString());
-      existing = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
-    } catch (_) {}
-    if (!mounted) return;
-    String? targetStudyId; // null = nouvelle étude
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Nouvelle étude PDF — ${proj['name']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (existing.isNotEmpty) ...[
-              DropdownButtonFormField<String?>(
-                initialValue: null,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Étude cible'),
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('Nouvelle étude')),
-                  ...existing.map((st) => DropdownMenuItem<String?>(
-                        value: st['study_id'].toString(),
-                        child: Text(
-                          'Nouvelle version de : ${st['title'] ?? st['study_id']}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )),
+      // Études déjà présentes : permet de créer une NOUVELLE VERSION (historique + comparaison).
+      List<Map<String, dynamic>> existing = const [];
+      try {
+        final full = await widget.apiService.getProject(proj['project_id'].toString());
+        existing = (full['studies'] as List? ?? []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      } catch (_) {}
+      if (!mounted) return;
+      String? targetStudyId; // null = nouvelle étude
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Nouvelle étude PDF — ${proj['name']}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (existing.isNotEmpty) ...[
+                  DropdownButtonFormField<String?>(
+                    initialValue: null,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Étude cible'),
+                    items: [
+                      const DropdownMenuItem<String?>(value: null, child: Text('Nouvelle étude')),
+                      ...existing.map((st) => DropdownMenuItem<String?>(
+                            value: st['study_id'].toString(),
+                            child: Text(
+                              'Nouvelle version de : ${st['title'] ?? st['study_id']}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )),
+                    ],
+                    onChanged: (v) => targetStudyId = v,
+                  ),
+                  const SizedBox(height: 8),
                 ],
-                onChanged: (v) => targetStudyId = v,
-              ),
-              const SizedBox(height: 8),
-            ],
-            DropdownButtonFormField<String>(
-              initialValue: commodity,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Produit / Céréale'),
-              items: _commodities
-                  .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (v) => commodity = v ?? commodity,
+                DropdownButtonFormField<String>(
+                  initialValue: commodity,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Produit / Céréale'),
+                  items: _commodities
+                      .map((c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(commodityLabelFr(c), overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (v) => commodity = v ?? commodity,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: origin,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Province d\'origine'),
+                  items: _provinces
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: (v) => origin = v ?? origin,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: dest,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Province de destination'),
+                  items: _provinces
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  onChanged: (v) => dest = v ?? dest,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: capCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Capital (XAF)'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: origin,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Province d\'origine'),
-              items: _provinces
-                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
-                  .toList(),
-              onChanged: (v) => origin = v ?? origin,
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: dest,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Province de destination'),
-              items: _provinces
-                  .map((p) => DropdownMenuItem(value: p, child: Text(p, overflow: TextOverflow.ellipsis)))
-                  .toList(),
-              onChanged: (v) => dest = v ?? dest,
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: capCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Capital (XAF)'),
-            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Générer & Sauvegarder')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final cap = _parseCapital(capCtrl.text);
-    if (cap == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Capital invalide : saisissez un nombre positif (ex. 2 000 000).')),
       );
-      return;
-    }
-    try {
-      final created = await widget.apiService.createProjectStudy(
-        proj['project_id'].toString(),
-        studyId: targetStudyId,
-        commodity: commodity,
-        originProvince: origin.trim().isEmpty ? 'Lac' : origin.trim(),
-        destProvince: dest.trim(),
-        capitalXaf: cap,
-      );
-      await _load();
-      if (!mounted) return;
-      final studyId = created['study_id']?.toString() ?? '';
-      final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Étude enregistrée dans le projet (v$vNum).')),
-      );
-      if (studyId.isNotEmpty) {
-        final bytes = await widget.apiService.downloadStudyVersionPdf(
-          proj['project_id'].toString(),
-          studyId,
-          vNum,
-        );
-        triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+      if (ok != true) return;
+      final cap = _parseCapital(capCtrl.text);
+      if (cap == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Capital invalide : saisissez un nombre positif (ex. 2 000 000).')),
+          );
+        }
+        return;
       }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      try {
+        final created = await widget.apiService.createProjectStudy(
+          proj['project_id'].toString(),
+          studyId: targetStudyId,
+          commodity: commodity,
+          originProvince: origin.trim().isEmpty ? 'Lac' : origin.trim(),
+          destProvince: dest.trim(),
+          capitalXaf: cap,
+        );
+        await _load();
+        if (!mounted) return;
+        final studyId = created['study_id']?.toString() ?? '';
+        final vNum = (created['version_number'] as num?)?.toInt() ?? 1;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Étude enregistrée dans le projet (v$vNum).')),
+        );
+        if (studyId.isNotEmpty) {
+          final bytes = await widget.apiService.downloadStudyVersionPdf(
+            proj['project_id'].toString(),
+            studyId,
+            vNum,
+          );
+          triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      capCtrl.dispose();
     }
   }
 
@@ -324,33 +359,38 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Études & Versions — ${full['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            if (studies.isEmpty)
-              const Text('Aucune étude générée pour ce projet.')
-            else
-              ...studies.map((s) => ListTile(
-                    title: Text(s['title']?.toString() ?? s['study_id'].toString()),
-                    subtitle: Text('Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
-                    trailing: TextButton(
-                      onPressed: () => _guard(() async {
-                        final versions = await widget.apiService.listStudyVersions(
-                          full['project_id'].toString(),
-                          s['study_id'].toString(),
-                        );
-                        if (!ctx.mounted) return;
-                        _showVersionHistoryDialog(full['project_id'].toString(), s['study_id'].toString(), versions);
-                      }),
-                      child: const Text('Historique'),
-                    ),
-                  )),
-          ],
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Études & Versions — ${full['name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                if (studies.isEmpty)
+                  const Text('Aucune étude générée pour ce projet.')
+                else
+                  ...studies.map((s) => ListTile(
+                        title: Text(s['title']?.toString() ?? s['study_id'].toString()),
+                        subtitle: Text('Dernière version : v${s['latest_version']} · Maj : ${s['updated_at']}'),
+                        trailing: TextButton(
+                          onPressed: () => _guard(() async {
+                            final versions = await widget.apiService.listStudyVersions(
+                              full['project_id'].toString(),
+                              s['study_id'].toString(),
+                            );
+                            if (!ctx.mounted) return;
+                            _showVersionHistoryDialog(full['project_id'].toString(), s['study_id'].toString(), versions);
+                          }),
+                          child: const Text('Historique'),
+                        ),
+                      )),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -383,53 +423,55 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         title: Text('Versions — $studyId'),
         content: SizedBox(
           width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...versions.map((v) {
-                final vNum = (v['version_number'] as num).toInt();
-                final qaStatus = (v['validation'] as Map?)?['overall_status'] ?? '—';
-                final avail = v['artifact_available'] == true;
-                return ListTile(
-                  dense: true,
-                  title: Text('Version $vNum · QA: $qaStatus'),
-                  subtitle: Text(v['created_at']?.toString() ?? ''),
-                  trailing: avail
-                      ? IconButton(
-                          icon: const Icon(Icons.picture_as_pdf_rounded, color: FDTheme.blue),
-                          onPressed: () => _guard(() async {
-                            final bytes = await widget.apiService.downloadStudyVersionPdf(projectId, studyId, vNum);
-                            triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
-                          }),
-                        )
-                      : const Text('PDF absent', style: TextStyle(fontSize: 11, color: FDTheme.muted)),
-                );
-              }),
-              if (versions.length >= 2) ...[
-                const Divider(),
-                TextButton.icon(
-                  icon: const Icon(Icons.compare_arrows_rounded),
-                  label: Text('Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
-                  onPressed: () => _guard(() async {
-                    final diff = await widget.apiService.compareStudyVersions(
-                      projectId,
-                      studyId,
-                      (versions[1]['version_number'] as num).toInt(),
-                      (versions[0]['version_number'] as num).toInt(),
-                    );
-                    if (!ctx.mounted) return;
-                    showDialog(
-                      context: ctx,
-                      builder: (c2) => AlertDialog(
-                        title: const Text('Comparaison de versions'),
-                        content: SingleChildScrollView(child: Text(_formatDiff(diff['metrics_diff']))),
-                        actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Fermer'))],
-                      ),
-                    );
-                  }),
-                ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...versions.map((v) {
+                  final vNum = (v['version_number'] as num).toInt();
+                  final qaStatus = (v['validation'] as Map?)?['overall_status'] ?? '—';
+                  final avail = v['artifact_available'] == true;
+                  return ListTile(
+                    dense: true,
+                    title: Text('Version $vNum · QA: $qaStatus'),
+                    subtitle: Text(v['created_at']?.toString() ?? ''),
+                    trailing: avail
+                        ? IconButton(
+                            icon: const Icon(Icons.picture_as_pdf_rounded, color: FDTheme.blue),
+                            onPressed: () => _guard(() async {
+                              final bytes = await widget.apiService.downloadStudyVersionPdf(projectId, studyId, vNum);
+                              triggerPdfDownload(bytes, 'freedata_${studyId}_v$vNum.pdf');
+                            }),
+                          )
+                        : const Text('PDF absent', style: TextStyle(fontSize: 11, color: FDTheme.muted)),
+                  );
+                }),
+                if (versions.length >= 2) ...[
+                  const Divider(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.compare_arrows_rounded),
+                    label: Text('Comparer v${versions[1]['version_number']} et v${versions[0]['version_number']}'),
+                    onPressed: () => _guard(() async {
+                      final diff = await widget.apiService.compareStudyVersions(
+                        projectId,
+                        studyId,
+                        (versions[1]['version_number'] as num).toInt(),
+                        (versions[0]['version_number'] as num).toInt(),
+                      );
+                      if (!ctx.mounted) return;
+                      showDialog(
+                        context: ctx,
+                        builder: (c2) => AlertDialog(
+                          title: const Text('Comparaison de versions'),
+                          content: SingleChildScrollView(child: Text(_formatDiff(diff['metrics_diff']))),
+                          actions: [TextButton(onPressed: () => Navigator.pop(c2), child: const Text('Fermer'))],
+                        ),
+                      );
+                    }),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer'))],

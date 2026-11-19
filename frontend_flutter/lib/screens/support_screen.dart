@@ -22,6 +22,8 @@ class _SupportScreenState extends State<SupportScreen> {
   final _fbCommentCtrl = TextEditingController();
   List<Map<String, dynamic>> _tickets = [];
   bool _loading = true;
+  bool _submitting = false;
+  String? _loadError;
 
   @override
   void initState() {
@@ -35,36 +37,67 @@ class _SupportScreenState extends State<SupportScreen> {
       if (!mounted) return;
       setState(() {
         _tickets = list;
+        _loadError = null;
         _loading = false;
       });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadError = 'Impossible de charger vos demandes ($e).';
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _sendTicket() async {
-    if (_subjCtrl.text.trim().length < 3 || _descCtrl.text.trim().length < 5) return;
-    await widget.apiService.createSupportTicket(
-      category: _category,
-      subject: _subjCtrl.text.trim(),
-      description: _descCtrl.text.trim(),
-    );
-    _subjCtrl.clear();
-    _descCtrl.clear();
-    await _loadTickets();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ticket envoyé au support.')));
+    if (_submitting) return;
+    final subj = _subjCtrl.text.trim();
+    final desc = _descCtrl.text.trim();
+    if (subj.length < 3 || desc.length < 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez saisir un sujet (min. 3 car.) et une description (min. 5 car.).')),
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      await widget.apiService.createSupportTicket(
+        category: _category,
+        subject: subj,
+        description: desc,
+      );
+      _subjCtrl.clear();
+      _descCtrl.clear();
+      await _loadTickets();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ticket envoyé au support.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur envoi ticket : $e')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   Future<void> _sendFeedback() async {
-    await widget.apiService.submitFeedback(
-      feature: _fbFeature,
-      rating: _fbRating,
-      comment: _fbCommentCtrl.text.trim(),
-    );
-    _fbCommentCtrl.clear();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merci pour votre avis !')));
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await widget.apiService.submitFeedback(
+        feature: _fbFeature,
+        rating: _fbRating,
+        comment: _fbCommentCtrl.text.trim(),
+      );
+      _fbCommentCtrl.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Merci pour votre avis !')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur envoi avis : $e')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
@@ -177,6 +210,8 @@ class _SupportScreenState extends State<SupportScreen> {
                 const SizedBox(height: 8),
                 if (_loading)
                   const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator()))
+                else if (_loadError != null)
+                  Text(_loadError!, style: const TextStyle(color: AppColors.danger))
                 else if (_tickets.isEmpty)
                   const Text('Aucune demande envoyée.', style: TextStyle(color: AppColors.muted))
                 else

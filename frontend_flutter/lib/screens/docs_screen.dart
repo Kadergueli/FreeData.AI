@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/design_system/fd_design_system.dart';
+import '../core/theme/app_theme.dart';
 
 class DocsScreen extends StatefulWidget {
   const DocsScreen({super.key});
@@ -45,9 +46,9 @@ class _DocsScreenState extends State<DocsScreen> {
     },
     {
       'category': 'Historique des versions',
-      'title': 'Version 1.2.0 (Phases 1 à 8)',
+      'title': 'Version 1.2.0 — Plateforme IA Multi-Domaines',
       'body':
-          'Persistance complète StudyContext, génération PDF modulaire avec graphique vectoriel, validation QA automatisée, gestion de projets & versions d’études, jobs asynchrones et base de connaissances.',
+          'Assistant IA sur 10 domaines, StudyContext persistant, génération PDF modulaire avec porte QA (422), gestion de projets & versions d’études, backtest chronologique 70/30, RAG hybride, quotas serveur et console d’administration RBAC.',
     },
   ];
 
@@ -64,7 +65,8 @@ class _DocsScreenState extends State<DocsScreen> {
             .toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Documentation & Méthodologie')),
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(title: const Text('Documentation & Méthodologie', style: TextStyle(fontWeight: FontWeight.w700))),
       body: Column(
         children: [
           Padding(
@@ -73,7 +75,6 @@ class _DocsScreenState extends State<DocsScreen> {
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search_rounded),
                 hintText: 'Rechercher (données, formules, QA, FAQ)...',
-                border: OutlineInputBorder(),
               ),
               onChanged: (v) => setState(() => _query = v),
             ),
@@ -82,25 +83,23 @@ class _DocsScreenState extends State<DocsScreen> {
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               itemCount: filtered.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (_, i) {
                 final item = filtered[i];
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item['category']!,
-                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: FDTheme.blue),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(item['title']!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 6),
-                        Text(item['body']!, style: const TextStyle(fontSize: 13.5, height: 1.4)),
-                      ],
-                    ),
+                return FDCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item['category']!,
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.blue),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(item['title']!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      const SizedBox(height: 6),
+                      Text(item['body']!, style: const TextStyle(fontSize: 13.5, height: 1.45, color: AppColors.body)),
+                    ],
                   ),
                 );
               },
