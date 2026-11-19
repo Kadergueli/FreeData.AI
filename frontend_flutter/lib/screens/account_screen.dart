@@ -13,7 +13,7 @@ import 'subscription_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   final ApiService apiService;
-  final VoidCallback? onConfigureKey;
+  final Future<void> Function()? onConfigureKey;
   final VoidCallback? onSessionChanged;
 
   const AccountScreen({
