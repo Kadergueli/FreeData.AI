@@ -44,6 +44,7 @@ from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.entitlements import EntitlementManager
 from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, get_auth_secret
+from src.conversations import ConversationStore
 from src.monetization import (
     DEFAULT_PLANS,
     HmacJsonWebhookAdapter,
@@ -474,7 +475,12 @@ async def limit_body_size(request: Request, call_next):
         raw = request.headers.get("content-length")
         if raw is None:
             return JSONResponse({"detail": "En-tête Content-Length requis."}, status_code=411)
-        if not raw.isdigit() or int(raw) > settings.max_body_bytes:
+        max_allowed = (
+            max(settings.max_body_bytes, 524_288)
+            if request.url.path.startswith("/api/v1/conversations")
+            else settings.max_body_bytes
+        )
+        if not raw.isdigit() or int(raw) > max_allowed:
             return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
     return await call_next(request)
 
@@ -674,6 +680,7 @@ def get_metadata(state: dict = Depends(get_state)):
 
 _SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
 _AUTH_STORE: Optional[AuthStore] = None
+_CONVERSATION_STORE: Optional[ConversationStore] = None
 
 
 def get_subscription_store() -> SubscriptionStore:
@@ -688,6 +695,13 @@ def get_auth_store() -> AuthStore:
     if _AUTH_STORE is None:
         _AUTH_STORE = AuthStore()
     return _AUTH_STORE
+
+
+def get_conversation_store() -> ConversationStore:
+    global _CONVERSATION_STORE
+    if _CONVERSATION_STORE is None:
+        _CONVERSATION_STORE = ConversationStore()
+    return _CONVERSATION_STORE
 
 
 _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
@@ -2048,6 +2062,156 @@ def auth_logout_endpoint(
     tok = authorization.split(" ", 1)[1].strip()
     auth_store.revoke_token(tok)
     return {"logged_out": True}
+
+
+class AuthProfileUpdateRequest(BaseModel):
+    display_name: str = Field(..., max_length=80)
+
+
+class AuthChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class AuthDeleteAccountRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+def _require_bearer_user_id(authorization: Optional[str], auth_store: AuthStore) -> tuple[str, str]:
+    if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authentification Bearer requise.")
+    tok = authorization.split(" ", 1)[1].strip()
+    sub_id = auth_store.verify_session_token(tok)
+    if not sub_id:
+        raise HTTPException(status_code=401, detail="Session invalide, révoquée ou expirée.")
+    return sub_id, tok
+
+
+@app.patch("/api/v1/auth/profile", dependencies=[Depends(_data_rate_limit_dependency)])
+def auth_update_profile_endpoint(
+    payload: AuthProfileUpdateRequest,
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    sub_id, _ = _require_bearer_user_id(authorization, auth_store)
+    try:
+        user = auth_store.update_profile(sub_id, display_name=payload.display_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"user": user}
+
+
+@app.post("/api/v1/auth/change-password", dependencies=[Depends(_chat_rate_limit_dependency)])
+def auth_change_password_endpoint(
+    payload: AuthChangePasswordRequest,
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+):
+    sub_id, _ = _require_bearer_user_id(authorization, auth_store)
+    try:
+        user = auth_store.change_password(
+            sub_id,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"updated": True, "user": user}
+
+
+@app.post("/api/v1/auth/delete-account", dependencies=[Depends(_chat_rate_limit_dependency)])
+def auth_delete_account_endpoint(
+    payload: AuthDeleteAccountRequest,
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+    project_store: ProjectStore = Depends(get_project_store),
+):
+    sub_id, tok = _require_bearer_user_id(authorization, auth_store)
+    try:
+        auth_store.delete_account(sub_id, password=payload.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    owner_id = f"user:{sub_id}"
+    if isinstance(conv_store, ConversationStore):
+        conv_store.purge_owner(owner_id)
+    if isinstance(project_store, ProjectStore):
+        for p in project_store.list_projects(owner_id, include_archived=True):
+            try:
+                project_store.delete_project(owner_id, p["project_id"])
+            except Exception:
+                pass
+    auth_store.revoke_token(tok)
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Cloud Conversation Sync (multi-appareils pour comptes connectés)
+# ---------------------------------------------------------------------------
+class CloudConversationPayload(BaseModel):
+    id: str = Field(..., min_length=1, max_length=80)
+    title: str = Field("Nouvelle conversation", max_length=140)
+    isSavedInLibrary: bool = False
+    isDeleted: bool = False
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+    messages: list[dict] = Field(default_factory=list)
+
+
+class CloudConversationSyncRequest(BaseModel):
+    conversations: list[dict] = Field(default_factory=list)
+
+
+@app.get("/api/v1/conversations", dependencies=[Depends(_data_rate_limit_dependency)])
+def list_cloud_conversations_endpoint(
+    include_deleted: bool = Query(True),
+    owner_id: str = Depends(_require_project_owner),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+):
+    items = conv_store.list_conversations(owner_id, include_deleted=include_deleted)
+    return {"count": len(items), "conversations": items}
+
+
+@app.put("/api/v1/conversations/{conversation_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def upsert_cloud_conversation_endpoint(
+    conversation_id: str,
+    payload: CloudConversationPayload,
+    owner_id: str = Depends(_require_project_owner),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+):
+    data = payload.model_dump()
+    data["id"] = conversation_id
+    try:
+        saved = conv_store.upsert_conversation(owner_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return saved
+
+
+@app.post("/api/v1/conversations/sync", dependencies=[Depends(_data_rate_limit_dependency)])
+def sync_cloud_conversations_endpoint(
+    payload: CloudConversationSyncRequest,
+    owner_id: str = Depends(_require_project_owner),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+):
+    merged = conv_store.sync_conversations(owner_id, payload.conversations)
+    return {"count": len(merged), "conversations": merged}
+
+
+@app.delete("/api/v1/conversations/{conversation_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def delete_cloud_conversation_endpoint(
+    conversation_id: str,
+    owner_id: str = Depends(_require_project_owner),
+    conv_store: ConversationStore = Depends(get_conversation_store),
+):
+    deleted = conv_store.delete_conversation(owner_id, conversation_id)
+    return {"deleted": deleted, "conversation_id": conversation_id}
 
 
 @app.get("/api/v1/billing/plans", dependencies=[Depends(_data_rate_limit_dependency)])

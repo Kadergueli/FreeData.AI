@@ -178,6 +178,49 @@ class AuthStore:
             row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
         return self._public_user(row) if row else None
 
+    def update_profile(self, user_id: str, *, display_name: str) -> dict[str, Any]:
+        clean = (user_id or "").strip().removeprefix("user:")
+        clean_name = (display_name or "").strip()[:80]
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+            if not row:
+                raise KeyError("Compte introuvable.")
+            conn.execute("UPDATE user_accounts SET display_name = ? WHERE user_id = ?", (clean_name, clean))
+            updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+        return self._public_user(updated)
+
+    def change_password(self, user_id: str, *, current_password: str, new_password: str) -> dict[str, Any]:
+        clean = (user_id or "").strip().removeprefix("user:")
+        if not isinstance(new_password, str) or len(new_password) < 8 or len(new_password) > 128:
+            raise ValueError("Le nouveau mot de passe doit contenir entre 8 et 128 caractères.")
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+            if not row:
+                raise KeyError("Compte introuvable.")
+            actual = _hash_password(current_password or "", row["password_salt"])
+            if not hmac.compare_digest(row["password_hash"], actual):
+                raise PermissionError("Mot de passe actuel incorrect.")
+            new_salt = secrets.token_hex(16)
+            new_hash = _hash_password(new_password, new_salt)
+            conn.execute(
+                "UPDATE user_accounts SET password_hash = ?, password_salt = ? WHERE user_id = ?",
+                (new_hash, new_salt, clean),
+            )
+            updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+        return self._public_user(updated)
+
+    def delete_account(self, user_id: str, *, password: str) -> bool:
+        clean = (user_id or "").strip().removeprefix("user:")
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+            if not row:
+                raise KeyError("Compte introuvable.")
+            actual = _hash_password(password or "", row["password_salt"])
+            if not hmac.compare_digest(row["password_hash"], actual):
+                raise PermissionError("Mot de passe incorrect.")
+            conn.execute("DELETE FROM user_accounts WHERE user_id = ?", (clean,))
+        return True
+
     def issue_session(
         self,
         user: dict[str, Any],

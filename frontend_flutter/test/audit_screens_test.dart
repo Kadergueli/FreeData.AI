@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:freedata_ai/core/design_system/fd_design_system.dart';
+import 'package:freedata_ai/core/models/chat_models.dart';
+import 'package:freedata_ai/main.dart';
+import 'package:freedata_ai/screens/account_screen.dart';
 import 'package:freedata_ai/screens/admin_screen.dart';
 import 'package:freedata_ai/screens/projects_screen.dart';
 import 'package:freedata_ai/screens/settings_screen.dart';
 import 'package:freedata_ai/screens/subscription_screen.dart';
 import 'package:freedata_ai/screens/support_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
+import 'package:freedata_ai/services/conversation_storage.dart';
 
 class _AuditFakeApiService extends ApiService {
   String adminRole = 'read_only_analyst';
@@ -217,6 +222,60 @@ class _AuditFakeApiService extends ApiService {
         },
       ];
 
+  String? lastUpdatedDisplayName;
+  String? lastSentChatMessage;
+
+  @override
+  Future<Map<String, dynamic>> loginAccount({
+    required String email,
+    required String password,
+  }) async {
+    final user = {
+      'user_id': ApiService.generateUserId(),
+      'email': email,
+      'display_name': 'Amina Tchad',
+    };
+    setAuthSession(token: 'jwt-test-token', user: user, isPro: false);
+    return {'token': 'jwt-test-token', 'user': user};
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateProfile(
+      {required String displayName}) async {
+    lastUpdatedDisplayName = displayName;
+    final updated = {
+      ...(authUser ?? const {}),
+      'display_name': displayName,
+    };
+    setAuthSession(token: authToken, user: updated);
+    return {'user': updated};
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> syncCloudConversations(
+    List<Map<String, dynamic>> conversations,
+  ) async =>
+      conversations;
+
+  @override
+  Future<void> upsertCloudConversation(
+      Map<String, dynamic> conversation) async {}
+
+  @override
+  Future<Map<String, dynamic>> sendChatMessage(
+    String message, {
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+    Map<String, dynamic>? studyContext,
+  }) async {
+    lastSentChatMessage = message;
+    return {
+      'reply': 'Analyse mil à N’Djamena : 245 XAF/kg.',
+      'intent': 'forecast',
+      'sources': const []
+    };
+  }
+
   @override
   Future<Map<String, dynamic>> getProject(String projectId) async => {
         'project_id': projectId,
@@ -382,6 +441,119 @@ void main() {
     expect(find.textContaining('Connecté : kader@freedata.td (Kader)'),
         findsOneWidget);
     expect(find.text('Se déconnecter'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'MainShell lets guest browse freely, prompts AuthDialog on message send, and auto-sends after login',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 820);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.physicalSize = const Size(800, 600);
+      tester.view.devicePixelRatio = 1.0;
+    });
+
+    final api = _AuditFakeApiService();
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: api)));
+    await tester.pumpAndSettle();
+
+    // L'invité voit bien toute l'interface dès l'ouverture
+    expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
+    expect(find.text('Se connecter'), findsOneWidget);
+    expect(find.text('S’inscrire'), findsOneWidget);
+
+    // Dès qu'il écrit et envoie un message, le dialogue d'authentification s'ouvre
+    await tester.enterText(find.byType(TextField), 'Quel est le prix du mil ?');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bienvenue sur FreeData.AI'), findsOneWidget);
+    expect(
+      find.textContaining('Connectez-vous ou créez un compte gratuit'),
+      findsOneWidget,
+    );
+    expect(api.lastSentChatMessage, isNull);
+
+    // S'il ferme le dialogue sans se connecter, son texte reste dans le champ
+    await tester.tap(find.byTooltip('Fermer'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bienvenue sur FreeData.AI'), findsNothing);
+    expect(api.lastSentChatMessage, isNull);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      'Quel est le prix du mil ?',
+    );
+
+    // Il relance, se connecte -> le message part automatiquement et la sidebar affiche son profil !
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Adresse e-mail'),
+      'amina@freedata.td',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Mot de passe'),
+      'StrongPass123!',
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(FDPrimaryButton),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.isAuthenticated, isTrue);
+    expect(api.lastSentChatMessage, 'Quel est le prix du mil ?');
+    expect(
+      find.text('Analyse mil à N’Djamena : 245 XAF/kg.'),
+      findsOneWidget,
+    );
+    expect(find.text('Amina Tchad'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'AccountScreen renders profile initials, updates display name, and shows security/RGPD sections',
+      (tester) async {
+    final api = _AuditFakeApiService();
+    api.setAuthSession(
+      token: 'jwt-abc',
+      user: {
+        'user_id': ApiService.generateUserId(),
+        'email': 'amina@freedata.td',
+        'display_name': 'Amina',
+      },
+      isPro: false,
+    );
+    await LocalConversationStorage.instance.saveAll([
+      ConversationThread(
+        id: 'c-1',
+        title: 'Mil Moundou',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        messages: [ChatMessage.user('Mil Moundou ?')],
+      ),
+    ]);
+
+    await tester.pumpWidget(MaterialApp(home: AccountScreen(apiService: api)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Amina'), findsWidgets);
+    expect(find.text('amina@freedata.td'), findsOneWidget);
+    expect(find.text('PLAN GRATUIT'), findsOneWidget);
+    expect(find.text('Sécurité du compte'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Nom ou organisation affichée'),
+      'Amina Agri-Tchad',
+    );
+    await tester.tap(find.text('Enregistrer le profil'));
+    await tester.pumpAndSettle();
+
+    expect(api.lastUpdatedDisplayName, 'Amina Agri-Tchad');
     expect(tester.takeException(), isNull);
   });
 }

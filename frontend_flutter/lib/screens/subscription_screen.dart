@@ -5,6 +5,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
+import '../widgets/auth_dialog.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   final ApiService apiService;
@@ -314,6 +315,45 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (!widget.apiService.isAuthenticated) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: AppColors.blueSoft,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color:
+                                        AppColors.blue.withValues(alpha: 0.2)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Connectez-vous pour lier votre abonnement PRO à votre compte sur tous vos appareils.',
+                                      style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: AppColors.blueDark),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () async {
+                                      final ok = await showDialog<bool>(
+                                        context: context,
+                                        builder: (_) => AuthDialog(
+                                            apiService: widget.apiService),
+                                      );
+                                      if (ok == true && mounted) {
+                                        await _load();
+                                      }
+                                    },
+                                    child: const Text('Se connecter'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           if (_paymentMethods?['premium_price_xaf_month']
                               is num) ...[
                             Text(

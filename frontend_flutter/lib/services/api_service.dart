@@ -1142,6 +1142,123 @@ class ApiService {
     } catch (_) {}
   }
 
+  Future<Map<String, dynamic>> updateProfile(
+      {required String displayName}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/profile');
+    final resp = await _client
+        .patch(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'display_name': displayName.trim()}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      if (data['user'] is Map) {
+        _authUser = Map<String, dynamic>.from(data['user'] as Map);
+      }
+      return data;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Mise à jour profil impossible'));
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/change-password');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'current_password': currentPassword,
+            'new_password': newPassword,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode,
+          _extractErrorDetail(resp, 'Changement de mot de passe refusé'));
+    }
+  }
+
+  Future<void> deleteAccount({required String password}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/delete-account');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'password': password}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      clearAuthSession();
+      return;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Suppression du compte refusée'));
+  }
+
+  Future<Map<String, dynamic>> exportMyPrivacyData() async {
+    final uri = Uri.parse('$baseUrl/api/v1/privacy/export');
+    final resp = await _client
+        .get(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(
+        resp.statusCode, _extractErrorDetail(resp, 'Export RGPD impossible'));
+  }
+
+  // --- Synchronisation cloud des conversations (multi-appareils) -----------
+
+  Future<List<Map<String, dynamic>>> syncCloudConversations(
+      List<Map<String, dynamic>> conversations) async {
+    final uri = Uri.parse('$baseUrl/api/v1/conversations/sync');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'conversations': conversations}),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['conversations'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+    throw ApiHttpException(
+        resp.statusCode, _extractErrorDetail(resp, 'Synchro cloud impossible'));
+  }
+
+  Future<void> upsertCloudConversation(
+      Map<String, dynamic> conversation) async {
+    final id = conversation['id']?.toString().trim() ?? '';
+    if (id.isEmpty) return;
+    final uri = Uri.parse('$baseUrl/api/v1/conversations/$id');
+    await _client
+        .put(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode(conversation),
+        )
+        .timeout(const Duration(seconds: 20));
+  }
+
+  Future<void> deleteCloudConversation(String conversationId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/conversations/$conversationId');
+    await _client
+        .delete(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+  }
+
   // --- Monétisation & Paiements PRO (Mobile Money + Stripe) ----------------
 
   Future<Map<String, dynamic>> getPaymentMethods() async {

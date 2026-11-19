@@ -15,6 +15,7 @@ class ChatScreen extends StatefulWidget {
   final VoidCallback? onConversationUpdated;
   final String? initialPrompt;
   final VoidCallback? onPromptHandled;
+  final Future<bool> Function()? onRequireAuth;
 
   const ChatScreen({
     super.key,
@@ -23,6 +24,7 @@ class ChatScreen extends StatefulWidget {
     this.onConversationUpdated,
     this.initialPrompt,
     this.onPromptHandled,
+    this.onRequireAuth,
   });
 
   @override
@@ -286,6 +288,18 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _loading) return;
+
+    if (widget.onRequireAuth != null &&
+        !widget.apiService.isAuthenticated &&
+        !widget.apiService.hasExplicitPremiumKey) {
+      final authenticated = await widget.onRequireAuth!();
+      if (!mounted || !authenticated) {
+        if (mounted && _controller.text.trim().isEmpty) {
+          _controller.text = trimmed;
+        }
+        return;
+      }
+    }
 
     if (_thread == null) {
       _thread = await LocalConversationStorage.instance.createConversation();

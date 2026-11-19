@@ -6,6 +6,7 @@ import 'services/conversation_storage.dart';
 import 'screens/chat_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
+import 'screens/account_screen.dart';
 import 'screens/admin_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/docs_screen.dart';
@@ -47,7 +48,13 @@ class FreeDataAIApp extends StatelessWidget {
 class MainShell extends StatefulWidget {
   final Uri? initialUri;
   final ApiService? apiService;
-  const MainShell({super.key, this.initialUri, this.apiService});
+  final bool requireAuthOnChat;
+  const MainShell({
+    super.key,
+    this.initialUri,
+    this.apiService,
+    this.requireAuthOnChat = true,
+  });
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -66,6 +73,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    LocalConversationStorage.instance.attachCloudApi(_apiService);
     // Clé refusée par le serveur (403) : on la retire aussi du stockage et on redessine l'interface (onglets PRO).
     _apiService.onPremiumKeyRejected = () async {
       try {
@@ -80,6 +88,14 @@ class _MainShellState extends State<MainShell> {
     };
     _loadPremiumKey();
     _reloadConversations();
+  }
+
+  Future<void> _syncCloudConversations() async {
+    if (!_apiService.isAuthenticated) return;
+    try {
+      await LocalConversationStorage.instance.syncWithCloud(_apiService);
+      if (mounted) await _reloadConversations();
+    } catch (_) {}
   }
 
   void _showSnackBar(SnackBar snackBar) {
@@ -113,6 +129,7 @@ class _MainShellState extends State<MainShell> {
       try {
         await _apiService.getAuthMe();
         if (mounted) setState(() {});
+        await _syncCloudConversations();
       } on ApiHttpException catch (e) {
         if (e.statusCode == 401) {
           await prefs.remove(kAuthTokenStorageKey);
@@ -419,13 +436,19 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  Future<void> _openAuthDialog() async {
+  Future<bool> _openAuthDialog(
+      {bool register = false, String? reasonBanner}) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AuthDialog(apiService: _apiService),
+      builder: (_) => AuthDialog(
+        apiService: _apiService,
+        initialRegisterMode: register,
+        reasonBanner: reasonBanner,
+      ),
     );
     if (ok == true && mounted) {
       setState(() {});
+      await _syncCloudConversations();
       final email = _apiService.authUser?['email']?.toString() ?? '';
       _showSnackBar(
         SnackBar(
@@ -434,53 +457,148 @@ class _MainShellState extends State<MainShell> {
           duration: const Duration(seconds: 3),
         ),
       );
+      return true;
     }
+    return false;
   }
 
-  Widget _buildUtilityMenu({bool includeSubscription = false}) {
+  Future<bool> _ensureAuthenticated() async {
+    if (_apiService.isAuthenticated || _apiService.hasExplicitPremiumKey)
+      return true;
+    return _openAuthDialog(
+      reasonBanner:
+          'Connectez-vous ou créez un compte gratuit pour envoyer votre message et retrouver vos conversations sur tous vos appareils.',
+    );
+  }
+
+  void _openAccountScreen() {
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (_) => AccountScreen(
+          apiService: _apiService,
+          onConfigureKey: _configurePremiumKey,
+          onSessionChanged: () {
+            if (mounted) {
+              setState(() {});
+              _reloadConversations();
+            }
+          },
+        ),
+      ),
+    )
+        .then((_) {
+      if (mounted) {
+        setState(() {});
+        _reloadConversations();
+      }
+    });
+  }
+
+  void _openSubscriptionScreen() {
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (_) => SubscriptionScreen(
+          apiService: _apiService,
+          onConfigureKey: _configurePremiumKey,
+        ),
+      ),
+    )
+        .then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _openSupportScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => SupportScreen(apiService: _apiService)),
+    );
+  }
+
+  void _openDocsScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DocsScreen()),
+    );
+  }
+
+  void _openSettingsScreen() {
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+            builder: (_) => SettingsScreen(apiService: _apiService)))
+        .then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _handleLogout() async {
+    await _apiService.logoutAccount();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kAuthTokenStorageKey);
+    // Effacer le cache local des conversations du compte déconnecté (elles restent en sécurité dans le cloud).
+    await LocalConversationStorage.instance.saveAll(const []);
+    if (!mounted) return;
+    setState(() {
+      _activeConversationId = null;
+      _selectedIndex = 0;
+    });
+    await _reloadConversations();
+    if (!mounted) return;
+    _showSnackBar(
+      const SnackBar(
+          content: Text('Déconnexion effectuée.'),
+          duration: Duration(seconds: 2)),
+    );
+  }
+
+  static String _userInitials(Map<String, dynamic>? user) {
+    final name = user?['display_name']?.toString().trim() ?? '';
+    final email = user?['email']?.toString().trim() ?? '';
+    final src = name.isNotEmpty ? name : email;
+    if (src.isEmpty) return 'FD';
+    final parts =
+        src.split(RegExp(r'[\s@._-]+')).where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return src.substring(0, src.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
+  Widget _buildUtilityMenu({
+    bool includeSubscription = false,
+    bool includeAccount = true,
+  }) {
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded, color: FDTheme.ink),
       tooltip: 'Plus d\'options',
       onSelected: (value) {
         if (value == 'account') {
-          _openAuthDialog();
+          if (_apiService.isAuthenticated) {
+            _openAccountScreen();
+          } else {
+            _openAuthDialog();
+          }
         } else if (value == 'support') {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-                builder: (_) => SupportScreen(apiService: _apiService)),
-          );
+          _openSupportScreen();
         } else if (value == 'subscription') {
-          Navigator.of(context)
-              .push(
-            MaterialPageRoute(
-              builder: (_) => SubscriptionScreen(
-                  apiService: _apiService,
-                  onConfigureKey: _configurePremiumKey),
-            ),
-          )
-              .then((_) {
-            if (mounted) setState(() {});
-          });
+          _openSubscriptionScreen();
         } else if (value == 'settings') {
-          Navigator.of(context)
-              .push(MaterialPageRoute(
-                  builder: (_) => SettingsScreen(apiService: _apiService)))
-              .then((_) {
-            if (mounted) setState(() {});
-          });
+          _openSettingsScreen();
         } else if (value == 'docs') {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const DocsScreen()),
-          );
+          _openDocsScreen();
+        } else if (value == 'logout') {
+          _handleLogout();
         }
       },
       itemBuilder: (context) => [
-        if (!_apiService.isAuthenticated)
-          const PopupMenuItem(
+        if (includeAccount)
+          PopupMenuItem(
             value: 'account',
             child: ListTile(
-              leading: Icon(Icons.login_rounded),
-              title: Text('Connexion / Compte'),
+              leading: Icon(_apiService.isAuthenticated
+                  ? Icons.person_outline_rounded
+                  : Icons.login_rounded),
+              title: Text(_apiService.isAuthenticated
+                  ? 'Mon compte'
+                  : 'Connexion / Compte'),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -522,6 +640,17 @@ class _MainShellState extends State<MainShell> {
             contentPadding: EdgeInsets.zero,
           ),
         ),
+        if (includeAccount && _apiService.isAuthenticated)
+          const PopupMenuItem(
+            value: 'logout',
+            child: ListTile(
+              leading: Icon(Icons.logout_rounded, color: FDTheme.danger),
+              title: Text('Se déconnecter',
+                  style: TextStyle(color: FDTheme.danger)),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
       ],
     );
   }
@@ -536,6 +665,7 @@ class _MainShellState extends State<MainShell> {
         conversationId: _activeConversationId,
         onConversationUpdated: _reloadConversations,
         initialPrompt: _pendingPrompt,
+        onRequireAuth: widget.requireAuthOnChat ? _ensureAuthenticated : null,
         onPromptHandled: () {
           if (!mounted || _pendingPrompt == null) return;
           setState(() => _pendingPrompt = null);
@@ -634,7 +764,17 @@ class _MainShellState extends State<MainShell> {
                 activeConversationId: _activeConversationId,
                 conversations: _conversations,
                 hasPremiumKey: _apiService.hasPremiumKey,
+                isAuthenticated: _apiService.isAuthenticated,
+                authUser: _apiService.authUser,
                 onConfigurePremiumKey: _configurePremiumKey,
+                onLogin: () => _openAuthDialog(register: false),
+                onRegister: () => _openAuthDialog(register: true),
+                onOpenAccount: _openAccountScreen,
+                onOpenSubscription: _openSubscriptionScreen,
+                onOpenSupport: _openSupportScreen,
+                onOpenDocs: _openDocsScreen,
+                onOpenSettings: _openSettingsScreen,
+                onLogout: _handleLogout,
                 onSelectNavigation: _selectTab,
                 onSelectConversation: (id) {
                   setState(() {
@@ -721,8 +861,98 @@ class _MainShellState extends State<MainShell> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _buildUtilityMenu(),
+                        const SizedBox(width: 10),
+                        if (_apiService.isAuthenticated)
+                          InkWell(
+                            onTap: _openAccountScreen,
+                            borderRadius: BorderRadius.circular(99),
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(4, 4, 10, 4),
+                              decoration: BoxDecoration(
+                                color: FDTheme.canvas,
+                                borderRadius: BorderRadius.circular(99),
+                                border: Border.all(color: FDTheme.line),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 13,
+                                    backgroundColor: FDTheme.blue,
+                                    child: Text(
+                                      _userInitials(_apiService.authUser),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 140),
+                                    child: Text(
+                                      (_apiService.authUser?['display_name']
+                                                  ?.toString()
+                                                  .trim()
+                                                  .isNotEmpty ??
+                                              false)
+                                          ? _apiService
+                                              .authUser!['display_name']
+                                              .toString()
+                                          : (_apiService.authUser?['email']
+                                                  ?.toString() ??
+                                              'Mon compte'),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: FDTheme.ink,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else ...[
+                          OutlinedButton(
+                            onPressed: () => _openAuthDialog(register: false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: FDTheme.ink,
+                              side: const BorderSide(color: FDTheme.line),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              minimumSize: const Size(0, 34),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(99)),
+                            ),
+                            child: const Text('Se connecter',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 6),
+                          FilledButton(
+                            onPressed: () => _openAuthDialog(register: true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: FDTheme.ink,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              minimumSize: const Size(0, 34),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(99)),
+                            ),
+                            child: const Text('S’inscrire',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 4),
+                          _buildUtilityMenu(includeAccount: false),
+                        ],
                       ],
                     ),
                   ),
@@ -862,9 +1092,43 @@ class _MainShellState extends State<MainShell> {
             activeConversationId: _activeConversationId,
             conversations: _conversations,
             hasPremiumKey: _apiService.hasPremiumKey,
+            isAuthenticated: _apiService.isAuthenticated,
+            authUser: _apiService.authUser,
             onConfigurePremiumKey: () {
               Navigator.of(context).pop();
               _configurePremiumKey();
+            },
+            onLogin: () {
+              Navigator.of(context).pop();
+              _openAuthDialog(register: false);
+            },
+            onRegister: () {
+              Navigator.of(context).pop();
+              _openAuthDialog(register: true);
+            },
+            onOpenAccount: () {
+              Navigator.of(context).pop();
+              _openAccountScreen();
+            },
+            onOpenSubscription: () {
+              Navigator.of(context).pop();
+              _openSubscriptionScreen();
+            },
+            onOpenSupport: () {
+              Navigator.of(context).pop();
+              _openSupportScreen();
+            },
+            onOpenDocs: () {
+              Navigator.of(context).pop();
+              _openDocsScreen();
+            },
+            onOpenSettings: () {
+              Navigator.of(context).pop();
+              _openSettingsScreen();
+            },
+            onLogout: () {
+              Navigator.of(context).pop();
+              _handleLogout();
             },
             onSelectNavigation: (index) {
               _selectTab(index);
@@ -897,12 +1161,22 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class _SidebarContent extends StatelessWidget {
+class _SidebarContent extends StatefulWidget {
   final int currentIndex;
   final String? activeConversationId;
   final List<ConversationThread> conversations;
   final bool hasPremiumKey;
+  final bool isAuthenticated;
+  final Map<String, dynamic>? authUser;
   final VoidCallback onConfigurePremiumKey;
+  final VoidCallback onLogin;
+  final VoidCallback onRegister;
+  final VoidCallback onOpenAccount;
+  final VoidCallback onOpenSubscription;
+  final VoidCallback onOpenSupport;
+  final VoidCallback onOpenDocs;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onLogout;
   final ValueChanged<int> onSelectNavigation;
   final ValueChanged<String> onSelectConversation;
   final VoidCallback onNewConversation;
@@ -916,7 +1190,17 @@ class _SidebarContent extends StatelessWidget {
     required this.activeConversationId,
     required this.conversations,
     required this.hasPremiumKey,
+    required this.isAuthenticated,
+    required this.authUser,
     required this.onConfigurePremiumKey,
+    required this.onLogin,
+    required this.onRegister,
+    required this.onOpenAccount,
+    required this.onOpenSubscription,
+    required this.onOpenSupport,
+    required this.onOpenDocs,
+    required this.onOpenSettings,
+    required this.onLogout,
     required this.onSelectNavigation,
     required this.onSelectConversation,
     required this.onNewConversation,
@@ -927,7 +1211,192 @@ class _SidebarContent extends StatelessWidget {
   });
 
   @override
+  State<_SidebarContent> createState() => _SidebarContentState();
+}
+
+class _SidebarContentState extends State<_SidebarContent> {
+  bool _searching = false;
+  String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  static String _initials(Map<String, dynamic>? user) {
+    final name = user?['display_name']?.toString().trim() ?? '';
+    final email = user?['email']?.toString().trim() ?? '';
+    final src = name.isNotEmpty ? name : email;
+    if (src.isEmpty) return 'FD';
+    final parts =
+        src.split(RegExp(r'[\s@._-]+')).where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return src.substring(0, src.length >= 2 ? 2 : 1).toUpperCase();
+  }
+
+  List<Widget> _buildGroupedConversations(List<ConversationThread> list) {
+    final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final sevenDaysAgo = startOfToday.subtract(const Duration(days: 7));
+
+    final today = <ConversationThread>[];
+    final last7 = <ConversationThread>[];
+    final older = <ConversationThread>[];
+
+    for (final c in list) {
+      if (!c.updatedAt.isBefore(startOfToday)) {
+        today.add(c);
+      } else if (!c.updatedAt.isBefore(sevenDaysAgo)) {
+        last7.add(c);
+      } else {
+        older.add(c);
+      }
+    }
+
+    final widgets = <Widget>[];
+    void addSection(String title, List<ConversationThread> items) {
+      if (items.isEmpty) return;
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              color: FDTheme.subtle,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      );
+      for (final conv in items) {
+        widgets.add(_buildConversationTile(conv));
+      }
+    }
+
+    addSection('Aujourd’hui', today);
+    addSection('7 derniers jours', last7);
+    addSection('Plus ancien', older);
+    return widgets;
+  }
+
+  Widget _buildConversationTile(ConversationThread conv) {
+    final isSelected =
+        widget.currentIndex == 0 && conv.id == widget.activeConversationId;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
+      child: Material(
+        color: isSelected ? FDTheme.blueSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: ListTile(
+          dense: false,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          contentPadding: const EdgeInsets.only(left: 10, right: 4),
+          leading: Icon(
+            conv.isSavedInLibrary
+                ? Icons.bookmark_rounded
+                : Icons.chat_bubble_outline_rounded,
+            size: 18,
+            color: isSelected ? FDTheme.blue : FDTheme.subtle,
+          ),
+          title: Text(
+            conv.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              color: isSelected ? FDTheme.blue : FDTheme.body,
+            ),
+          ),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded,
+                size: 16, color: FDTheme.subtle),
+            padding: EdgeInsets.zero,
+            tooltip: 'Options',
+            onSelected: (val) {
+              if (val == 'rename') {
+                widget.onRenameConversation(conv.id, conv.title);
+              } else if (val == 'library') {
+                widget.onToggleLibrary(conv.id);
+              } else if (val == 'delete') {
+                widget.onDeleteConversation(conv.id);
+              }
+            },
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(
+                value: 'rename',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, size: 16),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Renommer',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'library',
+                child: Row(
+                  children: [
+                    Icon(
+                        conv.isSavedInLibrary
+                            ? Icons.bookmark_remove_outlined
+                            : Icons.bookmark_add_outlined,
+                        size: 16),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        conv.isSavedInLibrary
+                            ? 'Retirer de Library'
+                            : 'Sauvegarder dans Library',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline_rounded,
+                        size: 16, color: Color(0xFFDC2626)),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Supprimer',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Color(0xFFDC2626)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          onTap: () => widget.onSelectConversation(conv.id),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final q = _searchQuery.trim().toLowerCase();
+    final visibleConvs = q.isEmpty
+        ? widget.conversations
+        : widget.conversations.where((c) {
+            if (c.title.toLowerCase().contains(q)) return true;
+            return c.messages.any((m) => m.text.toLowerCase().contains(q));
+          }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -935,7 +1404,7 @@ class _SidebarContent extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
           child: FilledButton.icon(
-            onPressed: onNewConversation,
+            onPressed: widget.onNewConversation,
             icon: const Icon(Icons.add_rounded, size: 20),
             label: const Text('Nouvelle conversation',
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
@@ -970,7 +1439,7 @@ class _SidebarContent extends StatelessWidget {
               _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
               _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
               _navItem(4, Icons.shield_outlined, 'Credit Passport'),
-              if (hasPremiumKey) ...[
+              if (widget.hasPremiumKey) ...[
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
                   child: Text(
@@ -990,146 +1459,325 @@ class _SidebarContent extends StatelessWidget {
               ],
               const Divider(
                   height: 18, thickness: 1, color: FDTheme.canvasSoft),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 8, 20, 6),
-                child: Text(
-                  'HISTORIQUE RÉCENT',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: FDTheme.subtle,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                  ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 10, 4),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'HISTORIQUE RÉCENT',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: FDTheme.subtle,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _searching ? Icons.close_rounded : Icons.search_rounded,
+                        size: 17,
+                        color: FDTheme.subtle,
+                      ),
+                      tooltip: _searching
+                          ? 'Fermer la recherche'
+                          : 'Rechercher dans l’historique',
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 28, minHeight: 28),
+                      onPressed: () {
+                        setState(() {
+                          _searching = !_searching;
+                          if (!_searching) {
+                            _searchQuery = '';
+                            _searchCtrl.clear();
+                          }
+                        });
+                      },
+                    ),
+                  ],
                 ),
               ),
-              if (conversations.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              if (_searching)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    decoration: const InputDecoration(
+                      hintText: 'Filtrer les discussions…',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search_rounded, size: 17),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ),
+              if (visibleConvs.isEmpty)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   child: Text(
-                    'Aucune conversation enregistrée.',
-                    style: TextStyle(fontSize: 14, color: FDTheme.muted),
+                    q.isNotEmpty
+                        ? 'Aucune conversation ne correspond.'
+                        : 'Aucune conversation enregistrée.',
+                    style: const TextStyle(fontSize: 14, color: FDTheme.muted),
                   ),
                 )
               else
-                ...conversations.map((conv) {
-                  final isSelected =
-                      currentIndex == 0 && conv.id == activeConversationId;
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
-                    child: Material(
-                      color: isSelected ? FDTheme.blueSoft : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                      child: ListTile(
-                        dense: false,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                        contentPadding:
-                            const EdgeInsets.only(left: 10, right: 4),
-                        leading: Icon(
-                          conv.isSavedInLibrary
-                              ? Icons.bookmark_rounded
-                              : Icons.chat_bubble_outline_rounded,
-                          size: 18,
-                          color: isSelected ? FDTheme.blue : FDTheme.subtle,
-                        ),
-                        title: Text(
-                          conv.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14.5,
-                            fontWeight:
-                                isSelected ? FontWeight.w600 : FontWeight.w500,
-                            color: isSelected ? FDTheme.blue : FDTheme.body,
-                          ),
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert_rounded,
-                              size: 16, color: FDTheme.subtle),
-                          padding: EdgeInsets.zero,
-                          tooltip: 'Options',
-                          onSelected: (val) {
-                            if (val == 'rename') {
-                              onRenameConversation(conv.id, conv.title);
-                            } else if (val == 'library') {
-                              onToggleLibrary(conv.id);
-                            } else if (val == 'delete') {
-                              onDeleteConversation(conv.id);
-                            }
-                          },
-                          itemBuilder: (ctx) => [
-                            const PopupMenuItem(
-                              value: 'rename',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit_outlined, size: 16),
-                                  SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'Renommer',
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'library',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                      conv.isSavedInLibrary
-                                          ? Icons.bookmark_remove_outlined
-                                          : Icons.bookmark_add_outlined,
-                                      size: 16),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      conv.isSavedInLibrary
-                                          ? 'Retirer de Library'
-                                          : 'Sauvegarder dans Library',
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.delete_outline_rounded,
-                                      size: 16, color: Color(0xFFDC2626)),
-                                  SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'Supprimer',
-                                      overflow: TextOverflow.ellipsis,
-                                      style:
-                                          TextStyle(color: Color(0xFFDC2626)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        onTap: () => onSelectConversation(conv.id),
-                      ),
-                    ),
-                  );
-                }),
+                ..._buildGroupedConversations(visibleConvs),
             ],
           ),
         ),
-        // Pied de Sidebar
+        // Pied de Sidebar façon ChatGPT (Profil / Compte + Accès PRO)
         const Divider(height: 1, thickness: 1, color: FDTheme.line),
+        if (widget.isAuthenticated)
+          _buildAuthenticatedFooter()
+        else
+          _buildGuestFooter(),
+      ],
+    );
+  }
+
+  Widget _buildAuthenticatedFooter() {
+    final user = widget.authUser;
+    final name = user?['display_name']?.toString().trim() ?? '';
+    final email = user?['email']?.toString().trim() ?? '';
+    final displayTitle =
+        name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Mon compte');
+    final displaySubtitle = widget.hasPremiumKey
+        ? 'Partenaire PRO · Cloud sync'
+        : (name.isNotEmpty && email.isNotEmpty
+            ? email
+            : 'Plan Gratuit · Cloud sync');
+
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: PopupMenuButton<String>(
+        tooltip: 'Menu du compte',
+        offset: const Offset(0, -290),
+        onSelected: (val) {
+          if (val == 'account') {
+            widget.onOpenAccount();
+          } else if (val == 'subscription') {
+            widget.onOpenSubscription();
+          } else if (val == 'key') {
+            widget.onConfigurePremiumKey();
+          } else if (val == 'settings') {
+            widget.onOpenSettings();
+          } else if (val == 'support') {
+            widget.onOpenSupport();
+          } else if (val == 'docs') {
+            widget.onOpenDocs();
+          } else if (val == 'logout') {
+            widget.onLogout();
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: 'account',
+            child: ListTile(
+              leading: Icon(Icons.person_outline_rounded, size: 18),
+              title: Text('Mon compte & Profil'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          PopupMenuItem(
+            value: 'subscription',
+            child: ListTile(
+              leading: const Icon(Icons.workspace_premium_outlined, size: 18),
+              title: Text(widget.hasPremiumKey
+                  ? 'Abonnement & Quotas'
+                  : 'Passer à PRO'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'key',
+            child: ListTile(
+              leading: Icon(Icons.vpn_key_outlined, size: 18),
+              title: Text('Clé partenaire PRO'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'settings',
+            child: ListTile(
+              leading: Icon(Icons.tune_rounded, size: 18),
+              title: Text('Préférences'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'support',
+            child: ListTile(
+              leading: Icon(Icons.support_agent_outlined, size: 18),
+              title: Text('Assistance & Avis'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'docs',
+            child: ListTile(
+              leading: Icon(Icons.menu_book_outlined, size: 18),
+              title: Text('Documentation'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: 'logout',
+            child: ListTile(
+              leading:
+                  Icon(Icons.logout_rounded, size: 18, color: FDTheme.danger),
+              title: Text('Se déconnecter',
+                  style: TextStyle(color: FDTheme.danger)),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: FDTheme.canvas,
+            border: Border.all(color: FDTheme.line),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 17,
+                backgroundColor: FDTheme.blue,
+                child: Text(
+                  _initials(user),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: FDTheme.ink),
+                    ),
+                    Text(
+                      displaySubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: widget.hasPremiumKey
+                            ? FDTheme.greenDark
+                            : FDTheme.subtle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: widget.hasPremiumKey
+                      ? FDTheme.greenSoft
+                      : FDTheme.surface,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: widget.hasPremiumKey
+                        ? FDTheme.green.withValues(alpha: 0.3)
+                        : FDTheme.line,
+                  ),
+                ),
+                child: Text(
+                  widget.hasPremiumKey ? 'PRO' : 'Gratuit',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: widget.hasPremiumKey
+                        ? FDTheme.greenDark
+                        : FDTheme.muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuestFooter() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Sur Desktop, Se connecter / S'inscrire sont déjà en haut à droite (pas de doublon dans la sidebar).
+        if (widget.isDrawer && !widget.hasPremiumKey)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: widget.onLogin,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: FDTheme.ink,
+                      side: const BorderSide(color: FDTheme.line),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Connexion',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: widget.onRegister,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: FDTheme.ink,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Créer compte',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.all(10.0),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: onConfigurePremiumKey,
+              onTap: widget.onConfigurePremiumKey,
               borderRadius: BorderRadius.circular(10),
               child: Padding(
                 padding:
@@ -1172,12 +1820,12 @@ class _SidebarContent extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            hasPremiumKey
+                            widget.hasPremiumKey
                                 ? 'Accès Partenaire actif · Tchad'
                                 : 'Intelligence des Marchés · Tchad',
                             style: TextStyle(
                               fontSize: 12.0,
-                              color: hasPremiumKey
+                              color: widget.hasPremiumKey
                                   ? FDTheme.greenDark
                                   : FDTheme.subtle,
                             ),
@@ -1191,22 +1839,24 @@ class _SidebarContent extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color:
-                            hasPremiumKey ? FDTheme.greenSoft : FDTheme.canvas,
+                        color: widget.hasPremiumKey
+                            ? FDTheme.greenSoft
+                            : FDTheme.canvas,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color: hasPremiumKey
+                          color: widget.hasPremiumKey
                               ? FDTheme.green.withValues(alpha: 0.3)
                               : FDTheme.line,
                         ),
                       ),
                       child: Text(
-                        hasPremiumKey ? 'PRO' : 'Clé Pro',
+                        widget.hasPremiumKey ? 'PRO' : 'Clé Pro',
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color:
-                              hasPremiumKey ? FDTheme.greenDark : FDTheme.muted,
+                          color: widget.hasPremiumKey
+                              ? FDTheme.greenDark
+                              : FDTheme.muted,
                         ),
                       ),
                     ),
@@ -1221,7 +1871,7 @@ class _SidebarContent extends StatelessWidget {
   }
 
   Widget _navItem(int index, IconData icon, String label) {
-    final isSelected = currentIndex == index;
+    final isSelected = widget.currentIndex == index;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       child: ListTile(
@@ -1241,7 +1891,7 @@ class _SidebarContent extends StatelessWidget {
             color: isSelected ? FDTheme.blue : FDTheme.ink,
           ),
         ),
-        onTap: () => onSelectNavigation(index),
+        onTap: () => widget.onSelectNavigation(index),
       ),
     );
   }

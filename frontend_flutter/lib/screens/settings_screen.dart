@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
+import 'account_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -72,6 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await widget.apiService.logoutAccount();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAuthTokenStorageKey);
+    await LocalConversationStorage.instance.saveAll(const []);
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
@@ -152,10 +155,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const TextStyle(fontSize: 12.5, color: AppColors.muted),
                   ),
                   const SizedBox(height: 12),
-                  FDSecondaryButton(
-                    label: 'Se déconnecter',
-                    icon: Icons.logout_rounded,
-                    onPressed: _logout,
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      FDPrimaryButton(
+                        label: 'Gérer mon compte',
+                        icon: Icons.person_outline_rounded,
+                        onPressed: () {
+                          Navigator.of(context)
+                              .push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  AccountScreen(apiService: widget.apiService),
+                            ),
+                          )
+                              .then((_) {
+                            if (mounted) setState(() {});
+                          });
+                        },
+                      ),
+                      FDSecondaryButton(
+                        label: 'Se déconnecter',
+                        icon: Icons.logout_rounded,
+                        onPressed: _logout,
+                      ),
+                    ],
                   ),
                 ] else ...[
                   const Text(

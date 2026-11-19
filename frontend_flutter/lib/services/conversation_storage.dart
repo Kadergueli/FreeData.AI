@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../core/models/chat_models.dart';
+import 'api_service.dart';
 
 export '../core/models/chat_models.dart' show ConversationThread;
 export '../core/utils/formatters.dart' show stripMarkdown;
@@ -27,6 +28,39 @@ class LocalConversationStorage implements ConversationRepository {
   static final LocalConversationStorage instance = LocalConversationStorage();
 
   Future<void>? _writeLock;
+  ApiService? _cloudApi;
+
+  void attachCloudApi(ApiService? api) {
+    _cloudApi = api;
+  }
+
+  void _pushThreadInBackground(ConversationThread thread) {
+    final api = _cloudApi;
+    if (api == null || !api.isAuthenticated || thread.messages.isEmpty) return;
+    unawaited(api.upsertCloudConversation(thread.toJson()).catchError((_) {}));
+  }
+
+  void _deleteThreadInBackground(String id) {
+    final api = _cloudApi;
+    if (api == null || !api.isAuthenticated) return;
+    unawaited(api.deleteCloudConversation(id).catchError((_) {}));
+  }
+
+  Future<List<ConversationThread>> syncWithCloud(ApiService api) async {
+    if (!api.isAuthenticated) return loadConversations();
+    final localAll = await _loadInternal(includeDeleted: true);
+    final mergedRaw = await api
+        .syncCloudConversations(localAll.map((c) => c.toJson()).toList());
+    final mergedThreads = <ConversationThread>[];
+    for (final raw in mergedRaw) {
+      try {
+        final t = ConversationThread.fromJson(raw);
+        if (t.messages.isNotEmpty) mergedThreads.add(t);
+      } catch (_) {}
+    }
+    await saveAll(mergedThreads);
+    return loadConversations();
+  }
 
   Future<T> _synchronized<T>(Future<T> Function() action) {
     final prev = _writeLock ?? Future<void>.value();
@@ -115,6 +149,7 @@ class LocalConversationStorage implements ConversationRepository {
         all.insert(0, thread);
       }
       await _saveAllInternal(all);
+      _pushThreadInBackground(thread);
     });
   }
 
@@ -146,6 +181,7 @@ class LocalConversationStorage implements ConversationRepository {
         all[index] =
             all[index].copyWith(title: newTitle, updatedAt: DateTime.now());
         await _saveAllInternal(all);
+        _pushThreadInBackground(all[index]);
       }
     });
   }
@@ -159,6 +195,7 @@ class LocalConversationStorage implements ConversationRepository {
         all[index] =
             all[index].copyWith(isDeleted: true, updatedAt: DateTime.now());
         await _saveAllInternal(all);
+        _pushThreadInBackground(all[index]);
       }
     });
   }
@@ -172,6 +209,7 @@ class LocalConversationStorage implements ConversationRepository {
         all[index] =
             all[index].copyWith(isDeleted: false, updatedAt: DateTime.now());
         await _saveAllInternal(all);
+        _pushThreadInBackground(all[index]);
       }
     });
   }
@@ -187,6 +225,7 @@ class LocalConversationStorage implements ConversationRepository {
         all[index] = current.copyWith(
             isSavedInLibrary: nextSaved, updatedAt: DateTime.now());
         await _saveAllInternal(all);
+        _pushThreadInBackground(all[index]);
       }
     });
   }
@@ -197,6 +236,7 @@ class LocalConversationStorage implements ConversationRepository {
       final all = await _loadInternal(includeDeleted: true);
       all.removeWhere((c) => c.id == id);
       await _saveAllInternal(all);
+      _deleteThreadInBackground(id);
     });
   }
 }

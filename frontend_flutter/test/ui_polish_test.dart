@@ -974,8 +974,8 @@ void main() {
     final pending = Completer<Map<String, dynamic>>();
     final delayedApi = _DelayedChatFakeApi(pending);
 
-    await tester
-        .pumpWidget(MaterialApp(home: MainShell(apiService: delayedApi)));
+    await tester.pumpWidget(MaterialApp(
+        home: MainShell(apiService: delayedApi, requireAuthOnChat: false)));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Premier message test');
@@ -1291,7 +1291,9 @@ void main() {
     });
 
     await tester.pumpWidget(MaterialApp(
-        home: MainShell(apiService: ApiService(client: mockClient))));
+        home: MainShell(
+            apiService: ApiService(client: mockClient),
+            requireAuthOnChat: false)));
     await tester.pumpAndSettle();
     expect(find.text('Question précédente'), findsOneWidget);
 
