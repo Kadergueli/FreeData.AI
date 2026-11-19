@@ -122,6 +122,8 @@ def test_chat_passes_jina_retrieved_chunks_to_groq_for_interpretation(tmp_path, 
         return "Synthèse Groq : Selon votre contrat privé (contrat_transport.txt), le tarif négocié est de 18 XAF/kg pour 120 tonnes."
 
     monkeypatch.setattr(agent, "_synthesize_with_llm", _fake_groq_synth)
+    # Le chemin LLM n'est emprunté que si une clé existe : ne pas dépendre de l'environnement.
+    monkeypatch.setattr("src.ai_agent.settings", replace(server.settings, llm_api_key="gsk_test_groq_key"))
 
     private_chunks = doc_store.retrieve_for_owner(owner_id, "Analyse mon contrat de transport")
     ans = agent.answer(

@@ -76,10 +76,6 @@ class _AuthDialogState extends State<AuthDialog> {
       if (tok.isNotEmpty) {
         await prefs.setString(kAuthTokenStorageKey, tok);
       }
-      final uid = widget.apiService.userId;
-      if (ApiService.isStrongUserId(uid)) {
-        await prefs.setString('fd_pref_user_id', uid);
-      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {

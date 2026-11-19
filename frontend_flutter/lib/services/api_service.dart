@@ -94,10 +94,8 @@ class ApiService {
     _authToken = cleanTok.isEmpty ? null : cleanTok;
     _authUser = user;
     if (isPro != null) _subscriptionIsPro = isPro;
-    final uid = user?['user_id']?.toString().trim() ?? '';
-    if (isStrongUserId(uid)) {
-      _userId = uid;
-    }
+    // L'identifiant du compte n'est plus recopié dans _userId : l'API ne l'accepte qu'avec le jeton Bearer
+    // (un X-User-Id seul ne donne accès qu'à un espace anonyme distinct).
   }
 
   void clearAuthSession() {

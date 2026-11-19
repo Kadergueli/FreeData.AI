@@ -116,6 +116,10 @@ class HmacJsonWebhookAdapter(PaymentProviderAdapter):
         }
 
 
+_STRIPE_ACTIVATING_EVENTS = frozenset({"checkout.session.completed", "invoice.paid", "invoice.payment_succeeded"})
+_STRIPE_CANCEL_EVENTS = frozenset({"customer.subscription.deleted"})
+
+
 class StripeWebhookAdapter(PaymentProviderAdapter):
     """Stripe webhook signature verifier (t=...,v1=...) & event normalizer."""
 
@@ -162,7 +166,15 @@ class StripeWebhookAdapter(PaymentProviderAdapter):
         plan_id = str(meta.get("plan_id") or "premium").strip()
         if plan_id not in DEFAULT_PLANS:
             plan_id = "premium"
-        status = "cancelled" if "deleted" in ev_type or "canceled" in ev_type else "active"
+        if ev_type in _STRIPE_CANCEL_EVENTS:
+            status = "cancelled"
+        elif ev_type in _STRIPE_ACTIVATING_EVENTS:
+            status = "active"
+            # Une session de paiement non réglée (ex. paiement différé) n'ouvre pas de droits.
+            if isinstance(obj, dict) and obj.get("payment_status") not in (None, "paid", "no_payment_required"):
+                status = "ignored"
+        else:
+            status = "ignored"  # invoice.payment_failed, checkout.session.expired, customer.created, etc.
         try:
             period_days = int(meta.get("period_days") or 30)
         except (TypeError, ValueError):
@@ -542,6 +554,8 @@ class SubscriptionStore:
         payload = json.loads(raw_body.decode("utf-8"))
         ev = adapter.parse_webhook_event(payload)
         ev_id = ev["event_id"]
+        if ev.get("status") == "ignored":
+            return {"status": "ignored", "event_id": ev_id, "event_type": ev["event_type"]}
         if not ev_id or not ev["user_id"]:
             raise ValueError("Webhook incomplet (event_id et user_id requis).")
 
@@ -552,11 +566,9 @@ class SubscriptionStore:
             ).fetchone()
             if existing:
                 return {"status": "duplicate_ignored", "event_id": ev_id}
-            conn.execute(
-                "INSERT INTO payment_webhook_events (webhook_event_id, provider, event_type, processed_at) VALUES (?, ?, ?, ?)",
-                (ev_id, adapter.provider_name, ev["event_type"], _iso(_utc_now())),
-            )
 
+        # L'abonnement est mis à jour AVANT d'enregistrer l'événement : si la mise à jour échoue, le rejeu
+        # du fournisseur n'est pas ignoré à tort (l'opération est idempotente : même état final).
         self.admin_update_subscription(
             actor=f"webhook:{adapter.provider_name}",
             target_user_id=ev["user_id"],
@@ -566,6 +578,12 @@ class SubscriptionStore:
             provider=adapter.provider_name,
             reason=f"Webhook {ev['event_type']} ({ev_id})",
         )
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO payment_webhook_events (webhook_event_id, provider, event_type, processed_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (webhook_event_id) DO NOTHING",
+                (ev_id, adapter.provider_name, ev["event_type"], _iso(_utc_now())),
+            )
         return {"status": "processed", "event_id": ev_id, "user_id": ev["user_id"], "plan_id": ev["plan_id"]}
 
     def get_audit_logs(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -599,6 +617,18 @@ class SubscriptionStore:
         req_id = f"PAY-{uuid.uuid4().hex[:10].upper()}"
         now = _iso(_utc_now()) or ""
         with self._connect() as conn:
+            dup = conn.execute(
+                "SELECT request_id FROM payment_requests WHERE provider = ? AND transaction_ref = ? AND status IN ('pending', 'approved')",
+                (clean_provider, clean_tx),
+            ).fetchone()
+            if dup:
+                raise ValueError("Cette référence de transaction a déjà été soumise.")
+            pending = conn.execute(
+                "SELECT COUNT(*) AS n FROM payment_requests WHERE user_id = ? AND status = 'pending'",
+                (user_id,),
+            ).fetchone()
+            if pending and int(pending["n"]) >= 5:
+                raise ValueError("Trop de demandes de paiement en attente (maximum 5). Patientez la validation.")
             conn.execute(
                 """
                 INSERT INTO payment_requests (
