@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+
 import '../../core/fd_theme.dart';
+import '../../core/utils/open_url.dart';
 
 class MarkdownRenderer extends StatelessWidget {
   final String content;
@@ -13,7 +15,7 @@ class MarkdownRenderer extends StatelessWidget {
     return MarkdownBody(
       data: content,
       selectable: true,
-      onTapLink: (text, href, title) {},
+      onTapLink: (text, href, title) => openExternalUrl(href),
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: const TextStyle(
           color: FDTheme.ink,

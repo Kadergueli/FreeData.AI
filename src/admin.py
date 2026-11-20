@@ -159,6 +159,28 @@ class AdminService:
         )
         return {"user_id": target_user_id, "account_status": status, "updated_at": now}
 
+    # Du moins au plus privilégié ; « user » = accès administrateur révoqué.
+    ROLE_RANK = {"user": 0, "read_only_analyst": 1, "support_admin": 2, "platform_admin": 3, "super_admin": 4}
+
+    def assigned_role(self, actor: str) -> Optional[str]:
+        """Rôle enregistré par un super_admin pour cet acteur (None s'il n'y en a pas)."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT role FROM admin_accounts WHERE user_id = ?", (actor,)).fetchone()
+        return str(row["role"]) if row and row["role"] else None
+
+    def effective_role(self, actor: str, token_role: str) -> str:
+        """Rôle effectif = le plus restrictif entre celui du jeton et celui enregistré en base.
+
+        La base ne peut que RESTREINDRE (jamais élever) : un jeton divulgué se neutralise sans redéployer
+        en assignant « user » (révocation) ou un rôle plus faible à son acteur.
+        """
+        assigned = self.assigned_role(actor)
+        if assigned is None or assigned not in self.ROLE_RANK:
+            return token_role
+        if self.ROLE_RANK[assigned] < self.ROLE_RANK.get(token_role, 0):
+            return assigned
+        return token_role
+
     def assign_role(
         self,
         *,
@@ -171,6 +193,8 @@ class AdminService:
         self.check_permission(actor_role, "manage_roles")
         if new_role not in (*ROLE_PERMISSIONS.keys(), "user"):
             raise ValueError(f"Rôle invalide : {new_role}")
+        if target_user_id == actor:
+            raise ValueError("Vous ne pouvez pas modifier votre propre rôle (risque de verrouillage).")
         now = _utc_now()
         with self._connect() as conn:
             conn.execute(
