@@ -150,6 +150,7 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
         feature_columns=["x1", "x2"],
         dataset_name="e2e_fin.csv",
         dataset_scope="platform_public",
+        dataset_provenance={"source": "Jeu de test interne", "license": "CC0"},
         csv_base64=base64.b64encode(_reg_csv(32)).decode("ascii"),
     )
     job = server.admin_ai_launch_benchmark_endpoint(req, actor_info=("kader", "super_admin"), admin=admin)
@@ -185,9 +186,29 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
     assert e_dom.value.status_code == 403
 
     # 4. Super admin approves & deploys v1 -> then registers & deploys v2 -> then rolls back to v1
+    # Garde-fou : un candidat issu de 32 lignes ne passe pas en production sans contournement justifié.
+    with pytest.raises(HTTPException) as e_guard:
+        server.admin_ai_transition_model_endpoint(
+            ridge_id,
+            server.AdminMLModelStatusRequest(version=1, lifecycle_status="DEPLOYED", set_active=True, reason="approve v1"),
+            actor_info=("kader", "super_admin"),
+            admin=admin,
+        )
+    assert e_guard.value.status_code == 409
+    with pytest.raises(HTTPException) as e_short:  # force sans justification suffisante
+        server.admin_ai_transition_model_endpoint(
+            ridge_id,
+            server.AdminMLModelStatusRequest(version=1, lifecycle_status="DEPLOYED", set_active=True, reason="ok", force=True),
+            actor_info=("kader", "super_admin"),
+            admin=admin,
+        )
+    assert e_short.value.status_code == 409
     dep1 = server.admin_ai_transition_model_endpoint(
         ridge_id,
-        server.AdminMLModelStatusRequest(version=1, lifecycle_status="DEPLOYED", set_active=True, reason="approve v1"),
+        server.AdminMLModelStatusRequest(
+            version=1, lifecycle_status="DEPLOYED", set_active=True, force=True,
+            reason="Test e2e : contournement justifié du garde-fou de production",
+        ),
         actor_info=("kader", "super_admin"),
         admin=admin,
     )

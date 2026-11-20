@@ -36,7 +36,7 @@ from src.study_context import StudyContext
 from src.projects import ProjectStore
 from src.governance import LicensingRegistry, PrivacyController, build_default_lineage
 from src.analytics import AnalyticsService
-from src.ml_benchmark import BenchmarkJobManager, DatasetSpec, MAX_CSV_BYTES
+from src.ml_benchmark import BenchmarkJobManager, DatasetSpec, MAX_CSV_BYTES, promotion_blockers
 from src.ml_engine import ModelRegistry, build_lag_features, evaluate_ridge_chronological
 from src.rag_engine import HybridRAGEngine
 from src.orchestrator_ml_rag import IntelligenceOrchestrator
@@ -3375,6 +3375,8 @@ class AdminMLModelStatusRequest(BaseModel):
     set_active: bool = False
     enabled: Optional[bool] = None
     reason: str = Field("", max_length=300)
+    # Contourne le garde-fou de mise en production (journalisé) : exige une justification d'au moins 20 caractères.
+    force: bool = False
 
 
 @app.get("/api/v1/admin/ai/domains", dependencies=[Depends(_admin_rate_limit_dependency)])
@@ -3445,6 +3447,20 @@ def admin_ai_transition_model_endpoint(
         admin.check_permission(role, "manage_models")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    forced = False
+    if payload.lifecycle_status == "DEPLOYED" and payload.set_active:
+        try:
+            blockers = promotion_blockers(_MODEL_REGISTRY, model_id, payload.version)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if blockers:
+            if not (payload.force and len(payload.reason.strip()) >= 20):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Mise en production refusée : " + " ".join(blockers)
+                    + " (force=true avec une justification de 20 caractères minimum pour contourner, journalisé.)",
+                )
+            forced = True
     try:
         updated = _MODEL_REGISTRY.transition_status(
             model_id,
@@ -3463,7 +3479,7 @@ def admin_ai_transition_model_endpoint(
         action="transition_ml_model_status",
         resource_type="ml_model",
         resource_id=f"{model_id}:v{payload.version}",
-        details=f"status={payload.lifecycle_status} active={payload.set_active} enabled={payload.enabled} reason={payload.reason}",
+        details=f"status={payload.lifecycle_status} active={payload.set_active} enabled={payload.enabled} forced_guard={forced} reason={payload.reason}",
     )
     return updated
 
@@ -3546,6 +3562,15 @@ def admin_ai_launch_benchmark_endpoint(
     if len(csv_bytes) > MAX_CSV_BYTES:
         raise HTTPException(status_code=413, detail="Fichier CSV trop volumineux (limite maximale : 5 Mo).")
 
+    # Provenance obligatoire : sans source ni licence, un jeu de données ne doit pas entraîner de modèle.
+    prov_in = dict(payload.dataset_provenance or {})
+    if len(str(prov_in.get("source") or "").strip()) < 3 or len(str(prov_in.get("license") or "").strip()) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Provenance obligatoire : renseignez dataset_provenance.source (origine) et dataset_provenance.license (licence).",
+        )
+    prov_in["submitted_by"] = actor
+
     # Sanitize dataset_name (prevent path traversal)
     from pathlib import Path as _Path
     safe_name = _Path(payload.dataset_name).name or "benchmark.csv"
@@ -3556,7 +3581,7 @@ def admin_ai_launch_benchmark_endpoint(
         target_column=payload.target_column.strip() if payload.target_column else None,
         time_column=payload.time_column.strip() if payload.time_column else None,
         dataset_name=safe_name,
-        dataset_provenance=dict(payload.dataset_provenance or {}),
+        dataset_provenance=prov_in,
         dataset_scope=payload.dataset_scope.strip(),
     )
     try:
@@ -3613,6 +3638,28 @@ def admin_ai_list_benchmarks_endpoint(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return {"jobs": _BENCHMARK_JOB_MANAGER.list_jobs(limit=limit)}
+
+
+@app.get(
+    "/api/v1/admin/ai/models/{model_id}/versions/{version}/promotion-check",
+    dependencies=[Depends(_admin_rate_limit_dependency)],
+)
+def admin_ai_promotion_check_endpoint(
+    model_id: str,
+    version: int,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        blockers = promotion_blockers(_MODEL_REGISTRY, model_id, version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"model_id": model_id, "version": version, "eligible": not blockers, "blockers": blockers}
 
 
 @app.get("/api/v1/admin/ai/models/{model_id}/compare", dependencies=[Depends(_admin_rate_limit_dependency)])

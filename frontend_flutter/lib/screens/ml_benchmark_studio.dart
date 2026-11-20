@@ -76,6 +76,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
   final Set<String> _featureColumns = {};
   final TextEditingController _expNameCtrl = TextEditingController();
   final TextEditingController _expDescCtrl = TextEditingController();
+  final TextEditingController _expSourceCtrl = TextEditingController();
+  final TextEditingController _expLicenseCtrl = TextEditingController();
   bool _submitting = false;
   Map<String, dynamic>? _activeJob;
   Timer? _pollTimer;
@@ -111,6 +113,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
     _pollTimer?.cancel();
     _expNameCtrl.dispose();
     _expDescCtrl.dispose();
+    _expSourceCtrl.dispose();
+    _expLicenseCtrl.dispose();
     _historySearchCtrl.dispose();
     super.dispose();
   }
@@ -242,6 +246,10 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
 
   List<String> _validateExperimentConfig() {
     final warnings = <String>[];
+    if (_expSourceCtrl.text.trim().length < 3 ||
+        _expLicenseCtrl.text.trim().length < 2) {
+      warnings.add('Source et licence du jeu de données obligatoires.');
+    }
     if (_pickedCsv == null) {
       warnings.add('Aucun fichier CSV sélectionné.');
     }
@@ -298,6 +306,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
           if (_expDescCtrl.text.trim().isNotEmpty)
             'description': _expDescCtrl.text.trim(),
           'source_filename': _pickedCsv!.name,
+          'source': _expSourceCtrl.text.trim(),
+          'license': _expLicenseCtrl.text.trim(),
         },
         csvBase64: b64,
       );
@@ -749,6 +759,22 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
               controller: _expDescCtrl,
               decoration:
                   const InputDecoration(labelText: 'Description (optionnel)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _expSourceCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Source du jeu de données (obligatoire)',
+                helperText: 'Ex. : WFP / FreeData.td, collecte terrain 2026',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _expLicenseCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Licence (obligatoire)',
+                helperText: 'Ex. : CC-BY 4.0, domaine public, accord écrit',
+              ),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
