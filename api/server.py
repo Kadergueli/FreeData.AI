@@ -2689,6 +2689,73 @@ def admin_review_payment_request_endpoint(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ProKeyCreate(BaseModel):
+    plan_id: str = Field("premium", max_length=30)
+    duration_days: int = Field(30, ge=1, le=365)
+    note: str = Field("", max_length=200)
+
+
+class ProKeyRedeem(BaseModel):
+    activation_key: str = Field(..., min_length=8, max_length=64)
+
+
+@app.post("/api/v1/billing/redeem-key", dependencies=[Depends(_chat_rate_limit_dependency)])
+def redeem_pro_key_endpoint(
+    payload: ProKeyRedeem,
+    owner_id: str = Depends(_require_project_owner),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Active une clé PRO à usage unique. Réservé aux comptes connectés (jeton Bearer) : la clé se lie au compte."""
+    if not owner_id.startswith("user:"):
+        raise HTTPException(status_code=401, detail="Connectez-vous à votre compte pour activer une clé.")
+    try:
+        return sub_store.redeem_pro_key(owner_id, payload.activation_key)
+    except PermissionError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/admin/billing/keys", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_create_pro_key_endpoint(
+    payload: ProKeyCreate,
+    x_admin_token: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    try:
+        return sub_store.create_pro_key(actor=actor, plan_id=payload.plan_id, duration_days=payload.duration_days, note=payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/admin/billing/keys", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_list_pro_keys_endpoint(
+    status: Optional[str] = Query(None, pattern="^(unused|redeemed|revoked)$"),
+    limit: int = Query(100, ge=1, le=200),
+    x_admin_token: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    keys = sub_store.list_pro_keys(status=status, limit=limit)
+    return {"count": len(keys), "keys": keys}
+
+
+@app.post("/api/v1/admin/billing/keys/{key_id}/revoke", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_revoke_pro_key_endpoint(
+    key_id: str,
+    x_admin_token: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
+    try:
+        return sub_store.revoke_pro_key(key_id, actor=actor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/billing/me", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_my_billing_endpoint(
     owner_id: str = Depends(_require_project_owner),
