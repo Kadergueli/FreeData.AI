@@ -182,6 +182,7 @@ def test_admin_benchmark_endpoint_rbac_concurrency_and_prod_preservation(monkeyp
         feature_columns=["x1", "x2"],
         dataset_name="finance_sample.csv",
         dataset_scope="platform_public",
+        dataset_provenance={"source": "Jeu de test interne", "license": "CC0"},
         csv_base64=csv_b64,
     )
 

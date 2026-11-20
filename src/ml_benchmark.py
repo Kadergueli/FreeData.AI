@@ -719,6 +719,88 @@ def run_csv_benchmark(
 
 
 # ---------------------------------------------------------------------------
+# Garde-fou de mise en production (un benchmark ne remplace jamais silencieusement un modèle)
+# ---------------------------------------------------------------------------
+
+MIN_TOTAL_ROWS_FOR_PRODUCTION = 100
+MIN_TEST_ROWS_FOR_PRODUCTION = 20
+MIN_RELATIVE_IMPROVEMENT = 0.05  # régression/prévision : -5 % d'erreur ; classification : +0,05 de F1
+MIN_SILHOUETTE_FOR_PRODUCTION = 0.25
+BASELINE_ALGORITHMS = frozenset({"naive_last", "moving_average_3", "seasonal_naive_12", "naive_mean", "majority_class"})
+
+
+def promotion_blockers(registry: ModelRegistry, model_id: str, version: int) -> list[str]:
+    """Raisons pour lesquelles un candidat issu d'un benchmark CSV ne peut pas passer en production.
+
+    Liste vide = éligible. Les modèles qui ne viennent pas du benchmark ne sont pas concernés.
+    """
+    entries = registry.list_models()
+    entry = next(
+        (m for m in entries if m.get("model_id") == model_id and int(m.get("version", 0)) == int(version)),
+        None,
+    )
+    if entry is None:
+        raise KeyError(f"Modèle introuvable : {model_id} v{version}")
+    cfg = entry.get("configuration") or {}
+    if "benchmark_dedup_key" not in cfg:
+        return []
+
+    blockers: list[str] = []
+    prov = entry.get("dataset_provenance") or {}
+    if not str(prov.get("source") or "").strip() or not str(prov.get("license") or "").strip():
+        blockers.append("Provenance incomplète : la source et la licence du jeu de données sont obligatoires.")
+
+    clean_rows = int((cfg.get("input_schema") or {}).get("clean_rows") or 0)
+    test_rows = int(cfg.get("test_samples") or 0)
+    if clean_rows < MIN_TOTAL_ROWS_FOR_PRODUCTION:
+        blockers.append(
+            f"Échantillon trop petit ({clean_rows} lignes < {MIN_TOTAL_ROWS_FOR_PRODUCTION} requises pour la production)."
+        )
+    if test_rows < MIN_TEST_ROWS_FOR_PRODUCTION:
+        blockers.append(f"Jeu de test trop petit ({test_rows} lignes < {MIN_TEST_ROWS_FOR_PRODUCTION}).")
+
+    task = entry.get("task_type")
+    metrics = entry.get("evaluation_metrics") or {}
+    algo = str(entry.get("algorithm") or "")
+    if task == "clustering":
+        sil = metrics.get("silhouette_score")
+        if sil is None or float(sil) < MIN_SILHOUETTE_FOR_PRODUCTION:
+            blockers.append(f"Silhouette insuffisante ({sil} < {MIN_SILHOUETTE_FOR_PRODUCTION}).")
+        return blockers
+
+    if algo in BASELINE_ALGORITHMS:
+        blockers.append("Un modèle de référence (baseline) sert de comparaison : il ne peut pas être activé tel quel.")
+        return blockers
+
+    ds_hash = prov.get("dataset_hash")
+    baselines = [
+        m for m in entries
+        if m.get("domain") == entry.get("domain")
+        and m.get("task_type") == task
+        and (m.get("dataset_provenance") or {}).get("dataset_hash") == ds_hash
+        and str(m.get("algorithm") or "") in BASELINE_ALGORITHMS
+    ]
+    key = "f1_score" if task == "classification" else "mae"
+    base_vals = [float((m.get("evaluation_metrics") or {})[key]) for m in baselines if key in (m.get("evaluation_metrics") or {})]
+    cand = metrics.get(key)
+    if not base_vals or cand is None:
+        blockers.append("Aucune référence comparable trouvée : impossible de prouver que le modèle fait mieux.")
+        return blockers
+    cand = float(cand)
+    if task == "classification":
+        best_base = max(base_vals)
+        if cand - best_base < MIN_RELATIVE_IMPROVEMENT:
+            blockers.append(f"F1 {cand:.3f} ne dépasse pas la référence {best_base:.3f} d'au moins {MIN_RELATIVE_IMPROVEMENT}.")
+    else:
+        best_base = min(base_vals)
+        if best_base <= 0 or (best_base - cand) / best_base < MIN_RELATIVE_IMPROVEMENT:
+            blockers.append(
+                f"MAE {cand:.4g} n'améliore pas la meilleure référence ({best_base:.4g}) d'au moins {int(MIN_RELATIVE_IMPROVEMENT * 100)} %."
+            )
+    return blockers
+
+
+# ---------------------------------------------------------------------------
 # Bounded Background Benchmark Job Manager (Max 1 Concurrent, 60s Timeout)
 # ---------------------------------------------------------------------------
 
