@@ -20,10 +20,26 @@ Future<PickedDocumentFile?> pickUserDocumentFile() async {
   final input = html.FileUploadInputElement()
     ..accept =
         '.pdf,.csv,.txt,.md,.json,application/pdf,text/csv,text/plain,text/markdown,application/json';
-  input.click();
+  // iOS Safari / Chrome Android : l'input doit être dans le DOM pour que le
+  // sélecteur s'ouvre et que l'événement « change » soit fiable.
+  input.style.display = 'none';
+  html.document.body?.append(input);
 
   final completer = Completer<PickedDocumentFile?>();
   StreamSubscription<html.Event>? sub;
+  StreamSubscription<html.Event>? cancelSub;
+  void cleanup() {
+    sub?.cancel();
+    cancelSub?.cancel();
+    input.remove();
+  }
+
+  // Annulation du sélecteur (supportée par les navigateurs mobiles récents).
+  cancelSub = input.on['cancel'].listen((_) {
+    if (!completer.isCompleted) completer.complete(null);
+  });
+  input.click();
+
   sub = input.onChange.listen((_) {
     sub?.cancel();
     final files = input.files;
@@ -65,5 +81,5 @@ Future<PickedDocumentFile?> pickUserDocumentFile() async {
   return completer.future.timeout(
     const Duration(minutes: 3),
     onTimeout: () => null,
-  );
+  ).whenComplete(cleanup);
 }

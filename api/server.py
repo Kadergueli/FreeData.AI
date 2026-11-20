@@ -2874,12 +2874,20 @@ def upload_user_document_endpoint(
     max_bytes = max_mb * 1024 * 1024
     max_docs = 50 if _has_pro_access(owner_id, x_premium_key, sub_store) else 5
 
-    _consume_user_quota(owner_id, x_premium_key, "daily_rag", sub_store, "Quota journalier d'indexation documentaire RAG atteint.")
-
     try:
         raw_bytes = base64.b64decode(payload.content_base64, validate=True)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Encodage base64 invalide.") from exc
+
+    # Pré-validation gratuite (nom, type, taille, contenu) : un fichier refusé ne doit pas consommer le quota RAG.
+    try:
+        validate_uploaded_document(
+            payload.filename, raw_bytes, mime_type=payload.mime_type, max_bytes=max_bytes
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _consume_user_quota(owner_id, x_premium_key, "daily_rag", sub_store, "Quota journalier d'indexation documentaire RAG atteint.")
 
     try:
         return doc_store.ingest_document(

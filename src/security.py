@@ -19,7 +19,15 @@ _ALLOWED_MIME_PREFIXES = (
     "application/json",
     "text/plain",
     "text/markdown",
+    "text/x-markdown",
+    "text/comma-separated-values",
+    "application/csv",
+    "application/x-pdf",
+    "application/vnd.ms-excel",  # Android déclare ainsi certains .csv
 )
+# Les navigateurs mobiles (iOS Safari, Android) envoient souvent un MIME vide ou générique :
+# l'extension + les magic bytes décident alors (vérifiés plus bas).
+_GENERIC_MIME_TYPES = {"", "application/octet-stream", "binary/octet-stream", "application/unknown"}
 _INDIRECT_INJECTION_RE = re.compile(
     r"(?:ignore\s+(?:all\s+)?previous\s+instructions|ignore[rz]?\s+toutes?\s+les?\s+instructions?|"
     r"system\s+prompt|prompt\s+syst[eè]me|you\s+are\s+now|tu\s+es\s+maintenant|"
@@ -114,7 +122,8 @@ def validate_uploaded_document(
     if ext not in _ALLOWED_EXTENSIONS:
         raise ValueError(f"Extension non autorisée ({ext}). Autorisées : {sorted(_ALLOWED_EXTENSIONS)}")
 
-    if mime_type and not any(mime_type.lower().startswith(p) for p in _ALLOWED_MIME_PREFIXES):
+    mime_clean = (mime_type or "").strip().lower()
+    if mime_clean not in _GENERIC_MIME_TYPES and not any(mime_clean.startswith(p) for p in _ALLOWED_MIME_PREFIXES):
         raise ValueError(f"Type MIME non autorisé : {mime_type}")
 
     if len(content_bytes) == 0:

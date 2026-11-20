@@ -1818,7 +1818,7 @@ class ApiService {
             if (chunkOffset > 0) 'chunk_offset': chunkOffset,
           }),
         )
-        .timeout(const Duration(seconds: 40));
+        .timeout(const Duration(seconds: 120));
     if (resp.statusCode == 200) {
       return Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
