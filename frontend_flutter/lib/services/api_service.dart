@@ -964,6 +964,7 @@ class ApiService {
     bool setActive = false,
     bool? enabled,
     String reason = 'Admin AI Control Center',
+    bool force = false,
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/admin/ai/models/$modelId/status');
     final resp = await _client
@@ -979,6 +980,7 @@ class ApiService {
             'set_active': setActive,
             if (enabled != null) 'enabled': enabled,
             'reason': reason,
+            if (force) 'force': true,
           }),
         )
         .timeout(const Duration(seconds: 20));
@@ -1013,6 +1015,25 @@ class ApiService {
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Erreur rollback modèle ML'));
+  }
+
+  /// Éligibilité d'une version à la production : {eligible: bool, blockers: [String]}.
+  Future<Map<String, dynamic>> getAdminMlPromotionCheck(
+    String adminToken,
+    String modelId,
+    int version,
+  ) async {
+    final uri = Uri.parse(
+        '$baseUrl/api/v1/admin/ai/models/$modelId/versions/$version/promotion-check');
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 15));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Vérification d\'éligibilité impossible'));
   }
 
   Future<Map<String, dynamic>> compareAdminMlModelVersions(

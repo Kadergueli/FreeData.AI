@@ -389,9 +389,26 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
           orElse: () => null,
         );
 
-    final confirmed = await showDialog<bool>(
+    // Éligibilité calculée par le serveur (garde-fou de mise en production).
+    List<String> blockers = const [];
+    var checkUnavailable = false;
+    try {
+      final check = await widget.apiService
+          .getAdminMlPromotionCheck(widget.adminToken, modelId, version);
+      blockers = (check['blockers'] as List? ?? const [])
+          .map((e) => e.toString())
+          .toList();
+    } catch (_) {
+      checkUnavailable = true;
+    }
+    if (!mounted) return;
+    final justificationCtrl = TextEditingController();
+
+    // Retourne null (annulé), '' (déploiement normal) ou la justification (contournement).
+    final decision = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
         title: const Text('Approbation de déploiement en production'),
         content: SingleChildScrollView(
           child: Column(
@@ -418,6 +435,38 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                         : AppColors.muted),
               ),
               const SizedBox(height: 8),
+              const SizedBox(height: 8),
+              if (checkUnavailable)
+                Text(
+                  'Éligibilité non vérifiable (serveur injoignable) : le serveur refusera le déploiement si les conditions ne sont pas remplies.',
+                  style: TextStyle(fontSize: 12.5, color: Colors.orange.shade800),
+                )
+              else if (blockers.isEmpty)
+                const Text('✓ Éligible : toutes les conditions de mise en production sont remplies.',
+                    style: TextStyle(fontSize: 12.5, color: Colors.green))
+              else ...[
+                const Text('Non éligible à la production :',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.red)),
+                ...blockers.map((b) => Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text('• $b', style: const TextStyle(fontSize: 12.5)),
+                    )),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: justificationCtrl,
+                  maxLength: 300,
+                  maxLines: 2,
+                  onChanged: (_) => setDlg(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Justification du contournement (20 caractères min.)',
+                    helperText: 'Enregistrée dans le journal d’audit.',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
               const Text(
                 'Conséquence : cette version deviendra la version active sélectionnée par le registre ML. L’action est enregistrée dans le journal d’audit.',
                 style: TextStyle(fontSize: 12, color: AppColors.muted),
@@ -427,18 +476,30 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Annuler'),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirmer le déploiement'),
-          ),
+          if (blockers.isEmpty)
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              child: const Text('Confirmer le déploiement'),
+            )
+          else
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: justificationCtrl.text.trim().length >= 20
+                  ? () => Navigator.pop(ctx, justificationCtrl.text.trim())
+                  : null,
+              child: const Text('Contourner le garde-fou'),
+            ),
         ],
+        ),
       ),
     );
+    justificationCtrl.dispose();
 
-    if (confirmed != true || !mounted) return;
+    if (decision == null || !mounted) return;
+    final forced = decision.isNotEmpty;
     try {
       await widget.apiService.transitionAdminMlModelStatus(
         widget.adminToken,
@@ -447,7 +508,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
         lifecycleStatus: 'DEPLOYED',
         setActive: true,
         enabled: true,
-        reason: 'Manual approval via ML Benchmark Studio',
+        reason: forced ? decision : 'Manual approval via ML Benchmark Studio',
+        force: forced,
       );
       await widget.onRefreshOverview();
       if (!mounted) return;
