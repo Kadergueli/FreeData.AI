@@ -1220,13 +1220,14 @@ void main() {
     expect(find.text('Saisonnalité & Stockage · Mil'), findsNothing);
     expect(find.text('Radar Anomalies & Qualité'), findsNothing);
 
-    // 2. En mode Partenaire / Pro, les 2 actions rapides B2B apparaissent
+    // 2. En mode Partenaire / Pro, l'action rapide B2B « Saisonnalité & Stockage » apparaît
     proApi.setRuntimePremiumKey(_ReducedForecastFakeApi._expectedRenderKey);
     await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
     await tester.pumpAndSettle();
     expect(find.text('Saisonnalité & Stockage · Mil'), findsOneWidget);
-    expect(find.text('Radar Anomalies & Qualité'), findsOneWidget);
+    // L'action « Radar Anomalies & Qualité » a été retirée du chat (disponible dans l'onglet Prévisions).
+    expect(find.text('Radar Anomalies & Qualité'), findsNothing);
 
     // 3. ForecastScreen en mode Pro : bandeau Track Record + onglet Anomalies & Qualité
     await tester.pumpWidget(
