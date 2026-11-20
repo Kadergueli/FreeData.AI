@@ -418,10 +418,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('SupportScreen validates short fields and submits ticket cleanly',
+  testWidgets(
+      'SupportScreen gates guest access and submits ticket when signed in',
       (tester) async {
-    final api = _AuditFakeApiService();
-    await tester.pumpWidget(MaterialApp(home: SupportScreen(apiService: api)));
+    final guestApi = _AuditFakeApiService();
+    await tester
+        .pumpWidget(MaterialApp(home: SupportScreen(apiService: guestApi)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Se connecter'), findsOneWidget);
+    expect(find.text('Envoyer la demande'), findsNothing);
+
+    final api = _AuditFakeApiService()
+      ..setAuthSession(
+          token: 'test-bearer-token', user: const {'email': 'u@test.td'});
+    await tester.pumpWidget(MaterialApp(
+        home: SupportScreen(key: const ValueKey('auth'), apiService: api)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Envoyer la demande'));
@@ -485,8 +497,8 @@ void main() {
             SettingsScreen(key: const ValueKey('logged-in'), apiService: api)));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Connecté : kader@freedata.td (Kader)'),
-        findsOneWidget);
+    expect(find.textContaining('Kader · kader@freedata.td'), findsOneWidget);
+    expect(find.text('ABONNEMENT PRO'), findsOneWidget);
     expect(find.text('Se déconnecter'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -589,19 +601,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Amina'), findsWidgets);
-    expect(find.text('amina@freedata.td'), findsOneWidget);
+    expect(find.text('amina@freedata.td'), findsWidgets);
     expect(find.text('PLAN GRATUIT'), findsOneWidget);
+
+    final editNameBtn = find.byKey(const ValueKey('edit-name-btn'));
+    await tester.scrollUntilVisible(editNameBtn, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(editNameBtn);
+    await tester.pumpAndSettle();
 
     final nameField =
         find.widgetWithText(TextField, 'Nom ou organisation affichée');
-    await tester.scrollUntilVisible(nameField, 200,
-        scrollable: find.byType(Scrollable).first);
     await tester.enterText(nameField, 'Amina Agri-Tchad');
-
-    final saveBtn = find.text('Enregistrer le profil');
-    await tester.scrollUntilVisible(saveBtn, 200,
-        scrollable: find.byType(Scrollable).first);
-    await tester.tap(saveBtn);
+    await tester.tap(find.text('Enregistrer'));
     await tester.pumpAndSettle();
 
     expect(api.lastUpdatedDisplayName, 'Amina Agri-Tchad');

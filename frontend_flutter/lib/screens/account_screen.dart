@@ -28,10 +28,6 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  final _nameCtrl = TextEditingController();
-  final _curPassCtrl = TextEditingController();
-  final _newPassCtrl = TextEditingController();
-
   Map<String, dynamic>? _billing;
   List<Map<String, dynamic>> _myDocs = const [];
   bool _loadingBilling = false;
@@ -42,16 +38,14 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   void initState() {
     super.initState();
-    _nameCtrl.text =
-        widget.apiService.authUser?['display_name']?.toString() ?? '';
+    if (widget.apiService.isAuthenticated) {
+      _billing = widget.apiService.cachedMyBilling;
+    }
     _loadBilling();
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _curPassCtrl.dispose();
-    _newPassCtrl.dispose();
     super.dispose();
   }
 
@@ -59,11 +53,16 @@ class _AccountScreenState extends State<AccountScreen> {
     if (!widget.apiService.isAuthenticated) return;
     setState(() => _loadingBilling = true);
     try {
-      final b = await widget.apiService.getMyBilling();
-      List<Map<String, dynamic>> docs = const [];
-      try {
-        docs = await widget.apiService.listUserDocuments();
-      } catch (_) {}
+      final billingFuture = widget.apiService
+          .getMyBilling()
+          .then<Map<String, dynamic>?>((v) => v)
+          .catchError((_) => null);
+      final docsFuture = widget.apiService
+          .listUserDocuments()
+          .catchError((_) => const <Map<String, dynamic>>[]);
+      final results = await Future.wait<Object?>([billingFuture, docsFuture]);
+      final b = results[0] as Map<String, dynamic>?;
+      final docs = results[1] as List<Map<String, dynamic>>;
       if (!mounted) return;
       setState(() {
         _billing = b;
@@ -76,6 +75,30 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _deleteDoc(String docId, String filename) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer ce document ?'),
+        content: Text(
+          'Le document « $filename » et ses segments d’indexation seront définitivement supprimés de votre compte.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
     try {
       await widget.apiService.deleteUserDocument(docId);
       if (!mounted) return;
@@ -99,61 +122,182 @@ class _AccountScreenState extends State<AccountScreen> {
           apiService: widget.apiService, initialRegisterMode: register),
     );
     if (ok == true && mounted) {
-      _nameCtrl.text =
-          widget.apiService.authUser?['display_name']?.toString() ?? '';
       widget.onSessionChanged?.call();
       await _loadBilling();
       if (mounted) setState(() {});
     }
   }
 
-  Future<void> _saveProfile() async {
+  Future<void> _openEditNameDialog() async {
     if (_savingProfile) return;
-    setState(() => _savingProfile = true);
+    final currentName =
+        widget.apiService.authUser?['display_name']?.toString() ?? '';
+    final ctrl = TextEditingController(text: currentName);
+    String? errorText;
     try {
-      await widget.apiService.updateProfile(displayName: _nameCtrl.text.trim());
-      widget.onSessionChanged?.call();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil mis à jour.')),
+      final newName = await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Modifier le nom'),
+            content: SizedBox(
+              width: 380,
+              child: TextField(
+                controller: ctrl,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'Nom ou organisation affichée',
+                  errorText: errorText,
+                ),
+                onSubmitted: (_) {
+                  final v = ctrl.text.trim();
+                  if (v.length < 2) {
+                    setDialogState(() => errorText = 'Minimum 2 caractères.');
+                    return;
+                  }
+                  Navigator.pop(ctx, v);
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final v = ctrl.text.trim();
+                  if (v.length < 2) {
+                    setDialogState(() => errorText = 'Minimum 2 caractères.');
+                    return;
+                  }
+                  Navigator.pop(ctx, v);
+                },
+                child: const Text('Enregistrer'),
+              ),
+            ],
+          ),
+        ),
       );
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+      if (newName == null || !mounted) return;
+      setState(() => _savingProfile = true);
+      try {
+        await widget.apiService.updateProfile(displayName: newName);
+        widget.onSessionChanged?.call();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nom mis à jour.')),
+        );
+        setState(() {});
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+      } finally {
+        if (mounted) setState(() => _savingProfile = false);
+      }
     } finally {
-      if (mounted) setState(() => _savingProfile = false);
+      ctrl.dispose();
     }
   }
 
-  Future<void> _changePassword() async {
+  Future<void> _openChangePasswordDialog() async {
     if (_changingPass) return;
-    final cur = _curPassCtrl.text;
-    final next = _newPassCtrl.text;
-    if (cur.isEmpty || next.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Saisissez votre mot de passe actuel et un nouveau (min. 8 caractères).')),
-      );
-      return;
-    }
-    setState(() => _changingPass = true);
+    final curCtrl = TextEditingController();
+    final nextCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    String? errorText;
     try {
-      await widget.apiService
-          .changePassword(currentPassword: cur, newPassword: next);
-      _curPassCtrl.clear();
-      _newPassCtrl.clear();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mot de passe modifié avec succès.')),
+      final result = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Changer le mot de passe'),
+            content: SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: curCtrl,
+                    obscureText: true,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Mot de passe actuel',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: nextCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Nouveau mot de passe',
+                      helperText: 'Minimum 8 caractères',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: confirmCtrl,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Confirmer le nouveau mot de passe',
+                      errorText: errorText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final cur = curCtrl.text;
+                  final next = nextCtrl.text;
+                  final conf = confirmCtrl.text;
+                  if (cur.isEmpty || next.length < 8) {
+                    setDialogState(() => errorText =
+                        'Mot de passe actuel requis et 8 caractères minimum.');
+                    return;
+                  }
+                  if (next != conf) {
+                    setDialogState(() =>
+                        errorText = 'Les nouveaux mots de passe diffèrent.');
+                    return;
+                  }
+                  Navigator.pop(ctx, {'cur': cur, 'next': next});
+                },
+                child: const Text('Mettre à jour'),
+              ),
+            ],
+          ),
+        ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (result == null || !mounted) return;
+      setState(() => _changingPass = true);
+      try {
+        await widget.apiService.changePassword(
+          currentPassword: result['cur']!,
+          newPassword: result['next']!,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Mot de passe modifié avec succès.')),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      } finally {
+        if (mounted) setState(() => _changingPass = false);
+      }
     } finally {
-      if (mounted) setState(() => _changingPass = false);
+      curCtrl.dispose();
+      nextCtrl.dispose();
+      confirmCtrl.dispose();
     }
   }
 
@@ -394,6 +538,31 @@ class _AccountScreenState extends State<AccountScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
+                      if (_billing?['usage'] is Map) ...[
+                        Builder(builder: (_) {
+                          final usage = _billing!['usage'] as Map;
+                          final chatUsed = usage['daily_chat_used'] ?? 0;
+                          final chatLimit =
+                              usage['daily_chat_limit'] ?? (isPro ? 500 : 30);
+                          return Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FDBadge(
+                                label: 'Messages IA : $chatUsed / $chatLimit',
+                                color: AppColors.ink,
+                                backgroundColor: AppColors.canvas,
+                              ),
+                              FDBadge(
+                                label: 'Documents privés : ${_myDocs.length}',
+                                color: AppColors.blue,
+                                backgroundColor: AppColors.blueSoft,
+                              ),
+                            ],
+                          );
+                        }),
+                        const SizedBox(height: 12),
+                      ],
                       FDSecondaryButton(
                         label: isPro
                             ? 'Gérer mon abonnement & quotas'
@@ -412,35 +581,67 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                // Profil
+                // Informations personnelles (lecture seule + modal sur action, style Google / ChatGPT)
                 FDCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Profil',
+                      const Text('Informations personnelles',
                           style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: AppColors.ink)),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _nameCtrl,
-                        decoration: const InputDecoration(
-                            labelText: 'Nom ou organisation affichée'),
+                      const SizedBox(height: 8),
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Nom affiché',
+                          style:
+                              TextStyle(fontSize: 12.5, color: AppColors.muted),
+                        ),
+                        subtitle: Text(
+                          name.isNotEmpty ? name : 'Non renseigné',
+                          style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink),
+                        ),
+                        trailing: TextButton(
+                          key: const ValueKey('edit-name-btn'),
+                          onPressed:
+                              _savingProfile ? null : _openEditNameDialog,
+                          child: Text(
+                              _savingProfile ? 'Enregistrement…' : 'Modifier'),
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      FDPrimaryButton(
-                        label: _savingProfile
-                            ? 'Enregistrement…'
-                            : 'Enregistrer le profil',
-                        icon: Icons.save_outlined,
-                        onPressed: _savingProfile ? null : _saveProfile,
+                      const Divider(height: 12),
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Adresse e-mail',
+                          style:
+                              TextStyle(fontSize: 12.5, color: AppColors.muted),
+                        ),
+                        subtitle: Text(
+                          email,
+                          style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink),
+                        ),
+                        trailing: const Icon(
+                          Icons.lock_outline_rounded,
+                          size: 18,
+                          color: AppColors.subtle,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                // Sécurité & mot de passe
+                // Sécurité & mot de passe (lecture seule + modal dédiée)
                 FDCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,29 +651,30 @@ class _AccountScreenState extends State<AccountScreen> {
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                               color: AppColors.ink)),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _curPassCtrl,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                            labelText: 'Mot de passe actuel'),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _newPassCtrl,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Nouveau mot de passe',
-                          helperText: 'Minimum 8 caractères',
+                      const SizedBox(height: 8),
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Mot de passe',
+                          style:
+                              TextStyle(fontSize: 12.5, color: AppColors.muted),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      FDSecondaryButton(
-                        label: _changingPass
-                            ? 'Mise à jour…'
-                            : 'Changer le mot de passe',
-                        icon: Icons.lock_reset_rounded,
-                        onPressed: _changingPass ? null : _changePassword,
+                        subtitle: const Text(
+                          '••••••••••••',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.5,
+                              color: AppColors.ink),
+                        ),
+                        trailing: TextButton(
+                          key: const ValueKey('edit-password-btn'),
+                          onPressed:
+                              _changingPass ? null : _openChangePasswordDialog,
+                          child:
+                              Text(_changingPass ? 'Mise à jour…' : 'Modifier'),
+                        ),
                       ),
                     ],
                   ),
@@ -484,7 +686,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Mon Coffre-fort de Documents Privés (Jina & Groq)',
+                        'Coffre-fort de documents privés',
                         style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
@@ -492,7 +694,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'Vos documents (PDF, CSV, TXT, MD, JSON) joints depuis le bouton 📎 du chat sont indexés par Jina Embeddings v3 et interprétés par Groq. Ils sont strictement isolés sur votre compte.',
+                        'Vos documents (PDF, CSV, TXT, MD, JSON) joints depuis le chat sont indexés pour la recherche sémantique IA et restent strictement isolés sur votre compte.',
                         style: TextStyle(fontSize: 13, color: AppColors.muted),
                       ),
                       const SizedBox(height: 10),
@@ -507,8 +709,8 @@ class _AccountScreenState extends State<AccountScreen> {
                           final docId = d['doc_id']?.toString() ?? '';
                           final fname = d['filename']?.toString() ?? 'Document';
                           final chunks = d['chunks_count'] ?? 1;
-                          final provider =
-                              d['embedding_provider'] ?? 'jina-embeddings-v3';
+                          final idxStatus =
+                              d['indexing_status']?.toString() ?? 'complete';
                           return ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
@@ -519,7 +721,7 @@ class _AccountScreenState extends State<AccountScreen> {
                                     fontWeight: FontWeight.w600,
                                     color: AppColors.ink)),
                             subtitle: Text(
-                                '$chunks segment(s) · Moteur : $provider',
+                                '$chunks segment(s) · Indexation : ${idxStatus == 'complete' ? 'Complète' : 'Partielle'}',
                                 style: const TextStyle(
                                     fontSize: 12, color: AppColors.muted)),
                             trailing: IconButton(

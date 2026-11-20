@@ -82,43 +82,55 @@ class _ForecastScreenState extends State<ForecastScreen> {
   }
 
   Future<void> _init() async {
-    try {
-      final meta = await widget.apiService.getMetadata();
-      final legacy = meta['legacy_fields'];
-      final rawProvs = meta['provinces'] ??
-          (legacy is Map ? legacy['provinces'] : null) ??
-          const [];
-      final rawComms = meta['products'] ??
-          (legacy is Map ? legacy['commodities'] : null) ??
-          meta['commodities'] ??
-          const [];
-      final rawTrack = meta['track_records'];
-      final provs = List<String>.from(rawProvs);
-      final comms = List<String>.from(rawComms);
-      if (!mounted) return;
-      if (provs.isNotEmpty || comms.isNotEmpty || rawTrack is Map) {
-        setState(() {
-          if (provs.isNotEmpty) {
-            _provinces = provs;
-            _selectedProvince =
-                provs.contains("N'Djamena") ? "N'Djamena" : provs.first;
+    Future<void> loadMeta() async {
+      try {
+        final meta = await widget.apiService.getMetadata();
+        final legacy = meta['legacy_fields'];
+        final rawProvs = meta['provinces'] ??
+            (legacy is Map ? legacy['provinces'] : null) ??
+            const [];
+        final rawComms = meta['products'] ??
+            (legacy is Map ? legacy['commodities'] : null) ??
+            meta['commodities'] ??
+            const [];
+        final rawTrack = meta['track_records'];
+        final provs = List<String>.from(rawProvs);
+        final comms = List<String>.from(rawComms);
+        if (!mounted) return;
+        if (provs.isNotEmpty || comms.isNotEmpty || rawTrack is Map) {
+          final prevProv = _selectedProvince;
+          final prevComm = _selectedCommodity;
+          setState(() {
+            if (provs.isNotEmpty) {
+              _provinces = provs;
+              if (!provs.contains(_selectedProvince)) {
+                _selectedProvince =
+                    provs.contains("N'Djamena") ? "N'Djamena" : provs.first;
+              }
+            }
+            if (comms.isNotEmpty) {
+              _commodities = comms;
+              if (!comms.contains(_selectedCommodity)) {
+                _selectedCommodity =
+                    comms.contains('Millet') ? 'Millet' : comms.first;
+              }
+            }
+            if (rawTrack is Map) {
+              _trackRecords = Map<String, dynamic>.from(rawTrack);
+            }
+          });
+          if ((_selectedProvince != prevProv ||
+                  _selectedCommodity != prevComm) &&
+              mounted) {
+            await _loadCurrentMode();
           }
-          if (comms.isNotEmpty) {
-            _commodities = comms;
-            _selectedCommodity =
-                comms.contains('Millet') ? 'Millet' : comms.first;
-          }
-          if (rawTrack is Map) {
-            _trackRecords = Map<String, dynamic>.from(rawTrack);
-          }
-        });
+        }
+      } catch (_) {
+        // Conservation des filtres par défaut si les métadonnées échouent.
       }
-    } catch (_) {
-      // Conservation des filtres par défaut si les métadonnées échouent.
     }
-    if (mounted) {
-      await _loadCurrentMode();
-    }
+
+    await Future.wait([loadMeta(), _loadCurrentMode()]);
   }
 
   Future<void> _loadCurrentMode() async {

@@ -64,15 +64,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   static const List<Map<String, String>> _domainChoices = [
     // « auto » (et non null) : un PopupMenuItem de valeur null n'appelle jamais onSelected.
-    {'id': 'auto', 'label': 'Auto'},
-    {'id': 'chad_intelligence', 'label': 'Tchad'},
-    {'id': 'business_entrepreneurship', 'label': 'Business'},
-    {'id': 'finance', 'label': 'Finance'},
+    {'id': 'auto', 'label': 'Auto (Tchad)'},
+    {'id': 'markets_and_prices', 'label': 'Marchés & Prix'},
     {'id': 'agriculture', 'label': 'Agriculture'},
-    {'id': 'data_science', 'label': 'Data Science'},
-    {'id': 'education', 'label': 'Éducation'},
-    {'id': 'tech_programming', 'label': 'Tech & Code'},
-    {'id': 'productivity', 'label': 'Productivité'},
+    {'id': 'economy', 'label': 'Économie'},
+    {'id': 'health', 'label': 'Santé'},
+    {'id': 'population', 'label': 'Population'},
+    {'id': 'environment', 'label': 'Environnement'},
+    {'id': 'infrastructure', 'label': 'Infrastructures'},
+    {'id': 'transport', 'label': 'Transport'},
   ];
 
   static const List<_QuickAction> _quickActions = [
@@ -99,20 +99,12 @@ class _ChatScreenState extends State<ChatScreen> {
     ),
   ];
 
-  static const List<_QuickAction> _proQuickActions = [
-    _QuickAction(
-      icon: Icons.calendar_month_rounded,
-      label: "Saisonnalité & Stockage · Mil",
-      prompt:
-          "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
-    ),
-    _QuickAction(
-      icon: Icons.radar_rounded,
-      label: "Radar Anomalies & Qualité",
-      prompt:
-          "Quelles sont les anomalies de prix ou séries figées récentes sur les marchés ?",
-    ),
-  ];
+  static const _QuickAction _proQuickAction = _QuickAction(
+    icon: Icons.calendar_month_rounded,
+    label: "Saisonnalité & Stockage · Mil",
+    prompt:
+        "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
+  );
 
   /// Sauvegarde locale tolérante : si le stockage du navigateur est plein ou indisponible, la conversation reste
   /// affichée en mémoire et l'envoi n'est jamais bloqué (sinon le spinner tournerait indéfiniment).
@@ -181,8 +173,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ?..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-              'Indexation sémantique Jina en cours pour « ${picked.name} »…'),
+          content:
+              Text('Indexation sémantique en cours pour « ${picked.name} »…'),
         ),
       );
     try {
@@ -217,7 +209,6 @@ class _ChatScreenState extends State<ChatScreen> {
     await _loadUserDocuments();
     if (!mounted) return;
     final chunksCount = uploaded['chunks_count'] ?? 1;
-    final provider = uploaded['embedding_provider'] ?? 'jina';
     final isTruncated = uploaded['truncated'] == true;
     final nextOffset = uploaded['next_offset'];
     final warning = uploaded['indexing_warning']?.toString();
@@ -227,7 +218,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ? 'Document « ${picked.name} » déjà indexé dans cet espace.'
         : (isTruncated && warning != null && warning.isNotEmpty)
             ? warning
-            : 'Document privé « ${picked.name} » indexé ($chunksCount segments · $provider). Posez votre question !';
+            : 'Document privé « ${picked.name} » indexé ($chunksCount segments). Posez votre question !';
 
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
@@ -792,11 +783,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildEmptyState() {
     final activeProj = _effectiveProject();
+    final isPro = widget.apiService.hasPremiumKey;
+    final actions = isPro
+        ? <_QuickAction>[..._quickActions.take(3), _proQuickAction]
+        : _quickActions;
+
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
+          constraints: const BoxConstraints(maxWidth: 680),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -807,93 +803,39 @@ class _ChatScreenState extends State<ChatScreen> {
                     : 'Que souhaitez-vous analyser ?',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 22,
+                  fontSize: 26,
                   fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
                   color: FDTheme.ink,
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                activeProj != null
-                    ? 'Vos paramètres métier et documents PDF de ce dossier sont automatiquement pris en compte.'
-                    : 'Données terrain certifiées FEWS NET / WFP · Analyses Jina & Groq · Zéro chiffre inventé.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: FDTheme.muted),
-              ),
-              const SizedBox(height: 18),
+              if (activeProj != null) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Vos paramètres métier et documents de ce dossier sont pris en compte automatiquement.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: FDTheme.muted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
               Wrap(
                 alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  ..._quickActions.map((a) => _buildQuickActionButton(a)),
-                  if (widget.apiService.hasPremiumKey)
-                    ..._proQuickActions
-                        .map((a) => _buildQuickActionButton(a, isPro: true)),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _buildRoleStarterChip(
-                    icon: Icons.storefront_outlined,
-                    role: 'Commerçant',
-                    prompt:
-                        'Je veux acheter du mil au Salamat avec 2 000 000 FCFA pour le revendre à N’Djamena. Simule ma marge nette.',
-                  ),
-                  _buildRoleStarterChip(
-                    icon: Icons.account_balance_outlined,
-                    role: 'Microfinance / IMF',
-                    prompt:
-                        'Évalue le Credit Passport et le LTV indicatif pour financer un stock de 5 000 000 FCFA d’arachide au Logone Occidental.',
-                  ),
-                  _buildRoleStarterChip(
-                    icon: Icons.volunteer_activism_outlined,
-                    role: 'ONG / Chercheur',
-                    prompt:
-                        'Quelles sont les alertes de hausse de prix (>15%) et les provinces les plus volatiles ce mois-ci au Tchad ?',
-                  ),
+                  for (var i = 0; i < actions.length; i++)
+                    _buildQuickActionButton(
+                      actions[i],
+                      isPro: isPro && i == actions.length - 1,
+                    ),
                 ],
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoleStarterChip({
-    required IconData icon,
-    required String role,
-    required String prompt,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => _sendMessage(prompt),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-        decoration: BoxDecoration(
-          color: FDTheme.canvasSoft,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: FDTheme.line),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: FDTheme.blue),
-            const SizedBox(width: 6),
-            Text(
-              'Mode $role',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: FDTheme.ink,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -1081,17 +1023,17 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 820),
+          constraints: const BoxConstraints(maxWidth: 760),
           child: Container(
             decoration: BoxDecoration(
               color: FDTheme.surface,
               border: Border.all(color: FDTheme.borderStrong, width: 1),
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(24),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x140F172A),
-                  blurRadius: 16,
-                  offset: Offset(0, 4),
+                  color: Color(0x0C0F172A),
+                  blurRadius: 14,
+                  offset: Offset(0, 3),
                 ),
               ],
             ),
@@ -1175,8 +1117,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     if (!_loading) _sendMessage(_controller.text);
                   },
                   decoration: const InputDecoration(
-                    hintText:
-                        'Posez une question, analysez un marché ou rédigez un projet...',
+                    hintText: 'Posez une question ou joignez un document…',
                     hintStyle: TextStyle(
                       color: FDTheme.subtle,
                       fontSize: 15,
@@ -1196,10 +1137,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    // Bouton Joindre un document privé (PDF / CSV / TXT / MD / JSON -> Jina + Groq)
+                    // Bouton Joindre un document privé (PDF / CSV / TXT / MD / JSON)
                     Tooltip(
-                      message:
-                          'Joindre un document privé (PDF, CSV, TXT, MD — indexé par Jina)',
+                      message: 'Joindre un document privé (PDF, CSV, TXT, MD)',
                       child: InkWell(
                         borderRadius: BorderRadius.circular(99),
                         onTap: _uploadingDoc ? null : _handleAttachDocument,
@@ -1383,13 +1323,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
                 if (_selectedDomain != 'auto' &&
-                    _selectedDomain != 'agriculture' &&
-                    _selectedDomain != 'chad_intelligence') ...[
+                    _selectedDomain != 'markets_and_prices') ...[
                   const SizedBox(height: 4),
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Données terrain vérifiées : marchés agricoles du Tchad · Autres domaines : analyse sur vos hypothèses.',
+                      'Domaine Tchad en préparation : analyse basée sur vos documents privés et les données Marchés & Prix disponibles.',
                       style: TextStyle(fontSize: 10.5, color: FDTheme.subtle),
                     ),
                   ),

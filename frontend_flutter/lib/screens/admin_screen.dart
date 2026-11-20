@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
@@ -22,6 +23,7 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _users = const [];
   List<Map<String, dynamic>> _tickets = const [];
   List<Map<String, dynamic>> _paymentRequests = const [];
+  List<Map<String, dynamic>> _proKeys = const [];
   int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements
   bool _loading = false;
   bool _probing = false;
@@ -54,10 +56,18 @@ class _AdminScreenState extends State<AdminScreen> {
         widget.apiService.getAdminSupportTickets(_token),
       ]);
       List<Map<String, dynamic>> payReqs = const [];
+      List<Map<String, dynamic>> proKeys = const [];
       if (perms.contains('manage_subscriptions')) {
-        try {
-          payReqs = await widget.apiService.getAdminPaymentRequests(_token);
-        } catch (_) {}
+        final billingRes = await Future.wait<List<Map<String, dynamic>>>([
+          widget.apiService
+              .getAdminPaymentRequests(_token)
+              .catchError((_) => const <Map<String, dynamic>>[]),
+          widget.apiService
+              .listAdminProKeys(_token)
+              .catchError((_) => const <Map<String, dynamic>>[]),
+        ]);
+        payReqs = billingRes[0];
+        proKeys = billingRes[1];
       }
       if (!mounted) return;
       setState(() {
@@ -66,6 +76,7 @@ class _AdminScreenState extends State<AdminScreen> {
         _users = results[1] as List<Map<String, dynamic>>;
         _tickets = results[2] as List<Map<String, dynamic>>;
         _paymentRequests = payReqs;
+        _proKeys = proKeys;
         _loading = false;
       });
     } catch (e) {
@@ -101,6 +112,130 @@ class _AdminScreenState extends State<AdminScreen> {
         _probing = false;
         _error = e.toString();
       });
+    }
+  }
+
+  Future<void> _generateProKeyDialog() async {
+    int selectedDays = 30;
+    final noteCtrl = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Générer une clé PRO unique'),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    initialValue: selectedDays,
+                    decoration: const InputDecoration(labelText: 'Durée PRO'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 30, child: Text('30 jours (1 mois)')),
+                      DropdownMenuItem(
+                          value: 90, child: Text('90 jours (3 mois)')),
+                      DropdownMenuItem(
+                          value: 180, child: Text('180 jours (6 mois)')),
+                      DropdownMenuItem(
+                          value: 365, child: Text('365 jours (1 an)')),
+                    ],
+                    onChanged: (v) =>
+                        setDialogState(() => selectedDays = v ?? 30),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: noteCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Client / Référence (optionnel)',
+                      hintText: 'Ex. Coopérative Salamat — reçu #142',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Générer'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      final created = await widget.apiService.createAdminProKey(
+        _token,
+        durationDays: selectedDays,
+        note: noteCtrl.text.trim(),
+      );
+      await _loadAll();
+      if (!mounted) return;
+      final plainKey = created['activation_key']?.toString() ?? '';
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Clé PRO unique générée'),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Copiez et transmettez cette clé au client. Elle ne sera plus affichée en clair et ne pourra être activée que par un seul compte connecté.',
+                  style: TextStyle(fontSize: 13, color: AppColors.muted),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.blueSoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SelectableText(
+                    plainKey,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: AppColors.blueDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: plainKey));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Clé PRO copiée.')),
+                );
+              },
+              child: const Text('Copier'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+    } finally {
+      noteCtrl.dispose();
     }
   }
 
@@ -1055,6 +1190,87 @@ class _AdminScreenState extends State<AdminScreen> {
               ),
             ],
             if (_tab == 3 && _hasPerm('manage_subscriptions')) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Clés d’activation PRO uniques (1 clé = 1 compte)',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                        ),
+                        FDPrimaryButton(
+                          label: 'Générer une clé',
+                          icon: Icons.vpn_key_outlined,
+                          onPressed: _generateProKeyDialog,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_proKeys.isEmpty)
+                      const Text(
+                        'Aucune clé d’activation unique générée pour le moment.',
+                        style: TextStyle(color: AppColors.muted),
+                      )
+                    else
+                      ..._proKeys.map((k) {
+                        final keyId = k['key_id']?.toString() ?? '';
+                        final prefix = k['key_prefix']?.toString() ?? keyId;
+                        final status = k['status']?.toString() ?? 'unused';
+                        final days = k['duration_days'] ?? 30;
+                        final isUnused = status == 'unused';
+                        final statusLabel = status == 'redeemed'
+                            ? 'Utilisée'
+                            : (status == 'revoked' ? 'Révoquée' : 'Disponible');
+                        final statusColor = status == 'redeemed'
+                            ? AppColors.greenDark
+                            : (status == 'revoked'
+                                ? AppColors.danger
+                                : AppColors.blue);
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '$prefix… · $days j',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            'ID : $keyId · Statut : $statusLabel'
+                            '${(k['redeemed_by_user_id']?.toString().isNotEmpty ?? false) ? ' · Compte : ${k['redeemed_by_user_id']}' : ''}'
+                            '${(k['note']?.toString().isNotEmpty ?? false) ? '\nNote : ${k['note']}' : ''}',
+                          ),
+                          trailing: isUnused
+                              ? TextButton(
+                                  onPressed: () => _runAction(
+                                    () => widget.apiService
+                                        .revokeAdminProKey(_token, keyId),
+                                    'Clé PRO révoquée.',
+                                  ),
+                                  child: const Text(
+                                    'Révoquer',
+                                    style: TextStyle(color: AppColors.danger),
+                                  ),
+                                )
+                              : Text(
+                                  statusLabel,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: statusColor,
+                                  ),
+                                ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
               FDCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

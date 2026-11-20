@@ -69,7 +69,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
   PickedDocumentFile? _pickedCsv;
   List<String> _csvHeaders = const [];
   String? _csvValidationError;
-  String _selectedDomain = 'agriculture';
+  String _selectedDomain = 'markets_and_prices';
   String _selectedTask = 'forecasting';
   String? _targetColumn;
   String? _timeColumn;
@@ -409,90 +409,95 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
-        title: const Text('Approbation de déploiement en production'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Modèle : $modelId (v$version)',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              Text('Domaine : $domain · Tâche : $task'),
-              const SizedBox(height: 8),
-              Text(
-                'Métriques réelles : ${metrics.isEmpty ? 'Aucune' : metrics.entries.map((e) => '${e.key}=${e.value}').join(' · ')}',
-                style: const TextStyle(fontSize: 12.5),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                currentProd != null
-                    ? 'Modèle actuellement en production : ${currentProd['model_id']} v${currentProd['version']} (sera remplacé).'
-                    : 'Aucun modèle actif actuellement pour cet identifiant.',
-                style: TextStyle(
-                    fontSize: 12.5,
-                    color: currentProd != null
-                        ? Colors.orange.shade800
-                        : AppColors.muted),
-              ),
-              const SizedBox(height: 8),
-              const SizedBox(height: 8),
-              if (checkUnavailable)
-                Text(
-                  'Éligibilité non vérifiable (serveur injoignable) : le serveur refusera le déploiement si les conditions ne sont pas remplies.',
-                  style: TextStyle(fontSize: 12.5, color: Colors.orange.shade800),
-                )
-              else if (blockers.isEmpty)
-                const Text('✓ Éligible : toutes les conditions de mise en production sont remplies.',
-                    style: TextStyle(fontSize: 12.5, color: Colors.green))
-              else ...[
-                const Text('Non éligible à la production :',
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.red)),
-                ...blockers.map((b) => Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text('• $b', style: const TextStyle(fontSize: 12.5)),
-                    )),
+          title: const Text('Approbation de déploiement en production'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Modèle : $modelId (v$version)',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text('Domaine : $domain · Tâche : $task'),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: justificationCtrl,
-                  maxLength: 300,
-                  maxLines: 2,
-                  onChanged: (_) => setDlg(() {}),
-                  decoration: const InputDecoration(
-                    labelText: 'Justification du contournement (20 caractères min.)',
-                    helperText: 'Enregistrée dans le journal d’audit.',
+                Text(
+                  'Métriques réelles : ${metrics.isEmpty ? 'Aucune' : metrics.entries.map((e) => '${e.key}=${e.value}').join(' · ')}',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  currentProd != null
+                      ? 'Modèle actuellement en production : ${currentProd['model_id']} v${currentProd['version']} (sera remplacé).'
+                      : 'Aucun modèle actif actuellement pour cet identifiant.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      color: currentProd != null
+                          ? Colors.orange.shade800
+                          : AppColors.muted),
+                ),
+                const SizedBox(height: 8),
+                const SizedBox(height: 8),
+                if (checkUnavailable)
+                  Text(
+                    'Éligibilité non vérifiable (serveur injoignable) : le serveur refusera le déploiement si les conditions ne sont pas remplies.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.orange.shade800),
+                  )
+                else if (blockers.isEmpty)
+                  const Text(
+                      '✓ Éligible : toutes les conditions de mise en production sont remplies.',
+                      style: TextStyle(fontSize: 12.5, color: Colors.green))
+                else ...[
+                  const Text('Non éligible à la production :',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red)),
+                  ...blockers.map((b) => Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text('• $b',
+                            style: const TextStyle(fontSize: 12.5)),
+                      )),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: justificationCtrl,
+                    maxLength: 300,
+                    maxLines: 2,
+                    onChanged: (_) => setDlg(() {}),
+                    decoration: const InputDecoration(
+                      labelText:
+                          'Justification du contournement (20 caractères min.)',
+                      helperText: 'Enregistrée dans le journal d’audit.',
+                    ),
                   ),
+                ],
+                const SizedBox(height: 8),
+                const Text(
+                  'Conséquence : cette version deviendra la version active sélectionnée par le registre ML. L’action est enregistrée dans le journal d’audit.',
+                  style: TextStyle(fontSize: 12, color: AppColors.muted),
                 ),
               ],
-              const SizedBox(height: 8),
-              const Text(
-                'Conséquence : cette version deviendra la version active sélectionnée par le registre ML. L’action est enregistrée dans le journal d’audit.',
-                style: TextStyle(fontSize: 12, color: AppColors.muted),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuler'),
-          ),
-          if (blockers.isEmpty)
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, ''),
-              child: const Text('Confirmer le déploiement'),
-            )
-          else
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
-              onPressed: justificationCtrl.text.trim().length >= 20
-                  ? () => Navigator.pop(ctx, justificationCtrl.text.trim())
-                  : null,
-              child: const Text('Contourner le garde-fou'),
             ),
-        ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            if (blockers.isEmpty)
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, ''),
+                child: const Text('Confirmer le déploiement'),
+              )
+            else
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade700),
+                onPressed: justificationCtrl.text.trim().length >= 20
+                    ? () => Navigator.pop(ctx, justificationCtrl.text.trim())
+                    : null,
+                child: const Text('Contourner le garde-fou'),
+              ),
+          ],
         ),
       ),
     );
@@ -1471,7 +1476,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                   title: Text('${d['label_fr'] ?? domId} ($domId)',
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(
-                      'Tier: ${d['required_tier'] ?? 'free'} · Usages: ${d['usage_count'] ?? 0}'),
+                      'Données: ${d['data_status'] ?? 'in_preparation'} · Tier: ${d['required_tier'] ?? 'free'} · Usages: ${d['usage_count'] ?? 0}'),
                   value: active,
                   onChanged: widget.canManageModels
                       ? (val) async {

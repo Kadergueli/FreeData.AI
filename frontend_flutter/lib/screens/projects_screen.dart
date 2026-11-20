@@ -7,6 +7,7 @@ import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
+import '../widgets/auth_dialog.dart';
 
 class ProjectsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -147,15 +148,30 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (_) {}
   }
 
+  bool get _canAccessProjects =>
+      widget.apiService.isAuthenticated ||
+      widget.apiService.hasExplicitPremiumKey;
+
+  Future<void> _openAuth({bool register = false}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AuthDialog(
+        apiService: widget.apiService,
+        initialRegisterMode: register,
+      ),
+    );
+    if (ok == true && mounted) {
+      await _load();
+    }
+  }
+
   Future<void> _load() async {
-    if (!widget.apiService.isAuthenticated &&
-        !widget.apiService.hasExplicitPremiumKey) {
+    if (!_canAccessProjects) {
       if (!mounted) return;
       setState(() {
         _projects = [];
         _loading = false;
-        _error =
-            'Connectez-vous (onglet Compte) pour accéder à vos projets et études enregistrées.';
+        _error = null;
       });
       return;
     }
@@ -1237,8 +1253,6 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           final fname =
                               doc['filename']?.toString() ?? 'Document';
                           final chunks = doc['chunks_count'] ?? 0;
-                          final prov =
-                              doc['embedding_provider']?.toString() ?? 'jina';
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: FDCard(
@@ -1252,7 +1266,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis),
                                 subtitle: Text(
-                                  '$chunks segments · $prov · PDF conservé sur votre appareil',
+                                  '$chunks segment(s) · Document privé indexé',
                                   style: const TextStyle(
                                       fontSize: 12, color: AppColors.muted),
                                 ),
@@ -1288,32 +1302,83 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     // Pas d'AppBar ici : MainShell affiche déjà le titre (sinon deux barres empilées).
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
+      body: !_canAccessProjects
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  child: FDCard(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Vos projets & études enregistrées',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Connectez-vous ou créez un compte gratuit pour créer des dossiers projets, conserver vos discussions associées et générer des études PDF versionnées.',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color: AppColors.muted,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 8,
+                          children: [
+                            FDPrimaryButton(
+                              label: 'Se connecter',
+                              icon: Icons.login_rounded,
+                              onPressed: () => _openAuth(register: false),
+                            ),
+                            FDSecondaryButton(
+                              label: 'Créer un compte',
+                              icon: Icons.person_add_alt_1_rounded,
+                              onPressed: () => _openAuth(register: true),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : Column(
               children: [
-                FilterChip(
-                  label: const Text('Archivés'),
-                  selected: _includeArchived,
-                  onSelected: (v) {
-                    setState(() => _includeArchived = v);
-                    _load();
-                  },
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Row(
+                    children: [
+                      FilterChip(
+                        label: const Text('Archivés'),
+                        selected: _includeArchived,
+                        onSelected: (v) {
+                          setState(() => _includeArchived = v);
+                          _load();
+                        },
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Nouveau projet'),
+                        onPressed: _createProjectDialog,
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                TextButton.icon(
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Nouveau projet'),
-                  onPressed: _createProjectDialog,
-                ),
+                Expanded(child: _buildBody()),
               ],
             ),
-          ),
-          Expanded(child: _buildBody()),
-        ],
-      ),
     );
   }
 

@@ -43,32 +43,37 @@ class _PassportScreenState extends State<PassportScreen> {
   }
 
   Future<void> _init() async {
-    try {
-      final meta = await widget.apiService.getMetadata();
-      final legacy = meta['legacy_fields'];
-      final passportProds = meta['passport_products'];
-      final rawComms = (passportProds is List && passportProds.isNotEmpty)
-          ? passportProds
-          : (meta['products'] ??
-              (legacy is Map ? legacy['commodities'] : null) ??
-              meta['commodities'] ??
-              const []);
-      final comms =
-          List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
-      if (mounted && comms.isNotEmpty) {
-        setState(() {
-          _commodities = comms;
-          if (!comms.contains(_commodity)) {
-            _commodity = comms.contains('Millet') ? 'Millet' : comms.first;
+    Future<void> loadMeta() async {
+      try {
+        final meta = await widget.apiService.getMetadata();
+        final legacy = meta['legacy_fields'];
+        final passportProds = meta['passport_products'];
+        final rawComms = (passportProds is List && passportProds.isNotEmpty)
+            ? passportProds
+            : (meta['products'] ??
+                (legacy is Map ? legacy['commodities'] : null) ??
+                meta['commodities'] ??
+                const []);
+        final comms =
+            List<String>.from(rawComms).where((c) => c.isNotEmpty).toList();
+        if (mounted && comms.isNotEmpty) {
+          final prev = _commodity;
+          setState(() {
+            _commodities = comms;
+            if (!comms.contains(_commodity)) {
+              _commodity = comms.contains('Millet') ? 'Millet' : comms.first;
+            }
+          });
+          if (_commodity != prev && mounted) {
+            await _load();
           }
-        });
+        }
+      } catch (_) {
+        // Conservation de la liste par défaut si les métadonnées échouent.
       }
-    } catch (_) {
-      // Conservation de la liste par défaut si les métadonnées échouent.
     }
-    if (mounted) {
-      await _load();
-    }
+
+    await Future.wait([loadMeta(), _load()]);
   }
 
   int _requestToken = 0;

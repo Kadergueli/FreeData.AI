@@ -151,6 +151,7 @@ class _MainShellState extends State<MainShell> {
         }
       } catch (_) {}
     }
+    _apiService.prefetchBillingCatalog();
     if (urlKey != null && urlKey.isNotEmpty) {
       try {
         final isValid = await _apiService.verifyPremiumKey(urlKey);
@@ -485,7 +486,7 @@ class _MainShellState extends State<MainShell> {
     if (!mounted) return;
     _showSnackBar(
       const SnackBar(
-        content: Text('Statut Library mis à jour'),
+        content: Text('Statut Bibliothèque mis à jour'),
         duration: Duration(seconds: 2),
       ),
     );
@@ -524,6 +525,7 @@ class _MainShellState extends State<MainShell> {
     );
     if (ok == true && mounted) {
       setState(() {});
+      _apiService.prefetchBillingCatalog();
       await _syncCloudConversations();
       final email = _apiService.authUser?['email']?.toString() ?? '';
       _showSnackBar(
@@ -578,6 +580,9 @@ class _MainShellState extends State<MainShell> {
         builder: (_) => SubscriptionScreen(
           apiService: _apiService,
           onConfigureKey: _configurePremiumKey,
+          onSessionChanged: () {
+            if (mounted) setState(() {});
+          },
         ),
       ),
     )
@@ -831,6 +836,9 @@ class _MainShellState extends State<MainShell> {
         SubscriptionScreen(
           apiService: _apiService,
           onConfigureKey: _configurePremiumKey,
+          onSessionChanged: () {
+            if (mounted) setState(() {});
+          },
         )
       else
         const SizedBox.shrink(),

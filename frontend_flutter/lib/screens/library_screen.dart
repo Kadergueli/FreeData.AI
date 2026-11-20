@@ -446,7 +446,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                       ),
                                       tooltip: conv.isSavedInLibrary
                                           ? 'Retirer des favoris'
-                                          : 'Enregistrer dans Library',
+                                          : 'Enregistrer dans la Bibliothèque',
                                       padding: const EdgeInsets.all(10),
                                       constraints: const BoxConstraints(
                                           minWidth: 44, minHeight: 44),

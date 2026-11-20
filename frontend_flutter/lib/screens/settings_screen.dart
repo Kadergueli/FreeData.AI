@@ -19,19 +19,22 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   static const List<Map<String, String>> _domainOptions = [
-    {'id': 'auto', 'label': 'Détection automatique'},
-    {'id': 'chad_intelligence', 'label': 'Intelligence Tchad'},
-    {'id': 'business_entrepreneurship', 'label': 'Business & Études'},
-    {'id': 'finance', 'label': 'Finance & Risque'},
-    {'id': 'agriculture', 'label': 'Agriculture & Marchés'},
-    {'id': 'data_science', 'label': 'Data Science & ML'},
-    {'id': 'education', 'label': 'Éducation & Révisions'},
-    {'id': 'tech_programming', 'label': 'Tech & Code'},
-    {'id': 'productivity', 'label': 'Productivité & Gestion'},
+    {'id': 'auto', 'label': 'Détection automatique (Tchad)'},
+    {
+      'id': 'markets_and_prices',
+      'label': 'Marchés et prix des produits (données actives)'
+    },
+    {'id': 'agriculture', 'label': 'Agriculture (en préparation)'},
+    {'id': 'economy', 'label': 'Économie (en préparation)'},
+    {'id': 'health', 'label': 'Santé (en préparation)'},
+    {'id': 'population', 'label': 'Population (en préparation)'},
+    {'id': 'environment', 'label': 'Environnement (en préparation)'},
+    {'id': 'infrastructure', 'label': 'Infrastructures (en préparation)'},
+    {'id': 'transport', 'label': 'Transport (en préparation)'},
   ];
 
   String _defaultDomain = 'auto';
-  final _userCtrl = TextEditingController();
+  bool _saving = false;
 
   @override
   void initState() {
@@ -47,9 +50,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _domainOptions.any((d) => d['id'] == stored) ? stored : 'auto';
     setState(() {
       _defaultDomain = validDomain;
-      _userCtrl.text = widget.apiService.isAuthenticated
-          ? widget.apiService.userId
-          : (prefs.getString('fd_pref_user_id') ?? widget.apiService.userId);
     });
   }
 
@@ -60,7 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           apiService: widget.apiService, initialRegisterMode: register),
     );
     if (ok == true && mounted) {
-      setState(() => _userCtrl.text = widget.apiService.userId);
+      setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -83,174 +83,207 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('fd_pref_domain', _defaultDomain);
-    final uid = _userCtrl.text.trim();
-    var idRejected = false;
-    if (!widget.apiService.isAuthenticated &&
-        uid.isNotEmpty &&
-        uid != widget.apiService.userId) {
-      if (widget.apiService.setUserId(uid)) {
-        await prefs.setString('fd_pref_user_id', uid);
-      } else {
-        idRejected = true;
-      }
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fd_pref_domain', _defaultDomain);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Préférences enregistrées.')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          idRejected
-              ? 'Identifiant refusé : 32 à 80 caractères (lettres, chiffres, - ou _). Autres préférences enregistrées.'
-              : 'Préférences enregistrées.',
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _userCtrl.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final user = widget.apiService.authUser;
     final loggedIn = widget.apiService.isAuthenticated;
+    final isPro = widget.apiService.hasPremiumKey;
+    final displayName = user?['display_name']?.toString().trim() ?? '';
+    final email = user?['email']?.toString().trim() ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
-          title: const Text('Préférences & Espace',
-              style: TextStyle(fontWeight: FontWeight.w700))),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          FDCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Compte FreeData.AI',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.ink),
+        title: const Text(
+          'Préférences',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Compte FreeData.AI',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                        ),
+                        if (loggedIn)
+                          FDBadge(
+                            label: isPro ? 'ABONNEMENT PRO' : 'PLAN GRATUIT',
+                            color: isPro ? AppColors.greenDark : AppColors.blue,
+                            backgroundColor: isPro
+                                ? AppColors.greenSoft
+                                : AppColors.blueSoft,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (loggedIn) ...[
+                      Text(
+                        displayName.isNotEmpty
+                            ? '$displayName · $email'
+                            : (email.isNotEmpty ? email : 'Compte actif'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isPro
+                            ? 'Votre espace, vos projets et vos avantages PRO sont synchronisés sur tous vos appareils.'
+                            : 'Votre espace, vos discussions et vos documents privés sont synchronisés sur tous vos appareils.',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.muted,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          FDPrimaryButton(
+                            label: 'Gérer mon compte',
+                            icon: Icons.person_outline_rounded,
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .push(
+                                MaterialPageRoute(
+                                  builder: (_) => AccountScreen(
+                                    apiService: widget.apiService,
+                                    onSessionChanged: () {
+                                      if (mounted) setState(() {});
+                                    },
+                                  ),
+                                ),
+                              )
+                                  .then((_) {
+                                if (mounted) setState(() {});
+                              });
+                            },
+                          ),
+                          FDSecondaryButton(
+                            label: 'Se déconnecter',
+                            icon: Icons.logout_rounded,
+                            onPressed: _logout,
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      const Text(
+                        'Connectez-vous ou créez un compte gratuit pour synchroniser vos discussions, vos projets, vos documents privés et votre abonnement PRO.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.muted,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          FDPrimaryButton(
+                            label: 'Se connecter',
+                            icon: Icons.login_rounded,
+                            onPressed: () => _openAuth(register: false),
+                          ),
+                          FDSecondaryButton(
+                            label: 'Créer un compte',
+                            icon: Icons.person_add_alt_1_rounded,
+                            onPressed: () => _openAuth(register: true),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 8),
-                if (loggedIn) ...[
-                  Text(
-                    'Connecté : ${user?['email'] ?? 'Utilisateur'}'
-                    '${(user?['display_name']?.toString().isNotEmpty ?? false) ? ' (${user!['display_name']})' : ''}',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, color: AppColors.ink),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.apiService.hasSubscriptionPro
-                        ? 'Statut compte : Abonnement PRO actif (session Bearer sécurisée)'
-                        : 'Statut compte : Session Bearer sécurisée active',
-                    style:
-                        const TextStyle(fontSize: 12.5, color: AppColors.muted),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      FDPrimaryButton(
-                        label: 'Gérer mon compte',
-                        icon: Icons.person_outline_rounded,
-                        onPressed: () {
-                          Navigator.of(context)
-                              .push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  AccountScreen(apiService: widget.apiService),
+              ),
+              const SizedBox(height: 14),
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Assistant IA — Préférences d’analyse',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Choisissez le domaine prioritaire appliqué à l’ouverture d’une nouvelle discussion sur le Tchad.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.muted,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_defaultDomain),
+                      initialValue: _defaultDomain,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Domaine par défaut du chat',
+                        helperText:
+                            'Recommandé : Détection automatique (Tchad).',
+                      ),
+                      items: _domainOptions
+                          .map(
+                            (d) => DropdownMenuItem<String>(
+                              value: d['id'],
+                              child: Text(d['label']!),
                             ),
                           )
-                              .then((_) {
-                            if (mounted) setState(() {});
-                          });
-                        },
-                      ),
-                      FDSecondaryButton(
-                        label: 'Se déconnecter',
-                        icon: Icons.logout_rounded,
-                        onPressed: _logout,
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  const Text(
-                    'Connectez-vous pour synchroniser vos projets, quotas et votre accès PRO sur tous vos appareils.',
-                    style: TextStyle(fontSize: 13, color: AppColors.muted),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      FDPrimaryButton(
-                        label: 'Se connecter',
-                        icon: Icons.login_rounded,
-                        onPressed: () => _openAuth(register: false),
-                      ),
-                      FDSecondaryButton(
-                        label: 'Créer un compte',
-                        icon: Icons.person_add_alt_1_rounded,
-                        onPressed: () => _openAuth(register: true),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => _defaultDomain = v ?? 'auto'),
+                    ),
+                    const SizedBox(height: 16),
+                    FDPrimaryButton(
+                      label: _saving ? 'Enregistrement…' : 'Enregistrer',
+                      icon: Icons.save_outlined,
+                      onPressed: _saving ? null : _save,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
-          FDCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                DropdownButtonFormField<String>(
-                  key: ValueKey(_defaultDomain),
-                  initialValue: _defaultDomain,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Domaine par défaut du chat',
-                    helperText: 'Appliqué à l’ouverture du chat.',
-                  ),
-                  items: _domainOptions
-                      .map((d) => DropdownMenuItem<String>(
-                          value: d['id'], child: Text(d['label']!)))
-                      .toList(),
-                  onChanged: (v) =>
-                      setState(() => _defaultDomain = v ?? 'auto'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _userCtrl,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    labelText: loggedIn
-                        ? 'Identifiant de compte (session sécurisée)'
-                        : 'Identifiant local (connexion requise en production)',
-                    helperText: loggedIn
-                        ? 'Lié automatiquement à votre session Bearer sécurisée.'
-                        : 'Connectez-vous ci-dessus pour synchroniser vos projets et conversations avec un jeton signé.',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FDPrimaryButton(
-                  label: 'Enregistrer',
-                  icon: Icons.save_outlined,
-                  onPressed: _save,
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

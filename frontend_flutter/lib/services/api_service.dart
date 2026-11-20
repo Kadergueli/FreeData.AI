@@ -86,13 +86,49 @@ class ApiService {
     return true;
   }
 
+  Map<String, dynamic>? _cachedBillingPlans;
+  DateTime? _cachedBillingPlansAt;
+  Map<String, dynamic>? _cachedPaymentMethods;
+  DateTime? _cachedPaymentMethodsAt;
+  Map<String, dynamic>? _cachedMyBilling;
+  List<Map<String, dynamic>>? _cachedMyPaymentRequests;
+
+  static const Duration _billingCatalogCacheTtl = Duration(minutes: 5);
+
+  Map<String, dynamic>? get cachedBillingPlans => _cachedBillingPlans;
+  Map<String, dynamic>? get cachedPaymentMethods => _cachedPaymentMethods;
+  Map<String, dynamic>? get cachedMyBilling => _cachedMyBilling;
+  List<Map<String, dynamic>>? get cachedMyPaymentRequests =>
+      _cachedMyPaymentRequests;
+
+  void invalidateUserBillingCache() {
+    _cachedMyBilling = null;
+    _cachedMyPaymentRequests = null;
+  }
+
+  /// Précharge silencieusement les métadonnées, le catalogue d'offres et le statut
+  /// d'abonnement pour une ouverture instantanée (« tic au tac ») des écrans.
+  void prefetchBillingCatalog() {
+    getMetadata().catchError((_) => const <String, dynamic>{});
+    getBillingPlans().catchError((_) => const <String, dynamic>{});
+    getPaymentMethods().catchError((_) => const <String, dynamic>{});
+    if (isAuthenticated || hasExplicitPremiumKey) {
+      getMyBilling().catchError((_) => const <String, dynamic>{});
+      listMyPaymentRequests().catchError((_) => const <Map<String, dynamic>>[]);
+    }
+  }
+
   void setAuthSession({
     String? token,
     Map<String, dynamic>? user,
     bool? isPro,
   }) {
     final cleanTok = (token ?? '').trim();
-    _authToken = cleanTok.isEmpty ? null : cleanTok;
+    final nextTok = cleanTok.isEmpty ? null : cleanTok;
+    if (_authToken != nextTok) {
+      invalidateUserBillingCache();
+    }
+    _authToken = nextTok;
     _authUser = user;
     if (isPro != null) _subscriptionIsPro = isPro;
     // L'identifiant du compte n'est plus recopié dans _userId : l'API ne l'accepte qu'avec le jeton Bearer
@@ -103,6 +139,7 @@ class ApiService {
     _authToken = null;
     _authUser = null;
     _subscriptionIsPro = false;
+    invalidateUserBillingCache();
   }
 
   Map<String, String> _projectHeaders({bool includeJson = false}) {
@@ -786,11 +823,20 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getBillingPlans() async {
+    if (_cachedBillingPlans != null &&
+        _cachedBillingPlansAt != null &&
+        DateTime.now().difference(_cachedBillingPlansAt!) <
+            _billingCatalogCacheTtl) {
+      return _cachedBillingPlans!;
+    }
     final uri = Uri.parse('$baseUrl/api/v1/billing/plans');
     final resp = await _getWithRetry(uri);
     if (resp.statusCode == 200) {
-      return Map<String, dynamic>.from(
+      final data = Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      _cachedBillingPlans = data;
+      _cachedBillingPlansAt = DateTime.now();
+      return data;
     }
     throw ApiHttpException(
         resp.statusCode, 'Erreur chargement plans (${resp.statusCode})');
@@ -806,6 +852,7 @@ class ApiService {
       final effPlan = sub is Map ? sub['effective_plan_id']?.toString() : null;
       _subscriptionIsPro =
           data['is_pro'] == true || effPlan == 'premium' || effPlan == 'trial';
+      _cachedMyBilling = data;
       return data;
     }
     throw ApiHttpException(
@@ -1328,16 +1375,20 @@ class ApiService {
     if (resp.statusCode == 200) {
       final data = Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      final hasInlinePro = data.containsKey('is_pro');
       setAuthSession(
         token: data['token']?.toString(),
         user: data['user'] is Map
             ? Map<String, dynamic>.from(data['user'] as Map)
             : null,
+        isPro: hasInlinePro ? data['is_pro'] == true : null,
       );
-      try {
-        final me = await getAuthMe();
-        _subscriptionIsPro = me['is_pro'] == true;
-      } catch (_) {}
+      if (!hasInlinePro) {
+        try {
+          final me = await getAuthMe();
+          _subscriptionIsPro = me['is_pro'] == true;
+        } catch (_) {}
+      }
       return data;
     }
     throw ApiHttpException(
@@ -1530,11 +1581,20 @@ class ApiService {
   // --- Monétisation & Paiements PRO (Mobile Money + Stripe) ----------------
 
   Future<Map<String, dynamic>> getPaymentMethods() async {
+    if (_cachedPaymentMethods != null &&
+        _cachedPaymentMethodsAt != null &&
+        DateTime.now().difference(_cachedPaymentMethodsAt!) <
+            _billingCatalogCacheTtl) {
+      return _cachedPaymentMethods!;
+    }
     final uri = Uri.parse('$baseUrl/api/v1/billing/payment-methods');
     final resp = await _client.get(uri).timeout(const Duration(seconds: 20));
     if (resp.statusCode == 200) {
-      return Map<String, dynamic>.from(
+      final data = Map<String, dynamic>.from(
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      _cachedPaymentMethods = data;
+      _cachedPaymentMethodsAt = DateTime.now();
+      return data;
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Erreur méthodes de paiement'));
@@ -1579,9 +1639,11 @@ class ApiService {
     if (resp.statusCode == 200) {
       final decoded =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-      return (decoded['requests'] as List? ?? [])
+      final list = (decoded['requests'] as List? ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
+      _cachedMyPaymentRequests = list;
+      return list;
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Erreur chargement paiements'));
@@ -1639,6 +1701,97 @@ class ApiService {
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Erreur validation paiement'));
+  }
+
+  /// Active une clé PRO unique (usage unique, strictement liée au compte connecté).
+  Future<Map<String, dynamic>> redeemProActivationKey(
+      String activationKey) async {
+    final uri = Uri.parse('$baseUrl/api/v1/billing/redeem-key');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'activation_key': activationKey.trim()}),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      _subscriptionIsPro = data['is_pro'] == true;
+      invalidateUserBillingCache();
+      return data;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Activation de la clé impossible'));
+  }
+
+  Future<Map<String, dynamic>> createAdminProKey(
+    String adminToken, {
+    String planId = 'premium',
+    int durationDays = 30,
+    String note = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/billing/keys');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'plan_id': planId,
+            'duration_days': durationDays,
+            'note': note.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur génération clé PRO'));
+  }
+
+  Future<List<Map<String, dynamic>>> listAdminProKeys(
+    String adminToken, {
+    String? status,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/billing/keys').replace(
+      queryParameters: {
+        if (status != null && status.isNotEmpty) 'status': status,
+        'limit': '100',
+      },
+    );
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['keys'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement clés PRO'));
+  }
+
+  Future<Map<String, dynamic>> revokeAdminProKey(
+    String adminToken,
+    String keyId,
+  ) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/billing/keys/$keyId/revoke');
+    final resp = await _client.post(uri, headers: {
+      'X-Admin-Token': adminToken.trim(),
+    }).timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur révocation clé PRO'));
   }
 
   // --- Coffre-fort de documents privés (Jina Embeddings v3 + RAG isolé) ----

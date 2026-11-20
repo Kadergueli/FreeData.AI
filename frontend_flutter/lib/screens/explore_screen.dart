@@ -495,7 +495,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                       ],
                                     ),
                                     content: Text(
-                                      'Le domaine "${entry['label']}" est actuellement en préparation. Les pipelines d’ingestion et de normalisation des données pour le Tchad ne sont pas encore reliés à l’API.',
+                                      'Le domaine « ${entry['label']} » est en cours d’intégration pour le Tchad. Vous pouvez déjà analyser vos propres documents privés dans ce domaine depuis le chat.',
                                       style: const TextStyle(height: 1.5),
                                     ),
                                     actions: [

@@ -115,26 +115,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           .getForecastBenchmark(commodity: benchComm, province: benchProv)
           .then<Map<String, dynamic>?>((v) => v)
           .catchError((_) => null);
-      Map<String, dynamic>? forecastSample;
-      try {
-        final fcList = await widget.apiService.getForecasts(
-          commodity: benchComm,
-          province: _selectedProvince ?? benchProv,
-        );
-        // Cohérent avec les filtres : on préfère une prévision de la province choisie.
-        final maps = fcList
-            .whereType<Map>()
-            .map((m) => Map<String, dynamic>.from(m))
-            .toList();
-        final wantedProv = (_selectedProvince ?? benchProv).toLowerCase();
-        forecastSample = maps.firstWhere(
-          (m) => (m['province'] ?? '').toString().toLowerCase() == wantedProv,
-          orElse: () => maps.isNotEmpty ? maps.first : <String, dynamic>{},
-        );
-        if (forecastSample.isEmpty) forecastSample = null;
-      } catch (_) {}
+      final forecastFuture = () async {
+        try {
+          final fcList = await widget.apiService.getForecasts(
+            commodity: benchComm,
+            province: _selectedProvince ?? benchProv,
+          );
+          final maps = fcList
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList();
+          final wantedProv = (_selectedProvince ?? benchProv).toLowerCase();
+          final sample = maps.firstWhere(
+            (m) => (m['province'] ?? '').toString().toLowerCase() == wantedProv,
+            orElse: () => maps.isNotEmpty ? maps.first : <String, dynamic>{},
+          );
+          return sample.isEmpty ? null : sample;
+        } catch (_) {
+          return null;
+        }
+      }();
       final results = await core;
       final bench = await benchFuture;
+      final forecastSample = await forecastFuture;
       if (!mounted || seq != _loadSeq) return;
       setState(() {
         _profile = results[0];

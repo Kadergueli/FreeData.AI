@@ -116,6 +116,7 @@ class _StudioFakeApiService extends ApiService {
     required String lifecycleStatus,
     bool setActive = false,
     bool? enabled,
+    bool force = false,
     String reason = 'Admin AI Control Center',
   }) async {
     lastDeployedModelId = modelId;
@@ -135,15 +136,17 @@ Map<String, dynamic> _sampleOverview() => {
         'active_domains': 2,
         'domains': [
           {
-            'domain_id': 'agriculture',
-            'label_fr': 'Agriculture & Marchés',
+            'domain_id': 'markets_and_prices',
+            'label_fr': 'Marchés et prix des produits',
+            'data_status': 'operational',
             'active': true,
             'required_tier': 'free',
             'usage_count': 12,
           },
           {
-            'domain_id': 'finance',
-            'label_fr': 'Finance & Risque',
+            'domain_id': 'economy',
+            'label_fr': 'Économie',
+            'data_status': 'in_preparation',
             'active': true,
             'required_tier': 'free',
             'usage_count': 4,
@@ -234,7 +237,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pumpAndSettle();
 
-    expect(api.lastLaunchedDomain, 'agriculture');
+    expect(api.lastLaunchedDomain, 'markets_and_prices');
     expect(api.lastLaunchedTask, 'forecasting');
     expect(api.pollCalls, greaterThanOrEqualTo(1));
     expect(find.textContaining('ridge_causal_lags_a1'), findsOneWidget);
