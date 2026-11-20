@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -163,6 +164,17 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
+  String _friendlyUploadError(Object e) {
+    if (e is TimeoutException) {
+      return 'Envoi trop long (réseau lent). Réessayez avec une meilleure connexion ou un fichier plus léger.';
+    }
+    final msg = e.toString().replaceFirst('Exception: ', '');
+    if (msg.contains('SocketException') || msg.contains('ClientException') || msg.contains('Failed to fetch')) {
+      return 'Connexion perdue pendant l\'envoi. Vérifiez votre réseau puis réessayez.';
+    }
+    return msg;
+  }
+
   Future<void> _handleAttachDocument() async {
     if (_uploadingDoc) return;
     if (widget.onRequireAuth != null &&
@@ -170,6 +182,15 @@ class _ChatScreenState extends State<ChatScreen> {
         !widget.apiService.hasExplicitPremiumKey) {
       final ok = await widget.onRequireAuth!();
       if (!mounted || !ok) return;
+      // Sur mobile, le navigateur n'ouvre le sélecteur de fichiers que dans un
+      // geste direct de l'utilisateur : après la boîte de connexion le geste est
+      // perdu. On demande donc un second appui plutôt que d'échouer en silence.
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(const SnackBar(
+          content: Text('Connecté. Touchez de nouveau le trombone pour choisir votre fichier.'),
+        ));
+      return;
     }
 
     final picker = widget.onPickDocument ?? pickUserDocumentFile;
@@ -194,8 +215,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ..showSnackBar(
           SnackBar(
             backgroundColor: FDTheme.danger,
-            content: Text(e.toString()),
-            duration: const Duration(seconds: 4),
+            content: Text(_friendlyUploadError(e)),
+            duration: const Duration(seconds: 6),
           ),
         );
     } finally {
