@@ -24,3 +24,11 @@ Les jetons `ADMIN_TOKENS` fixent le rôle **maximal** d'une personne. Un `super_
 - un rôle plus élevé en base **n'élève jamais** un jeton ; on ne peut pas modifier son propre rôle (anti-verrouillage).
 
 `GET /api/v1/admin/me` renvoie le rôle effectif.
+
+## Clés d'activation PRO
+
+- Génération : écran Admin → « Générer une clé » (permission `manage_subscriptions`). La clé `FDPRO-XXXX-XXXX-XXXX-XXXX` n'est affichée **qu'une fois** ; seul son hash SHA-256 est stocké.
+- Usage unique, liée au compte connecté qui l'active, valable 365 jours avant activation, plan `premium` uniquement (1 à 365 jours d'abonnement).
+- Activer une 2ᵉ clé sur un abonnement actif cumule les durées.
+- Révocation possible tant que la clé n'est pas utilisée. Toutes les actions sont inscrites au journal d'audit des abonnements.
+- Protection : 5 tentatives invalides par compte et par 15 minutes, puis blocage temporaire.
