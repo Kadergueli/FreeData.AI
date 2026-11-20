@@ -16,3 +16,9 @@
 - Rate limiting (`_chat_rate_limit_dependency`, `_data_rate_limit_dependency`, `_admin_rate_limit_dependency`) supports Upstash Redis or in-memory fallback.
 - PDF artifacts are stored outside public static paths (`data/artifacts/<owner_hash>/`) and served only after ownership verification.
 
+
+## Content-Security-Policy (mode observation)
+
+`frontend_flutter/firebase.json` envoie `Content-Security-Policy-Report-Only`. La politique ne bloque rien : elle journalise dans la console
+du navigateur ce qu'elle bloquerait (scripts/ressources hors liste). Après quelques jours sans violation légitime, renommer l'en-tête en
+`Content-Security-Policy` pour l'appliquer. Objectif : limiter l'impact d'une faille XSS sur le jeton de session stocké dans le navigateur.

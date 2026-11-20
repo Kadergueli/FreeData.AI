@@ -74,3 +74,32 @@ def test_http_role_is_enforced_despite_forged_headers(creds):
     assert c.get("/api/v1/metrics", headers={"X-Admin-Token": TOK_ANA, **forged}).status_code == 200
     assert c.post("/api/v1/refresh", headers={"X-Admin-Token": TOK_ANA, **forged}).status_code == 403
     assert c.get("/api/v1/metrics", headers={"X-Admin-Token": "wrong-token-123456789"}).status_code == 403
+
+
+@pytest.fixture
+def admin_db(monkeypatch, tmp_path):
+    from src.admin import AdminService
+    svc = AdminService(db_path=str(tmp_path / "admin.db"))
+    monkeypatch.setattr(server, "_ADMIN_SERVICE", svc)
+    return svc
+
+
+def test_assigned_role_can_restrict_a_token_but_never_elevate(creds, admin_db):
+    # Rétrogradation : le jeton « support_admin » de moussa devient lecture seule
+    admin_db.assign_role(actor="omar", actor_role="super_admin", target_user_id="moussa", new_role="read_only_analyst")
+    assert server._resolve_admin(TOK_SUP) == ("moussa", "read_only_analyst")
+    # Élévation impossible : un rôle plus élevé en base ne change pas le jeton lecture seule
+    admin_db.assign_role(actor="omar", actor_role="super_admin", target_user_id="amina", new_role="super_admin")
+    assert server._resolve_admin(TOK_ANA) == ("amina", "read_only_analyst")
+
+
+def test_assigning_user_role_revokes_a_leaked_token(creds, admin_db):
+    admin_db.assign_role(actor="omar", actor_role="super_admin", target_user_id="moussa", new_role="user")
+    with pytest.raises(HTTPException) as e:
+        server._require_admin_token(TOK_SUP, "read_overview")
+    assert e.value.status_code == 403 and "révoqué" in e.value.detail
+
+
+def test_admin_cannot_change_own_role(creds, admin_db):
+    with pytest.raises(ValueError):
+        admin_db.assign_role(actor="omar", actor_role="super_admin", target_user_id="omar", new_role="user")

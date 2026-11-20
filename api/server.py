@@ -2966,7 +2966,17 @@ def _resolve_admin(token: Optional[str]) -> Optional[tuple[str, str]]:
     for actor, role, secret in _admin_credentials():
         if hmac.compare_digest(cand, secret.encode()) and found is None:
             found = (actor, role)
-    return found
+    if found is None:
+        return None
+    # Les rôles attribués en console sont effectifs : ils peuvent restreindre ou révoquer un jeton.
+    try:
+        eff = get_admin_service().effective_role(found[0], found[1])
+    except Exception as exc:  # base admin indisponible : on garde le rôle du jeton
+        logger.warning("Rôle effectif admin indisponible (%s) : rôle du jeton conservé.", exc)
+        return found
+    if eff == "user":
+        raise HTTPException(status_code=403, detail="Accès administrateur révoqué pour ce jeton.")
+    return (found[0], eff)
 
 
 def _require_admin_token(token: Optional[str], permission: str, detail: str = "Jeton administrateur invalide.") -> tuple[str, str]:
