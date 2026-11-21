@@ -204,7 +204,10 @@ def _data_rate_limit_dependency(request: Request):
     check_rate_limit(request, 120, "data")
 
 
-def _admin_rate_limit_dependency(request: Request):
+def _admin_rate_limit_dependency(request: Request, x_admin_token: Optional[str] = Header(default=None)):
+    """60 req/min pour un jeton valide (tableau de bord) ; 10 req/min pour les jetons invalides (anti-devinette)."""
+    if _admin_credentials() and _resolve_admin(x_admin_token) is None:
+        check_rate_limit(request, 10, "admin_fail")
     check_rate_limit(request, 60, "admin")
 
 
