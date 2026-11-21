@@ -935,6 +935,72 @@ def compute_idw_interpolation(
     }
 
 
+_SAHEL_PROVINCES = {"Kanem", "Lac", "Ouaddai", "Batha"}
+_SOUDANO_SAHEL_PROVINCES = {"N'Djamena", "Guera", "Mayo-Kebbi Est", "Mayo-Kebbi Ouest"}
+_SOUDAN_HUMID_PROVINCES = {"Logone Occidental", "Logone Oriental", "Mandoul", "Moyen-Chari"}
+
+
+def _climatic_zone_for_province(province: Optional[str]) -> str:
+    if province in _SAHEL_PROVINCES:
+        return "sahel"
+    if province in _SOUDAN_HUMID_PROVINCES:
+        return "soudanienne"
+    return "soudano_sahelienne"
+
+
+def _calibrated_water_score(
+    *,
+    crop_id: str,
+    zone_name: str,
+    rz_val: float,
+    dry_years: float,
+    spec: dict[str, Any],
+) -> tuple[float, Optional[str]]:
+    """Calibre la composante Eau (0–50 pts) selon les zones climatiques du Tchad."""
+    rz_opt = float(spec["rz_opt"])
+    sigma = float(spec["sigma"])
+    gauss_ratio = math.exp(-((rz_val - rz_opt) ** 2) / (2.0 * (sigma ** 2)))
+    affinity = max(0.0, min(1.0, gauss_ratio - 0.06 * max(0.0, dry_years)))
+
+    zone_bands: dict[str, dict[str, tuple[float, float]]] = {
+        "sahel": {
+            "millet": (42.0, 48.0),
+            "sorghum": (36.0, 42.0),
+            "groundnut_raw": (32.0, 38.0),
+            "maize": (14.0, 22.0),
+            "cowpeas": (38.0, 44.0),
+            "sesame": (35.0, 41.0),
+            "rice_local": (18.0, 26.0),
+        },
+        "soudano_sahelienne": {
+            "millet": (43.0, 48.0),
+            "sorghum": (43.0, 48.0),
+            "groundnut_raw": (42.0, 47.0),
+            "maize": (34.0, 39.0),
+            "cowpeas": (40.0, 45.0),
+            "sesame": (38.0, 44.0),
+            "rice_local": (30.0, 38.0),
+        },
+        "soudanienne": {
+            "maize": (44.0, 49.0),
+            "groundnut_raw": (44.0, 49.0),
+            "sorghum": (44.0, 49.0),
+            "millet": (38.0, 42.0),
+            "rice_local": (42.0, 48.0),
+            "sesame": (38.0, 44.0),
+            "cowpeas": (38.0, 44.0),
+        },
+    }
+    lo, hi = zone_bands.get(zone_name, zone_bands["soudano_sahelienne"]).get(crop_id, (26.0, 40.0))
+    score = round(lo + (hi - lo) * affinity, 1)
+    if zone_name == "sahel" and crop_id == "maize":
+        score = min(22.0, score)
+        return score, "Maïs pluvial déconseillé sans irrigation d'appoint dans cette zone sahélienne"
+    if zone_name == "soudano_sahelienne" and crop_id == "maize":
+        return score, "Maïs pluvial en zone soudano-sahélienne : variétés hâtives (85–90 jours) requises"
+    return score, None
+
+
 def evaluate_field_assessment(
     *,
     region: Optional[str] = None,
@@ -1028,29 +1094,33 @@ def evaluate_field_assessment(
         except (TypeError, ValueError):
             om_val = None
 
+    climatic_zone = _climatic_zone_for_province(province)
+
     crop_results: list[dict[str, Any]] = []
     for crop_id in requested:
         spec = SUPPORTED_AGRO_CROPS[crop_id]
         limiting: list[str] = []
         criteria: list[dict[str, Any]] = []
 
-        # A. Composante Agro-Climatique & Hydrique (0 à 50 points)
+        # A. Composante Agro-Climatique & Hydrique (0 à 50 points, calibrée par zone)
         if isinstance(rz_parcel, (int, float)):
             rz_val = float(rz_parcel)
             rz_opt = float(spec["rz_opt"])
-            sigma = float(spec["sigma"])
-            gauss = 50.0 * math.exp(-((rz_val - rz_opt) ** 2) / (2.0 * (sigma ** 2)))
-            s_water_raw = gauss - (4.0 * dry_years)
-            if crop_id == "maize" and rz_val < 0.55:
-                s_water_raw -= 8.0
-                limiting.append(f"Déficit hydrique critique pour le Maïs (RZ={rz_val:.2f} < 0.55)")
+            s_water, zone_note = _calibrated_water_score(
+                crop_id=crop_id,
+                zone_name=climatic_zone,
+                rz_val=rz_val,
+                dry_years=dry_years,
+                spec=spec,
+            )
+            if zone_note:
+                limiting.append(zone_note)
             elif rz_val < spec["min_wetness"]:
                 limiting.append(f"Humidité racinaire basse ({rz_val:.2f} < {spec['min_wetness']:.2f})")
-            s_water = round(max(8.0, min(50.0, s_water_raw)), 1)
             criteria.append({
                 "factor": "Agro-Climat & Hydrique NASA POWER (IDW)",
                 "status": "favorable" if s_water >= 35.0 else ("modéré" if s_water >= 24.0 else "limitant"),
-                "value": f"{s_water}/50 (RZ={rz_val:.2f}, opt={rz_opt:.2f})",
+                "value": f"{s_water}/50 (RZ={rz_val:.2f}, opt={rz_opt:.2f}, zone={climatic_zone})",
             })
         else:
             s_water = 25.0
@@ -1212,20 +1282,20 @@ def evaluate_field_assessment(
     lab_parameters = [
         {
             "parameter": "Humidité zone racinaire (Juin–Sept)",
-            "value": f"{float(rz_parcel):.3f}" + (f" (vs norm. {rz_norm:.3f})" if rz_norm else "") if isinstance(rz_parcel, (int, float)) else "—",
+            "value": f"{float(rz_parcel):.3f}" + (f" (Normale : {rz_norm:.3f})" if rz_norm else "") if isinstance(rz_parcel, (int, float)) else "—",
             "optimal": "0.55 – 0.75",
             "status": "Bon" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.55 else ("Modéré" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.40 else "Déficit"),
-            "source": "NASA POWER Agro (IDW)",
+            "source": "NASA POWER Agro",
         },
         {
             "parameter": "Humidité de surface (0–5 cm)",
             "value": f"{float(surf_parcel):.3f}" if isinstance(surf_parcel, (int, float)) else "—",
             "optimal": "0.45 – 0.70",
             "status": "Bon" if isinstance(surf_parcel, (int, float)) and float(surf_parcel) >= 0.45 else "Déficit",
-            "source": "NASA POWER Agro (IDW)",
+            "source": "NASA POWER Agro",
         },
         {
-            "parameter": "Rayonnement photosynthétique (PAR)",
+            "parameter": "Rayonnement solaire (PAR)",
             "value": f"{float(par_val):.1f} W/m²" if isinstance(par_val, (int, float)) else "—",
             "optimal": "8.5 – 10.5 W/m²",
             "status": "Bon" if isinstance(par_val, (int, float)) and 8.5 <= float(par_val) <= 10.5 else "Attention",
@@ -1233,45 +1303,79 @@ def evaluate_field_assessment(
         },
         {
             "parameter": "Réaction du sol (pH eau)",
-            "value": f"{ph_val:.1f}" if ph_val is not None else "Non mesuré (prélèvement 0–20 cm)",
+            "value": f"{ph_val:.1f}" if ph_val is not None else "Non mesuré (0–20 cm)",
             "optimal": "5.8 – 7.0",
             "status": ("Bon" if 5.8 <= ph_val <= 7.0 else "Attention") if ph_val is not None else "À analyser",
-            "source": "Mesure Labo / Terrain",
+            "source": "Labo / Terrain",
         },
         {
-            "parameter": "Texture & Matière Organique (MO)",
+            "parameter": "Texture & Matière Organique",
             "value": (
                 f"{texture_val or 'Texture N/A'}" + (f", MO {om_val:.1f} %" if om_val is not None else "")
                 if (texture_val or om_val is not None)
-                else f"Estimation zonale (Ratio Surf/RZ = {ratio_str})"
+                else f"Estimé (Ratio Surf/RZ = {ratio_str})"
             ),
             "optimal": "MO > 1.5 %",
             "status": ("Bon" if (om_val is not None and om_val >= 1.5) else ("Attention" if om_val is not None else "Estimé")) if (texture_val or om_val is not None) else "Estimé",
-            "source": "Mesure Labo / Satellite" if (texture_val or om_val is not None) else "Estimation Satellite",
+            "source": "Labo / Satellite",
         },
         {
-            "parameter": "Éléments nutritifs (N - P - K)",
-            "value": ", ".join(npk_parts) if npk_parts else "À analyser en laboratoire avant fumure de fond",
-            "optimal": "Selon culture cible",
+            "parameter": "Éléments nutritifs (N-P-K)",
+            "value": ", ".join(npk_parts) if npk_parts else "À analyser en laboratoire",
+            "optimal": "Selon culture",
             "status": "Mesuré" if npk_parts else "À analyser",
-            "source": "Mesure Labo / Réf. World Bank",
+            "source": "Labo / World Bank",
         },
     ]
 
     prescriptions: list[str] = []
-    if isinstance(rz_parcel, (int, float)) and float(rz_parcel) < 0.55:
-        diff_rz = f" ({float(rz_parcel) - rz_norm:+.3f} vs normale)" if rz_norm else ""
-        prescriptions.append(f"Déficit hydrique modéré{diff_rz} : privilégier des variétés hâtives (cycle 85–90 jours) et un paillage de conservation.")
-    if dry_years >= 1:
-        prescriptions.append(f"{dry_years:g} année(s) critique(s) (< 0.45 en juil.–août) détectée(s) : prévoir un semis échelonné et des diguettes anti-érosives.")
-    if ph_val is not None and ph_val < 5.5:
-        prescriptions.append("pH acide (< 5.5) : prévoir un amendement calcique (chaulage) avant labour.")
-    elif ph_val is not None and ph_val > 7.8:
-        prescriptions.append("pH alcalin (> 7.8) : incorporer du compost / matière organique pour tamponner le sol.")
+    primary_label = (primary_crop or {}).get("label_fr") or "Culture principale"
+    rz_str = f"{float(rz_parcel):.3f}" if isinstance(rz_parcel, (int, float)) else "N/A"
+    diff_rz = f" ({float(rz_parcel) - rz_norm:+.3f} vs normale)" if (isinstance(rz_parcel, (int, float)) and rz_norm) else ""
+    if climatic_zone == "soudanienne" and not (isinstance(rz_parcel, (int, float)) and float(rz_parcel) < 0.55) and dry_years < 1:
+        cycle_rec = "privilégier des variétés améliorées à cycle intermédiaire (95–110 jours) avec semis groupé dès installation des pluies."
+    else:
+        cycle_rec = "privilégier des variétés hâtives (cycle court 85–90 jours) avec paillage de conservation pour sécuriser la fin de cycle."
+    prescriptions.append(
+        f"Conseil variétal & calendrier ({primary_label}) : {cycle_rec} (humidité racinaire {rz_str}{diff_rz})."
+    )
+
     if not has_lab:
-        prescriptions.append("Absence d'analyse physique : réaliser 3 prélèvements composites (0–20 cm) avant engagement financier.")
-    if not prescriptions:
-        prescriptions.append("Paramètres hydriques et pédologiques compatibles avec les cultures sélectionnées : maintenir une fumure organo-minérale raisonnée.")
+        prescriptions.append(
+            "Protocole d'échantillonnage sol (labo non fourni) : réaliser 3 prélèvements composites à 0–20 cm de profondeur et demander en laboratoire : pH eau, granulométrie, carbone organique, N total, P assimilable et K échangeable."
+        )
+    elif ph_val is not None and ph_val < 5.5:
+        prescriptions.append(f"Correction pédologique (pH acide {ph_val:.1f} < 5.5) : prévoir un amendement calcique (chaulage) avant labour et un apport organique.")
+    elif ph_val is not None and ph_val > 7.8:
+        prescriptions.append(f"Correction pédologique (pH alcalin {ph_val:.1f} > 7.8) : incorporer du compost / matière organique (> 1.5 %) pour tamponner le sol.")
+    else:
+        prescriptions.append("Suivi pédologique : paramètres mesurés compatibles ; maintenir une fumure organo-minérale fractionnée (N-P-K) au sarclage.")
+
+    pecon = (primary_crop or {}).get("verified_economics") or {}
+    fg_p = pecon.get("farmgate_price_central_xaf_kg")
+    arb = pecon.get("arbitrage_bonus") or {}
+    sel_hub = gps_logistics.get("selected_hub") or zone["region"]
+    d_hub_km = gps_logistics.get("distance_hub_km")
+    disc_val = gps_logistics.get("farmgate_discount_pct", 8)
+    if fg_p is not None and arb.get("target_province") and arb.get("spread_xaf_kg"):
+        gain_sac = round(float(arb["spread_xaf_kg"]) * 100.0)
+        prescriptions.append(
+            f"Commercialisation & logistique ({primary_label}) : prix bord-champ estimé à {fg_p} FCFA/kg ; le marché déficitaire le plus rémunérateur est {arb['target_province']} ({arb['target_price_xaf_kg']} FCFA/kg), soit un gain brut potentiel de +{gain_sac:,} FCFA par sac de 100 kg (hors transport).".replace(",", " ")
+        )
+    elif fg_p is not None:
+        d_txt = f" ({d_hub_km:.1f} km du pôle {sel_hub})" if isinstance(d_hub_km, (int, float)) else f" (pôle {sel_hub})"
+        prescriptions.append(
+            f"Commercialisation & logistique ({primary_label}) : prix bord-champ estimé à {fg_p} FCFA/kg après décote logistique de -{disc_val}%{d_txt}."
+        )
+
+    if climatic_zone == "sahel":
+        prescriptions.append(
+            "Alerte climatique sahélienne : Maïs pluvial déconseillé sans irrigation d'appoint dans cette zone sahélienne ; sécuriser le bilan hydrique par zaï ou diguettes anti-érosives."
+        )
+    elif dry_years >= 1:
+        prescriptions.append(
+            f"Risque hydrique interannuel : {dry_years:g} année(s) critique(s) (< 0.45 en juil.–août) détectée(s) ; prévoir un semis échelonné et des diguettes anti-érosives."
+        )
 
     return {
         "title": resolution_label,

@@ -215,25 +215,47 @@ def render_agro_assessment_pdf(
 
     # --- 1. FICHE D'IDENTIFICATION PARCELLAIRE & LOCALISATION GPS ---
     story.append(Paragraph("1. Fiche d'Identification Parcellaire & Localisation GPS", h2_style))
+    usable_w = 18.2 * cm
     gps_str = (
         f"{gps['gps_lat']:.5f}, {gps['gps_lon']:.5f}"
         if gps.get("gps_provided")
-        else (f"{assessment['gps_lat']:.5f}, {assessment['gps_lon']:.5f}" if assessment.get("gps_lat") is not None and assessment.get("gps_lon") is not None else "Non fournies")
+        else (
+            f"{assessment['gps_lat']:.5f}, {assessment['gps_lon']:.5f}"
+            if assessment.get("gps_lat") is not None and assessment.get("gps_lon") is not None
+            else "Non fournies — Maille pôle par défaut"
+        )
     )
     idw_hubs = gps.get("idw_hubs") or []
-    idw_str = " | ".join(
-        f"{h.get('hub')} ({h.get('road_distance_km', 0)} km · {h.get('weight_pct', 0)}%)"
-        for h in idw_hubs
-        if (h.get("weight_pct") or 0) > 0
-    ) or "—"
+    idw_str = (
+        " | ".join(
+            f"{h.get('hub')} ({h.get('road_distance_km', 0)} km · {h.get('weight_pct', 0)}%)"
+            for h in idw_hubs
+            if (h.get("weight_pct") or 0) > 0
+        )
+        if gps.get("gps_provided") and idw_hubs
+        else "Maille pôle unique (100%)"
+    )
+    firm_label = f"{firm} (N° {lic})" if lic else firm
+    hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
+    prov_name = assessment.get("province") or gps.get("province") or hub_name
+    area_val = assessment.get("area_hectares") or "1.0 (réf.)"
     bd = ws.get("breakdown") or {}
     ident_rows = [
-        ["Référence Dossier", f"{code} | Date : {date_str} | Cabinet : {firm}"],
-        ["Coordonnées GPS & Surface", f"GPS : {gps_str} | Superficie : {assessment.get('area_hectares') or '1.0 (réf.)'} ha"],
         [
-            "Rattachement Spatial (IDW)",
-            f"Pôle proche : {gps.get('selected_hub') or assessment.get('province_hub')} ({_fmt_num(gps.get('distance_hub_km'), ' km')}) | "
-            f"N'Djamena : {_fmt_num(gps.get('distance_ndjamena_km'), ' km')} | Décote : -{gps.get('farmgate_discount_pct', 8)}% | IDW : {idw_str}",
+            "Dossier & Cabinet",
+            f"Référence Dossier : {code} | Cabinet : {firm_label}",
+        ],
+        [
+            "GPS & Superficie",
+            f"Coordonnées GPS : {gps_str} | Superficie : {area_val} ha",
+        ],
+        [
+            "Rattachement Spatial",
+            f"Pôle {hub_name} ({prov_name}) | Distance N'Djamena : {_fmt_num(gps.get('distance_ndjamena_km'), ' km')} | Décote bord-champ : -{gps.get('farmgate_discount_pct', 8)}%",
+        ],
+        [
+            "Pondération IDW",
+            idw_str,
         ],
         [
             "Score Unifié & Confiance",
@@ -241,7 +263,7 @@ def render_agro_assessment_pdf(
             f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/50 + Sol {bd.get('soil_quality', {}).get('score', '—')}/30 + Marché {bd.get('market_logistics', {}).get('score', '—')}/20] · {conf_label}",
         ],
     ]
-    story.append(_make_table(ident_rows, col_widths=[5.0 * cm, 13.2 * cm], has_header=False))
+    story.append(_make_table(ident_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm], has_header=False))
 
     # --- 2. BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
     story.append(Paragraph("2. Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))
@@ -256,11 +278,12 @@ def render_agro_assessment_pdf(
                 str(p.get("status") or "—"),
                 str(p.get("source") or "—"),
             ])
-        story.append(_make_table(b_rows, col_widths=[4.4 * cm, 4.6 * cm, 2.8 * cm, 2.2 * cm, 4.2 * cm]))
+        b_widths = [0.32 * usable_w, 0.26 * usable_w, 0.16 * usable_w, 0.11 * usable_w, 0.15 * usable_w]
+        story.append(_make_table(b_rows, col_widths=b_widths))
 
     # --- 3. MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
     story.append(Paragraph("3. Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
-    crop_rows = [["Culture", "Score", "Eau/50 + Sol/30 + Marché/20", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
+    crop_rows = [["Culture", "Score /100", "Détail (Eau + Sol + Marché)", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
     for c in scores.get("crop_assessments") or []:
         cecon = c.get("verified_economics") or {}
         fg_price = cecon.get("farmgate_price_central_xaf_kg")
@@ -271,29 +294,38 @@ def render_agro_assessment_pdf(
             str(c.get("label_fr") or c.get("crop_id")),
             f"{c.get('suitability_score', 0)}/100",
             f"{w_sc} + {s_sc} + {m_sc}",
-            f"{fg_price} F/kg" if fg_price is not None else "N/A",
-            f"{_fmt_num(c.get('indicative_gross_revenue_xaf'))} F",
+            f"{fg_price} FCFA/kg" if fg_price is not None else "N/A",
+            f"{_fmt_num(c.get('indicative_gross_revenue_xaf'))} FCFA",
             str(c.get("suitability_label") or "—"),
         ])
-    story.append(_make_table(crop_rows, col_widths=[2.8 * cm, 1.8 * cm, 4.6 * cm, 2.8 * cm, 3.4 * cm, 2.8 * cm]))
+    c_widths = [0.20 * usable_w, 0.12 * usable_w, 0.22 * usable_w, 0.16 * usable_w, 0.16 * usable_w, 0.14 * usable_w]
+    story.append(_make_table(crop_rows, col_widths=c_widths))
 
     if econ and econ.get("formula_text"):
         story.append(Spacer(1, 0.18 * cm))
         unc = econ.get("uncertainty_revenue_range_xaf") or []
-        unc_str = f" | Fourchette ±{econ.get('mape_pct', '—')}% : {_fmt_num(unc[0])} à {_fmt_num(unc[1])} FCFA" if len(unc) == 2 else ""
-        stress_str = f" | Plancher Stress 2024–2026 : {_fmt_num(econ.get('ca_stress_xaf'))} FCFA" if econ.get("ca_stress_xaf") else ""
+        area_f = econ.get("area_hectares", 1.0)
+        y_f = econ.get("yield_kg_ha", 834.6)
+        p_ml = econ.get("market_price_central_xaf_kg") or econ.get("farmgate_price_central_xaf_kg") or "—"
+        disc_f = econ.get("farmgate_discount_pct", 8)
+        ca_c = _fmt_num(econ.get("ca_central_xaf"))
+        line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (Réf. World Bank) x {p_ml} FCFA/kg x (1 - {disc_f:g}%) = {ca_c} FCFA"
+        if len(unc) == 2:
+            line2 = f"Intervalle de confiance modèle (± {econ.get('mape_pct', '—')}% MAPE hors-temps) : {_fmt_num(unc[0])} FCFA à {_fmt_num(unc[1])} FCFA"
+        else:
+            line2 = "Intervalle de confiance modèle : non disponible"
+        stress_scen = next((s for s in (econ.get("scenarios") or []) if s.get("id") == "stress_floor"), {})
+        p_min = stress_scen.get("market_price_xaf_kg", "—")
+        ca_s = _fmt_num(econ.get("ca_stress_xaf"))
+        line3 = f"Scénario Plancher Stress (Prix min. historique 2024–2026 : {p_min} FCFA/kg) : {ca_s} FCFA"
+
         formula_box = Table(
             [
-                [Paragraph(
-                    _clean_pdf_text(
-                        "<b>Formule :</b> CA Brut = Superficie (ha) x Rendement réf. (834.6 kg/ha World Bank) "
-                        "x Prix ML t+1 (FCFA/kg) x (1 - Décote logistique %)"
-                    ),
-                    body_style,
-                )],
-                [Paragraph(_clean_pdf_text(f"{econ['formula_text']}{unc_str}{stress_str}"), formula_style)],
+                [Paragraph(_clean_pdf_text(line1), formula_style)],
+                [Paragraph(_clean_pdf_text(line2), formula_style)],
+                [Paragraph(_clean_pdf_text(line3), formula_style)],
             ],
-            colWidths=[18.2 * cm],
+            colWidths=[usable_w],
         )
         formula_box.setStyle(
             TableStyle([
