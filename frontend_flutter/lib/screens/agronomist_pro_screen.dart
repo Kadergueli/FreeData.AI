@@ -210,6 +210,21 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       );
       return;
     }
+    final areaHa = _parseOpt(_areaCtrl);
+    if (areaHa == null || areaHa <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Renseignez la superficie exacte du terrain en hectares.')),
+      );
+      return;
+    }
+    final gpsLat = _parseOpt(_latCtrl);
+    final gpsLon = _parseOpt(_lonCtrl);
+    if ((gpsLat == null) != (gpsLon == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Renseignez les deux coordonnées GPS (latitude et longitude), ou laissez les deux vides.')),
+      );
+      return;
+    }
 
     final lab = <String, dynamic>{};
     final ph = _parseOpt(_phCtrl);
@@ -228,9 +243,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     try {
       final res = await widget.apiService.createAgroFieldAssessment(
         provinceHub: _hub,
-        gpsLat: _parseOpt(_latCtrl),
-        gpsLon: _parseOpt(_lonCtrl),
-        areaHectares: _parseOpt(_areaCtrl),
+        gpsLat: gpsLat,
+        gpsLon: gpsLon,
+        areaHectares: areaHa,
         labSoilInputs: lab,
         agronomistFieldNotes: _notesCtrl.text,
         targetCrops: _selectedCrops.toList(),
