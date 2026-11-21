@@ -398,22 +398,32 @@ def render_agro_assessment_pdf(
         ("Indicateurs nationaux", scores.get("national_provenance") or {}),
     ]
     site = scores.get("site_profile") or {}
+    site_sources: set[str] = set()
     if (site.get("soil") or {}).get("provenance"):
         sp = (site.get("soil") or {})["provenance"]
+        if sp.get("source"):
+            site_sources.add(str(sp["source"]).casefold())
         story.append(Paragraph(
             _clean_pdf_text(
                 f"Sol — {sp.get('source', 'Source non précisée')} | Licence : {sp.get('license', 'non précisée')} | "
                 f"Résolution : {sp.get('spatial_resolution', 'non précisée')} | {sp.get('note', '')}"
             ), body_style
         ))
+        if sp.get("attribution"):
+            story.append(Paragraph(_clean_pdf_text(f"Attribution sol : {sp['attribution']}"), body_style))
     if (site.get("climate") or {}).get("provenance"):
         cp = (site.get("climate") or {})["provenance"]
+        if cp.get("source"):
+            site_sources.add(str(cp["source"]).casefold())
         story.append(Paragraph(
             _clean_pdf_text(
                 f"Climat — {cp.get('source', 'Source non précisée')} | Licence : {cp.get('license', 'non précisée')} | "
                 f"Résolution : {cp.get('spatial_resolution', 'non précisée')} | {cp.get('note', '')}"
             ), body_style
         ))
+        if cp.get("attribution"):
+            story.append(Paragraph(_clean_pdf_text(f"Attribution climat : {cp['attribution']}"), body_style))
+
     for label, prov in prov_blocks:
         sources = prov.get("sources") or []
         licenses = prov.get("licenses") or []
@@ -434,6 +444,40 @@ def render_agro_assessment_pdf(
                 f"Confiance : {', '.join(map(str, confidence)) or 'non précisée'}"
             ), body_style
         ))
+    # Références bibliographiques : n'afficher que les fournisseurs réellement présents dans ce dossier.
+    source_names = {
+        str(name).casefold()
+        for _label, prov in prov_blocks
+        for name in (prov.get("sources") or [])
+    } | site_sources
+    reference_rows: list[tuple[str, str]] = []
+    if any("soilgrids" in name for name in source_names):
+        reference_rows.append((
+            "SoilGrids 2.0 — Poggio, L., de Sousa, L. M., Batjes, N. H., Heuvelink, G. B. M., "
+            "Kempen, B., Ribeiro, E. & Rossiter, D. (2021). SoilGrids 2.0: producing soil information "
+            "for the globe with quantified spatial uncertainty. SOIL, 7, 217–240. "
+            "https://doi.org/10.5194/soil-7-217-2021. Données CC BY 4.0 ; attribution ISRIC.",
+            "Documentation et politique de partage : https://docs.isric.org/globaldata/soilgrids/"
+        ))
+    if any("nasa power" in name for name in source_names):
+        reference_rows.append((
+            "NASA POWER — NASA Langley Research Center, Prediction of Worldwide Energy Resources. "
+            "Référence officielle du projet ; la version du service et la date d'accès ne sont pas "
+            "conservées dans les métadonnées de ce dossier.",
+            "Guide de citation : https://power.larc.nasa.gov/docs/referencing/ | "
+            "Services et résolution : https://power.larc.nasa.gov/docs/services/"
+        ))
+    if any("world bank" in name for name in source_names):
+        reference_rows.append((
+            "World Bank — indicateurs de la Banque mondiale. La licence CC BY 4.0 est déclarée "
+            "pour les lignes utilisées ; vérifier les conditions propres à chaque jeu de données.",
+            "Conditions et licences des jeux de données : https://datacatalog.worldbank.org/public-licenses"
+        ))
+    if reference_rows:
+        story.append(Paragraph("6. Références bibliographiques & documentation des fournisseurs", h2_style))
+        for citation, reference_url in reference_rows:
+            story.append(Paragraph(_clean_pdf_text(citation), body_style))
+            story.append(Paragraph(_clean_pdf_text(reference_url), body_style))
     story.append(Spacer(1, 0.08 * cm))
     story.append(
         Paragraph(
