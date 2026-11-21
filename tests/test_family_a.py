@@ -317,3 +317,16 @@ def test_storage_strategy_needs_three_years_of_cycles():
     assert summarize_cycles(one_year)["status"] == "insufficient_data"
     three_years = [[5.0, 6, 1, 7, y] for y in (2023, 2024, 2025) for _ in range(5)]
     assert summarize_cycles(three_years)["status"] == "ok"
+
+
+def test_track_record_publishes_real_mape():
+    from src.backtest import track_record_by_commodity
+    rows = []
+    for prov in [f"P{i}" for i in range(12)]:
+        for o in range(8):
+            base = {"source": "WFP", "province": prov, "market_name": "m", "commodity_std": "Mil",
+                    "origin": f"2025-{o + 1:02d}", "target": f"2025-{o + 2:02d}", "last": 100.0, "actual": 100.0}
+            rows.append({**base, "method": "model", "forecast": 105.0, "abs_err": 5.0, "pct_err": 5.0})
+            rows.append({**base, "method": "naive", "forecast": 120.0, "abs_err": 20.0, "pct_err": 20.0})
+    tr = track_record_by_commodity(pd.DataFrame(rows), 8)
+    assert tr[0]["mape_pct"] == 5.0

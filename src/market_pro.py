@@ -175,7 +175,7 @@ def evaluate_watchlists(watches: list[dict[str, Any]], forecast_df: Any) -> list
             if w.get("market_name") and "market_name" in sub.columns:
                 sub = sub[sub["market_name"].astype(str).str.lower() == w["market_name"].lower()]
             if not sub.empty:
-                pred = float(sub["predicted_price"].dropna().mean()) if "predicted_price" in sub.columns and not sub["predicted_price"].dropna().empty else None
+                pred = float(sub["forecast_t1"].dropna().mean()) if "forecast_t1" in sub.columns and not sub["forecast_t1"].dropna().empty else None
                 obs_col = "last_observed_price" if "last_observed_price" in sub.columns else ("value" if "value" in sub.columns else None)
                 obs = float(sub[obs_col].dropna().mean()) if obs_col and not sub[obs_col].dropna().empty else None
                 ref_price = pred if pred is not None else obs
@@ -202,7 +202,7 @@ def build_validated_forecasts_overview(forecast_df: Any, track_record: Optional[
         sub = forecast_df[forecast_df["commodity_std"] == comm]
         if sub.empty:
             continue
-        pred_avg = float(sub["predicted_price"].dropna().mean()) if "predicted_price" in sub.columns and not sub["predicted_price"].dropna().empty else None
+        pred_avg = float(sub["forecast_t1"].dropna().mean()) if "forecast_t1" in sub.columns and not sub["forecast_t1"].dropna().empty else None
         obs_avg = float(sub[obs_col].dropna().mean()) if obs_col and not sub[obs_col].dropna().empty else None
         fc_month = str(sub["forecast_month"].dropna().iloc[0]) if "forecast_month" in sub.columns and not sub["forecast_month"].dropna().empty else None
         rec = tr.get(comm) or {}
@@ -219,7 +219,7 @@ def build_validated_forecasts_overview(forecast_df: Any, track_record: Optional[
             "historical_mape_pct": round(float(mape_pct), 2) if isinstance(mape_pct, (int, float)) else None,
             "vs_naive_pct": rec.get("vs_naive_pct"),
             "backtest_verdict": rec.get("verdict"),
-            "source": "FreeData.td / PAM-WFP + NASA POWER (Delta-Ridge ML)",
+            "source": "PAM-WFP (prévision FreeData.AI, sans NASA POWER)",
             "license": "Attribution Required (FreeData.td)",
             "spatial_resolution": "market_province",
             "confidence_level": "ML_Backtested_70_30",
@@ -237,7 +237,7 @@ def compute_inter_province_arbitrage(
     """Calcule les meilleurs écarts de prix entre provinces (excédentaire -> déficitaire) sur les 4 cultures."""
     if forecast_df is None or getattr(forecast_df, "empty", True):
         return []
-    if "province" not in forecast_df.columns or "predicted_price" not in forecast_df.columns:
+    if "province" not in forecast_df.columns or "forecast_t1" not in forecast_df.columns:
         return []
     target_crops = [_normalize_crop_id(crop_id)] if crop_id else list(SUPPORTED_AGRO_CROPS)
     opportunities: list[dict[str, Any]] = []
@@ -246,7 +246,7 @@ def compute_inter_province_arbitrage(
         sub = forecast_df[forecast_df["commodity_std"] == meta["commodity_std"]]
         if sub.empty:
             continue
-        by_prov = sub.groupby("province")["predicted_price"].mean().dropna()
+        by_prov = sub.groupby("province")["forecast_t1"].mean().dropna()
         if len(by_prov) < 2:
             continue
         origin_prov = str(by_prov.idxmin())
@@ -268,7 +268,7 @@ def compute_inter_province_arbitrage(
             "spread_xaf_kg": round(spread, 1),
             "spread_pct": round(spread / origin_px * 100.0, 1),
             "forecast_month": fc_month,
-            "source": "FreeData.td / PAM-WFP (Delta-Ridge ML)",
+            "source": "PAM-WFP (prévision FreeData.AI)",
             "license": "Attribution Required (FreeData.td)",
             "note": "Écart brut hors coût de transport et pertes logistiques.",
         })
@@ -308,9 +308,9 @@ def export_validated_forecasts_csv(
                 r.get("market_name", ""),
                 r.get("forecast_month", ""),
                 round(float(r[obs_col]), 1) if obs_col and r.get(obs_col) is not None else "",
-                round(float(r["predicted_price"]), 1) if r.get("predicted_price") is not None else "",
+                round(float(r["forecast_t1"]), 1) if r.get("forecast_t1") is not None else "",
                 round(float(mape), 2) if isinstance(mape, (int, float)) else "",
-                r.get("source", "FreeData.td / PAM-WFP"),
+                r.get("source", "PAM-WFP / FreeData.AI"),
                 "Attribution Required (FreeData.td)",
                 "market_province",
                 "ML_Backtested_70_30",
@@ -358,7 +358,7 @@ def compute_spatial_arbitrage_detailed(
             "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
         }
 
-    by_prov = sub.groupby("province")["predicted_price"].mean().dropna().sort_values()
+    by_prov = sub.groupby("province")["forecast_t1"].mean().dropna().sort_values()
     fc_month = (
         str(sub["forecast_month"].dropna().iloc[0])
         if "forecast_month" in sub.columns and not sub["forecast_month"].dropna().empty
@@ -485,8 +485,8 @@ def compute_agro_credit_passport(
         f_comm = forecast_df[forecast_df["commodity_std"] == comm]
         f_prov = f_comm[f_comm["province"].astype(str).str.lower() == prov_name.lower()]
         f_scope = f_prov if not f_prov.empty else f_comm
-        if not f_scope.empty and "predicted_price" in f_scope.columns and not f_scope["predicted_price"].dropna().empty:
-            central_px = round(float(f_scope["predicted_price"].dropna().mean()), 1)
+        if not f_scope.empty and "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
+            central_px = round(float(f_scope["forecast_t1"].dropna().mean()), 1)
 
     def _scenario(name: str, desc: str, px: Optional[float]) -> dict[str, Any]:
         rev = round(est_prod_kg * px, 0) if (est_prod_kg is not None and px is not None) else None

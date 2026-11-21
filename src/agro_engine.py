@@ -523,12 +523,12 @@ def _max_national_hub_price(forecast_df: Any, commodity_std: str) -> tuple[Optio
     """Trouve le pôle le plus cher du pays pour la culture cible (bonus d'arbitrage inter-marchés)."""
     if forecast_df is None or getattr(forecast_df, "empty", True):
         return None, None
-    if "commodity_std" not in forecast_df.columns or "predicted_price" not in forecast_df.columns:
+    if "commodity_std" not in forecast_df.columns or "forecast_t1" not in forecast_df.columns:
         return None, None
-    sub = forecast_df[forecast_df["commodity_std"] == commodity_std].dropna(subset=["predicted_price"])
+    sub = forecast_df[forecast_df["commodity_std"] == commodity_std].dropna(subset=["forecast_t1"])
     if sub.empty:
         return None, None
-    by_prov = sub.groupby("province")["predicted_price"].mean()
+    by_prov = sub.groupby("province")["forecast_t1"].mean()
     if by_prov.empty:
         return None, None
     best_prov = str(by_prov.idxmax())
@@ -773,7 +773,7 @@ def _extract_crop_market_signals(
         prov_sub = sub[sub["province"].astype(str).str.lower() == province.lower()] if province else sub.iloc[0:0]
         scope_df = prov_sub if not prov_sub.empty else sub
         scope_label = province if not prov_sub.empty else "National (moyenne marchés)"
-        pred_col = "predicted_price" if "predicted_price" in scope_df.columns else None
+        pred_col = "forecast_t1" if "forecast_t1" in scope_df.columns else None
         obs_col = "last_observed_price" if "last_observed_price" in scope_df.columns else ("value" if "value" in scope_df.columns else None)
         pred_val = float(scope_df[pred_col].dropna().mean()) if pred_col and not scope_df[pred_col].dropna().empty else None
         obs_val = float(scope_df[obs_col].dropna().mean()) if obs_col and not scope_df[obs_col].dropna().empty else None
@@ -789,7 +789,7 @@ def _extract_crop_market_signals(
             "change_pct": change_pct,
             "forecast_month": fc_month,
             "historical_mape_pct": round(float(mape), 2) if isinstance(mape, (int, float)) else None,
-            "source": "FreeData.td / PAM-WFP (Delta-Ridge ML)",
+            "source": "PAM-WFP (prévision FreeData.AI)",
         }
     return signals
 

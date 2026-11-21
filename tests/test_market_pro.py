@@ -12,17 +12,17 @@ def _sample_state():
     fc_df = pd.DataFrame([
         {
             "commodity_std": "Millet", "province": "Salamat", "market_name": "Am Timan",
-            "forecast_month": "2026-11", "last_observed_price": 210.0, "predicted_price": 225.0,
+            "forecast_month": "2026-11", "last_observed_price": 210.0, "forecast_t1": 225.0,
             "source": "FreeData.td / PAM-WFP",
         },
         {
             "commodity_std": "Millet", "province": "N'Djamena", "market_name": "Dembé",
-            "forecast_month": "2026-11", "last_observed_price": 320.0, "predicted_price": 340.0,
+            "forecast_month": "2026-11", "last_observed_price": 320.0, "forecast_t1": 340.0,
             "source": "FreeData.td / PAM-WFP",
         },
         {
             "commodity_std": "Sorghum (red)", "province": "Mandoul", "market_name": "Koumra",
-            "forecast_month": "2026-11", "last_observed_price": 190.0, "predicted_price": 200.0,
+            "forecast_month": "2026-11", "last_observed_price": 190.0, "forecast_t1": 200.0,
             "source": "FreeData.td / PAM-WFP",
         },
     ])
@@ -127,3 +127,16 @@ def test_spatial_arbitrage_and_agro_credit_passport(tmp_path):
         assert cp["dry_years_risk"]["observed_july_aug_years"] >= 1
         assert cp["scenarios"][0]["dscr"] > 0
 
+
+
+def test_forecast_uses_t1_never_the_fitted_value():
+    """`predicted_price` est la valeur ajustée du dernier mois observé : elle ne doit jamais passer pour une prévision."""
+    from src.agro_engine import _extract_crop_market_signals
+    df = pd.DataFrame([{
+        "commodity_std": "Millet", "province": "Lac", "market_name": "Bol", "forecast_month": "2026-12",
+        "last_observed_price": 300.0, "predicted_price": 999.0, "forecast_t1": 330.0,
+    }])
+    sig = _extract_crop_market_signals(df, "Lac")["millet"]
+    assert sig["predicted_xaf_kg"] == 330.0 and sig["change_pct"] == 10.0
+    no_t1 = df.drop(columns=["forecast_t1"])
+    assert _extract_crop_market_signals(no_t1, "Lac")["millet"]["predicted_xaf_kg"] is None

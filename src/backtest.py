@@ -244,8 +244,10 @@ def track_record_by_commodity(res: pd.DataFrame, n_origins: int, min_n: int = 60
         m = model.merge(naive, on=SERIES_KEYS + ["origin"], suffixes=("_m", "_n"))
         naive_mae = float(m["abs_err_n"].mean())
         verdict = "better" if lo > 0 else ("worse" if hi < 0 else "equivalent")
+        mape = float(model["pct_err"].mean()) if "pct_err" in model.columns and len(model) else float("nan")
         out.append({
             "status": "track_record", "commodity": str(comm), "verdict": verdict,
+            "mape_pct": round(mape, 1) if np.isfinite(mape) else None,
             "vs_naive_pct": round(-mean_d / naive_mae * 100.0, 1) if naive_mae else 0.0,
             "n": int(n), "months": int(n_origins),
         })
