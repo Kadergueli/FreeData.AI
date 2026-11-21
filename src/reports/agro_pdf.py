@@ -264,7 +264,7 @@ def render_agro_assessment_pdf(
         [
             "Score Unifié & Confiance",
             f"Score Global : {ws.get('total_score', '—')}/100 ({ws.get('verdict', '—')}) "
-            f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/50 + Sol {bd.get('soil_quality', {}).get('score', '—')}/30 + Marché {bd.get('market_logistics', {}).get('score', '—')}/20] · {conf_label}",
+            f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/{bd.get('hydric_security', {}).get('max', '—')} + Sol {bd.get('soil_quality', {}).get('score', '—')}/{bd.get('soil_quality', {}).get('max', '—')} + Marché {bd.get('market_logistics', {}).get('score', '—')}/{bd.get('market_logistics', {}).get('max', '—')}] · {conf_label}",
         ],
     ]
     story.append(_make_table(ident_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm], has_header=False))
@@ -310,10 +310,13 @@ def render_agro_assessment_pdf(
         unc = econ.get("uncertainty_revenue_range_xaf") or []
         area_f = econ.get("area_hectares", 1.0)
         y_f = econ.get("yield_kg_ha", 834.6)
-        p_ml = econ.get("market_price_central_xaf_kg") or econ.get("farmgate_price_central_xaf_kg") or "—"
+        p_ml = econ.get("predicted_market_xaf_kg")
         disc_f = econ.get("farmgate_discount_pct", 8)
         ca_c = _fmt_num(econ.get("ca_central_xaf"))
-        line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (Réf. World Bank) x {p_ml} FCFA/kg x (1 - {disc_f:g}%) = {ca_c} FCFA"
+        if isinstance(p_ml, (int, float)):
+            line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (source rendement : {econ.get('yield_source') or 'non précisée'}) x {p_ml:.1f} FCFA/kg (prix marché prédit) x (1 - {disc_f:g}% de décote bord-champ) = {ca_c} FCFA"
+        else:
+            line1 = f"Calcul de production : {area_f:g} ha x {y_f:.1f} kg/ha = {y_f * area_f:,.1f} kg ; chiffre d'affaires non calculable (prix marché indisponible)"
         if len(unc) == 2:
             line2 = f"Intervalle de confiance modèle (± {econ.get('mape_pct', '—')}% MAPE hors-temps) : {_fmt_num(unc[0])} FCFA à {_fmt_num(unc[1])} FCFA"
         else:
@@ -321,7 +324,8 @@ def render_agro_assessment_pdf(
         stress_scen = next((s for s in (econ.get("scenarios") or []) if s.get("id") == "stress_floor"), {})
         p_min = stress_scen.get("market_price_xaf_kg", "—")
         ca_s = _fmt_num(econ.get("ca_stress_xaf"))
-        line3 = f"Scénario Plancher Stress (Prix min. historique 2024–2026 : {p_min} FCFA/kg) : {ca_s} FCFA"
+        stress_farmgate = stress_scen.get("farmgate_price_xaf_kg", "—")
+        line3 = f"Scénario Plancher Stress (prix marché min. historique : {p_min} FCFA/kg ; après décote bord-champ : {stress_farmgate} FCFA/kg) : CA brut estimé {ca_s} FCFA"
 
         formula_box = Table(
             [
