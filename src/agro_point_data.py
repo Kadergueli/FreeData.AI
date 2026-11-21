@@ -11,7 +11,7 @@ from typing import Any, Optional
 import requests
 
 NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
-NASA_POWER_PARAMETERS = ("GWETROOT", "GWETTOP", "PRECTOTCORR", "T2M")
+NASA_POWER_PARAMETERS = ("GWETROOT", "GWETTOP", "IMERG_PRECTOT", "T2M")
 MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 
 
@@ -90,13 +90,13 @@ def fetch_nasa_power_point(
             "months": list(growing_months),
             "root_zone_wetness_mean": mean_months("GWETROOT"),
             "surface_wetness_mean": mean_months("GWETTOP"),
-            "precipitation_mean": mean_months("PRECTOTCORR"),
+            "precipitation_mean": mean_months("IMERG_PRECTOT"),
             "temperature_mean_c": mean_months("T2M"),
         },
         "parameter_metadata": {
             "GWETROOT": {"label": "Humidité de la zone racinaire", "unit": "fraction (0–1)"},
             "GWETTOP": {"label": "Humidité de surface", "unit": "fraction (0–1)"},
-            "PRECTOTCORR": {"label": "Précipitations corrigées", "unit": "mm/jour (moyenne climatologique, à confirmer par métadonnées API)"},
+            "IMERG_PRECTOT": {"label": "Précipitations IMERG", "unit": "mm/jour (unité fournie par NASA POWER à vérifier selon la période)"},
             "T2M": {"label": "Température de l'air à 2 m", "unit": "°C"},
         },
         "provenance": {
