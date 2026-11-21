@@ -1541,6 +1541,10 @@ def create_agro_field_assessment_endpoint(
 ):
     """Enregistre les mesures terrain/labo de l'Agronome PRO, calcule l'audit GPS/économique et le payload du rapport."""
     _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain Agronome PRO")
+    if payload.area_hectares is None:
+        raise HTTPException(status_code=422, detail="La superficie réelle de la parcelle (en hectares) est obligatoire pour calculer la production et les projections économiques.")
+    if (payload.gps_lat is None) != (payload.gps_lon is None):
+        raise HTTPException(status_code=422, detail="Saisissez les deux coordonnées GPS (latitude et longitude), ou laissez les deux champs vides.")
     hub = canonical_region(payload.province_hub) if payload.province_hub else None
     if hub is None and payload.gps_lat is not None and payload.gps_lon is not None:
         hub = compute_gps_logistics(payload.gps_lat, payload.gps_lon).get("closest_hub")
