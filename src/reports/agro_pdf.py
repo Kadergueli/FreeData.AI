@@ -454,7 +454,7 @@ def render_agro_assessment_pdf(
     if any("soilgrids" in name for name in source_names):
         reference_rows.append((
             "SoilGrids 2.0 — Poggio, L., de Sousa, L. M., Batjes, N. H., Heuvelink, G. B. M., "
-            "Kempen, B., Ribeiro, E. & Rossiter, D. (2021). SoilGrids 2.0: producing soil information "
+            "Kempen, B., Ribeiro, E. and Rossiter, D. (2021). SoilGrids 2.0: producing soil information "
             "for the globe with quantified spatial uncertainty. SOIL, 7, 217–240. "
             "https://doi.org/10.5194/soil-7-217-2021. Données CC BY 4.0 ; attribution ISRIC.",
             "Documentation et politique de partage : https://docs.isric.org/globaldata/soilgrids/"
