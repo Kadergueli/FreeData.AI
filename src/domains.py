@@ -205,7 +205,7 @@ class DomainRegistry:
         ("infrastructure", re.compile(r"\b(?:infrastructure|electricite|eau\s+potable|forage|reseau\s+routier|pont|energie|service\s+essentiel)\b")),
         ("transport", re.compile(r"\b(?:transport|fret|corridor|camion|mobilite|logistique|route\s+commerciale|acheminement)\b")),
         ("economy", re.compile(r"\b(?:economie|economique|inflation|pib|tresorerie|bfr|capex|point\s+mort|roi|rentabilite|credit\s+passport|financement|banque|microfinance)\b")),
-        ("agriculture", re.compile(r"\b(?:agriculture|agricole|recolte|semence|rendement|campagne\s+agricole|cultivateur|eleveur|elevage|pluie)\b")),
+        ("agriculture", re.compile(r"\b(?:agriculture|agricole|agro|agro-climatique|agroclimatique|pre-diagnostic|humidite|racinaire|sol|sols|rayonnement|hydrique|semis|parcelle|agronome|nasa\s+power|cerealier|cerealiere|recolte|semence|rendement|campagne\s+agricole|cultivateur|eleveur|elevage|pluie)\b")),
         ("markets_and_prices", re.compile(r"\b(?:marche|prix|mil|sorgho|mais|riz|arachide|niebe|sesame|xaf|fcfa|prevision|arbitrage|negoce|tchad|n'djamena|ndjamena|moundou|sarh|abeche|salamat|batha|ouaddai|kanem)\b")),
     ]
 

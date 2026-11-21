@@ -163,6 +163,11 @@ def test_agriculture_chat_grounds_hub_and_overview(monkeypatch):
     monkeypatch.setattr(server, "get_agro_store", lambda: _FakeAgroStore())
     from src.domains import DomainRegistry
 
+    classified = DomainRegistry.classify_domain(
+        "Donne-moi le pré-diagnostic agro-climatique de la zone de N'Djamena (humidité des sols, rayonnement, anomalies par rapport à la normale 2020–2023) en citant les sources."
+    )
+    assert classified.domain_id == "agriculture"
+
     agro_mod = DomainRegistry.MODULES["agriculture"]
     req_hub = server.PlatformChatRequest(message="Quel est le statut hydrique à Abéché ?")
     res_hub = server._handle_agriculture_chat(
