@@ -319,6 +319,7 @@ def render_agro_assessment_pdf(
             ["Période / climatologie", str(point_prov.get("reference_period") or point_satellite.get("reference_period") or "Non précisée par le fournisseur")],
             ["Date de récupération UTC", str(point_prov.get("retrieved_at_utc") or point_satellite.get("retrieved_at_utc") or "—")],
             ["Maille", str(point_prov.get("resolution") or point_satellite.get("spatial_resolution") or "Résolution native variable selon le paramètre")],
+            ["Portée spatiale", "Échantillon satellitaire au point GPS fourni; ce n'est pas une moyenne de toute la superficie. Une géométrie de parcelle (polygone) est nécessaire pour une agrégation surfacique."],
         ]
         story.append(_make_table(point_rows, col_widths=[7.0 * cm, usable_w - 7.0 * cm], has_header=True))
     elif gps_provided:
