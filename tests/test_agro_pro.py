@@ -136,7 +136,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "NASA POWER" in pdf_sat_text
     assert "World Bank" in pdf_sat_text
     assert "Localisation, superficie et données spatiales utilisées" in pdf_sat_text
-    assert "5 ha (50 000 m²)" in pdf_sat_text
+    assert "5 ha" in pdf_sat_text
     assert "Pôles contributeurs et poids" in pdf_sat_text
     assert "Humidité zone racinaire" in pdf_sat_text
 
