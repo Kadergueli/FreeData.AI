@@ -142,8 +142,8 @@ void main() {
 
     expect(proApi.lastPayload?['lab_soil_inputs']?['ph'], 6.3);
     expect(find.textContaining('FDT-2026-AB12CD'), findsWidgets);
-    expect(find.textContaining('BLOC A'), findsOneWidget);
-    expect(find.textContaining('BLOC C'), findsOneWidget);
+    expect(find.textContaining('1. Fiche d’Identification Parcellaire'), findsOneWidget);
+    expect(find.textContaining('3. Matrice Comparative d’Aptitude Culturale'), findsOneWidget);
     expect(find.text('Mil'), findsOneWidget);
     expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);

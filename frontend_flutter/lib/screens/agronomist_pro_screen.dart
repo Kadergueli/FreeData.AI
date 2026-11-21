@@ -7,6 +7,7 @@ import '../core/utils/formatters.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../widgets/auth_dialog.dart';
+import 'account_screen.dart';
 
 /// Espace Agronome PRO — Diagnostic de terrain (pré-achat) & Rapport PDF co-brandé.
 class AgronomistProScreen extends StatefulWidget {
@@ -14,6 +15,7 @@ class AgronomistProScreen extends StatefulWidget {
   final List<String> availableHubs;
   final String? initialHub;
   final bool embedded;
+  final void Function(String prompt)? onAskAssistant;
 
   const AgronomistProScreen({
     super.key,
@@ -34,6 +36,7 @@ class AgronomistProScreen extends StatefulWidget {
     ],
     this.initialHub,
     this.embedded = false,
+    this.onAskAssistant,
   });
 
   @override
@@ -262,22 +265,239 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
   }
 
   Future<void> _openCompareParcelsDialog() async {
-    final items = _history.take(3).toList();
-    if (items.length < 2) return;
-    final ids = items.map((e) => e['id'].toString()).toList();
+    // Terrain A pré-rempli depuis le formulaire principal ; Terrain B (et C optionnel) saisis manuellement
+    final aLabel = TextEditingController(text: 'Terrain A ($_hub)');
+    String aHub = _hub;
+    final aLat = TextEditingController(text: _latCtrl.text);
+    final aLon = TextEditingController(text: _lonCtrl.text);
+    final aArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final aPh = TextEditingController(text: _phCtrl.text);
+    String aTex = _texture;
+    final aOm = TextEditingController(text: _omCtrl.text);
+    final aN = TextEditingController(text: _nCtrl.text);
+    final aP = TextEditingController(text: _pCtrl.text);
+    final aK = TextEditingController(text: _kCtrl.text);
+
+    final bLabel = TextEditingController(text: 'Terrain B');
+    String bHub = _hub == 'Moundou' ? 'Sarh' : 'Moundou';
+    final bLat = TextEditingController();
+    final bLon = TextEditingController();
+    final bArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final bPh = TextEditingController();
+    String bTex = '';
+    final bOm = TextEditingController();
+    final bN = TextEditingController();
+    final bP = TextEditingController();
+    final bK = TextEditingController();
+
+    bool includeC = false;
+    final cLabel = TextEditingController(text: 'Terrain C');
+    String cHub = 'Bongor';
+    final cLat = TextEditingController();
+    final cLon = TextEditingController();
+    final cArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final cPh = TextEditingController();
+    String cTex = '';
+    final cOm = TextEditingController();
+    final cN = TextEditingController();
+    final cP = TextEditingController();
+    final cK = TextEditingController();
+
     Map<String, dynamic>? cmpData;
     String? cmpErr;
+    bool comparing = false;
     bool downloading = false;
 
-    try {
-      cmpData = await widget.apiService.compareAgroAssessments(
-        assessmentIds: ids,
-        agronomistName: _firmCtrl.text,
-      );
-    } catch (e) {
-      cmpErr = '$e';
+    double? pNum(TextEditingController c) =>
+        double.tryParse(c.text.trim().replaceAll(',', '.'));
+
+    Map<String, dynamic> buildCand(
+      TextEditingController lbl,
+      String hub,
+      TextEditingController lat,
+      TextEditingController lon,
+      TextEditingController area,
+      TextEditingController ph,
+      String tex,
+      TextEditingController om,
+      TextEditingController n,
+      TextEditingController p,
+      TextEditingController k,
+    ) {
+      final lab = <String, dynamic>{};
+      if (pNum(ph) != null) lab['ph'] = pNum(ph);
+      if (tex.isNotEmpty) lab['texture'] = tex;
+      if (pNum(om) != null) lab['organic_matter'] = pNum(om);
+      if (pNum(n) != null) lab['nitrogen'] = pNum(n);
+      if (pNum(p) != null) lab['phosphorus'] = pNum(p);
+      if (pNum(k) != null) lab['potassium'] = pNum(k);
+      return {
+        'label': lbl.text.trim(),
+        'province_hub': hub,
+        if (pNum(lat) != null) 'gps_lat': pNum(lat),
+        if (pNum(lon) != null) 'gps_lon': pNum(lon),
+        if (pNum(area) != null && pNum(area)! > 0) 'area_hectares': pNum(area),
+        'lab_soil_inputs': lab,
+        'target_crops': _selectedCrops.toList(),
+      };
     }
-    if (!mounted) return;
+
+    Widget candForm(
+      String title,
+      TextEditingController lbl,
+      String hub,
+      void Function(String) onHub,
+      TextEditingController lat,
+      TextEditingController lon,
+      TextEditingController area,
+      TextEditingController ph,
+      String tex,
+      void Function(String) onTex,
+      TextEditingController om,
+      TextEditingController n,
+      TextEditingController p,
+      TextEditingController k,
+    ) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, color: AppColors.blue)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                SizedBox(
+                  width: 170,
+                  child: TextField(
+                    controller: lbl,
+                    decoration: const InputDecoration(
+                        labelText: 'Nom du terrain', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 165,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: hub,
+                    decoration: const InputDecoration(
+                        labelText: 'Pôle', isDense: true),
+                    items: widget.availableHubs
+                        .map((h) => DropdownMenuItem(value: h, child: Text(h)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) onHub(v);
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 110,
+                  child: TextField(
+                    controller: area,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'Surface (ha)', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: lat,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    decoration: const InputDecoration(
+                        labelText: 'Lat GPS (opt.)', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: lon,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    decoration: const InputDecoration(
+                        labelText: 'Lon GPS (opt.)', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 95,
+                  child: TextField(
+                    controller: ph,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'pH (opt.)', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 155,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: tex,
+                    decoration: const InputDecoration(
+                        labelText: 'Texture (opt.)', isDense: true),
+                    items: _textures
+                        .map((t) => DropdownMenuItem(
+                            value: t['id']!, child: Text(t['label']!)))
+                        .toList(),
+                    onChanged: (v) => onTex(v ?? ''),
+                  ),
+                ),
+                SizedBox(
+                  width: 95,
+                  child: TextField(
+                    controller: om,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'MO % (opt.)', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 80,
+                  child: TextField(
+                    controller: n,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'N', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 80,
+                  child: TextField(
+                    controller: p,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'P', isDense: true),
+                  ),
+                ),
+                SizedBox(
+                  width: 80,
+                  child: TextField(
+                    controller: k,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'K', isDense: true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     await showDialog<void>(
       context: context,
@@ -288,69 +508,182 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   .whereType<Map>()
                   .map((e) => Map<String, dynamic>.from(e))
                   .toList();
+          List<Map<String, dynamic>> currentCandidates() => [
+                buildCand(aLabel, aHub, aLat, aLon, aArea, aPh, aTex, aOm, aN,
+                    aP, aK),
+                buildCand(bLabel, bHub, bLat, bLon, bArea, bPh, bTex, bOm, bN,
+                    bP, bK),
+                if (includeC)
+                  buildCand(cLabel, cHub, cLat, cLon, cArea, cPh, cTex, cOm, cN,
+                      cP, cK),
+              ];
+
           return AlertDialog(
-            title: Text(cmpData?['title']?.toString() ??
-                'Comparaison multi-terrains (côte à côte)'),
+            title: const Text('Comparaison manuelle de 2 à 3 terrains'),
             content: SizedBox(
-              width: 760,
-              child: cmpErr != null
-                  ? Text(cmpErr,
-                      style: const TextStyle(color: AppColors.danger))
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('Rang')),
-                          DataColumn(label: Text('Terrain / Pôle')),
-                          DataColumn(label: Text('Score /100')),
-                          DataColumn(label: Text('Dist. marché')),
-                          DataColumn(label: Text('Hum. rac.')),
-                          DataColumn(label: Text('Prix ML')),
-                          DataColumn(label: Text('CA Central')),
-                        ],
-                        rows: tableRows.map((r) {
-                          return DataRow(cells: [
-                            DataCell(Text(r['rank_label']?.toString() ?? '—',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700))),
-                            DataCell(Text(
-                                '${r['label']} · ${r['region'] ?? '—'}')),
-                            DataCell(Text('${r['score_composite'] ?? '—'}/100')),
-                            DataCell(Text(r['distance_hub_km'] != null
-                                ? '${r['distance_hub_km']} km'
-                                : '—')),
-                            DataCell(Text(r['rainy_root_wetness'] != null
-                                ? '${r['rainy_root_wetness']}'
-                                : '—')),
-                            DataCell(Text(r['predicted_xaf_kg'] != null
-                                ? '${r['predicted_xaf_kg']} F'
-                                : '—')),
-                            DataCell(Text(r['ca_central_xaf'] is num
-                                ? '${formatXaf(r['ca_central_xaf'] as num)} F'
-                                : '—')),
-                          ]);
-                        }).toList(),
-                      ),
+              width: 820,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    candForm(
+                      'Terrain A (référence)',
+                      aLabel,
+                      aHub,
+                      (v) => setDlg(() => aHub = v),
+                      aLat,
+                      aLon,
+                      aArea,
+                      aPh,
+                      aTex,
+                      (v) => setDlg(() => aTex = v),
+                      aOm,
+                      aN,
+                      aP,
+                      aK,
                     ),
+                    candForm(
+                      'Terrain B (candidat)',
+                      bLabel,
+                      bHub,
+                      (v) => setDlg(() => bHub = v),
+                      bLat,
+                      bLon,
+                      bArea,
+                      bPh,
+                      bTex,
+                      (v) => setDlg(() => bTex = v),
+                      bOm,
+                      bN,
+                      bP,
+                      bK,
+                    ),
+                    if (includeC)
+                      candForm(
+                        'Terrain C (candidat)',
+                        cLabel,
+                        cHub,
+                        (v) => setDlg(() => cHub = v),
+                        cLat,
+                        cLon,
+                        cArea,
+                        cPh,
+                        cTex,
+                        (v) => setDlg(() => cTex = v),
+                        cOm,
+                        cN,
+                        cP,
+                        cK,
+                      ),
+                    TextButton.icon(
+                      icon: Icon(includeC ? Icons.remove_circle_outline : Icons.add_circle_outline, size: 18),
+                      label: Text(includeC
+                          ? 'Retirer le Terrain C'
+                          : 'Ajouter un 3ᵉ terrain (Terrain C)'),
+                      onPressed: () => setDlg(() => includeC = !includeC),
+                    ),
+                    if (cmpErr != null) ...[
+                      const SizedBox(height: 8),
+                      Text(cmpErr!,
+                          style: const TextStyle(color: AppColors.danger)),
+                    ],
+                    if (tableRows.isNotEmpty) ...[
+                      const Divider(height: 20),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          headingRowColor: WidgetStateProperty.all(
+                              const Color(0xFFF0F9FF)),
+                          columns: const [
+                            DataColumn(label: Text('Rang')),
+                            DataColumn(label: Text('Terrain / Pôle')),
+                            DataColumn(label: Text('Score /100')),
+                            DataColumn(label: Text('Dist. marché')),
+                            DataColumn(label: Text('Hum. rac.')),
+                            DataColumn(label: Text('Prix ML')),
+                            DataColumn(label: Text('CA Central')),
+                          ],
+                          rows: tableRows.map((r) {
+                            return DataRow(cells: [
+                              DataCell(Text(r['rank_label']?.toString() ?? '—',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700))),
+                              DataCell(Text(
+                                  '${r['label']} · ${r['region'] ?? '—'}')),
+                              DataCell(
+                                  Text('${r['score_composite'] ?? '—'}/100')),
+                              DataCell(Text(r['distance_hub_km'] != null
+                                  ? '${r['distance_hub_km']} km'
+                                  : '—')),
+                              DataCell(Text(r['rainy_root_wetness'] != null
+                                  ? '${r['rainy_root_wetness']}'
+                                  : '—')),
+                              DataCell(Text(r['predicted_xaf_kg'] != null
+                                  ? '${r['predicted_xaf_kg']} F'
+                                  : '—')),
+                              DataCell(Text(r['ca_central_xaf'] is num
+                                  ? '${formatXaf(r['ca_central_xaf'] as num)} F'
+                                  : '—')),
+                            ]);
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Fermer'),
               ),
+              ElevatedButton(
+                onPressed: comparing
+                    ? null
+                    : () async {
+                        setDlg(() {
+                          comparing = true;
+                          cmpErr = null;
+                        });
+                        try {
+                          final res = await widget.apiService
+                              .compareAgroAssessments(
+                            candidates: currentCandidates(),
+                            agronomistName: _firmCtrl.text,
+                            agronomistLicense: _licenseCtrl.text,
+                          );
+                          setDlg(() {
+                            cmpData = res;
+                            comparing = false;
+                          });
+                        } catch (e) {
+                          setDlg(() {
+                            cmpErr = '$e';
+                            comparing = false;
+                          });
+                        }
+                      },
+                child: Text(comparing ? 'Calcul…' : 'Lancer la comparaison'),
+              ),
               if (cmpData != null)
                 ElevatedButton.icon(
                   icon: const Icon(Icons.picture_as_pdf_outlined, size: 17),
-                  label: Text(downloading ? 'PDF…' : 'Télécharger PDF Comparatif'),
-                  onPressed: downloading
+                  label: Text(downloading
+                      ? 'PDF…'
+                      : (_isOfficialApproved
+                          ? 'PDF Comparatif'
+                          : 'PDF (validation admin requise)')),
+                  onPressed: (downloading || !_isOfficialApproved)
                       ? null
                       : () async {
                           setDlg(() => downloading = true);
                           try {
                             await _persistBranding();
-                            final bytes =
-                                await widget.apiService.downloadAgroComparePdf(
-                              assessmentIds: ids,
+                            final bytes = await widget.apiService
+                                .downloadAgroComparePdf(
+                              candidates: currentCandidates(),
                               agronomistName: _firmCtrl.text,
                               agronomistLicense: _licenseCtrl.text,
                               agronomistAddress: _addressCtrl.text,
@@ -358,6 +691,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             );
                             triggerPdfDownload(
                                 bytes, 'freedata_comparatif_agro.pdf');
+                          } catch (e) {
+                            setDlg(() => cmpErr = '$e');
                           } finally {
                             setDlg(() => downloading = false);
                           }
@@ -760,12 +1095,36 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      FDPrimaryButton(
-                        label: _submitting
-                            ? 'Analyse en cours…'
-                            : 'Calculer le diagnostic',
-                        icon: Icons.science_outlined,
-                        onPressed: _submitting ? null : _submit,
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          FDPrimaryButton(
+                            label: _submitting
+                                ? 'Analyse en cours…'
+                                : 'Calculer le diagnostic',
+                            icon: Icons.science_outlined,
+                            onPressed: _submitting ? null : _submit,
+                          ),
+                          FDSecondaryButton(
+                            label: 'Comparer 2 à 3 terrains',
+                            icon: Icons.compare_arrows_rounded,
+                            onPressed: _openCompareParcelsDialog,
+                          ),
+                          if (!_isOfficialApproved)
+                            TextButton.icon(
+                              icon: const Icon(Icons.verified_user_outlined,
+                                  size: 18),
+                              label: const Text('Mon profil officiel'),
+                              onPressed: () {
+                                Navigator.of(context)
+                                    .push(MaterialPageRoute(
+                                        builder: (_) => AccountScreen(
+                                            apiService: widget.apiService)))
+                                    .then((_) => _loadOfficialProfile());
+                              },
+                            ),
+                        ],
                       ),
                     ],
                   ),
@@ -921,9 +1280,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           ),
           const SizedBox(height: 12),
 
-          // BLOC A — Fiche d'Identification Parcellaire & Localisation GPS
+          // 1. Fiche d'Identification Parcellaire & Localisation GPS
           _bulletinSectionTitle(
-              'BLOC A — Fiche d’Identification Parcellaire & GPS'),
+              '1. Fiche d’Identification Parcellaire & Localisation GPS'),
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -957,7 +1316,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           if (labParams.isNotEmpty) ...[
             const SizedBox(height: 14),
             _bulletinSectionTitle(
-                'BLOC B — Bulletin Pédologique & Agro-Climatique'),
+                '2. Bulletin Pédologique & Agro-Climatique'),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Container(
@@ -1012,7 +1371,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
 
           const SizedBox(height: 14),
           _bulletinSectionTitle(
-              'BLOC C — Matrice Comparative d’Aptitude Culturale & Rentabilité'),
+              '3. Matrice Comparative d’Aptitude Culturale & Rentabilité'),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Container(
@@ -1088,7 +1447,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           if (prescriptions.isNotEmpty) ...[
             const SizedBox(height: 14),
             _bulletinSectionTitle(
-                'BLOC D — Facteurs Limitants & Prescriptions Techniques'),
+                '4. Diagnostic des Facteurs Limitants & Prescriptions Techniques'),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -1141,11 +1500,27 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ? null
                     : () => _downloadPdf(assessment['id'].toString(), code),
               ),
-              if (_history.length >= 2)
+              FDSecondaryButton(
+                label: 'Comparer 2 à 3 terrains',
+                icon: Icons.compare_arrows_rounded,
+                onPressed: _openCompareParcelsDialog,
+              ),
+              if (widget.onAskAssistant != null)
                 FDSecondaryButton(
-                  label: 'Comparer avec une autre parcelle',
-                  icon: Icons.compare_arrows_rounded,
-                  onPressed: _openCompareParcelsDialog,
+                  label: 'Discuter avec l’Assistant IA',
+                  icon: Icons.chat_bubble_outline_rounded,
+                  onPressed: () {
+                    final hub =
+                        gps['selected_hub'] ?? assessment['province_hub'] ?? '';
+                    final topCrop = crops.isNotEmpty
+                        ? '${crops.first['label_fr']} (${crops.first['suitability_score']}/100)'
+                        : '';
+                    widget.onAskAssistant!(
+                      'Analyse ce bulletin agronomique pour $hub '
+                      '(Réf. $code, score global ${ws['total_score'] ?? '—'}/100, meilleure culture : $topCrop) '
+                      'et propose un plan d’action concret.',
+                    );
+                  },
                 ),
             ],
           ),

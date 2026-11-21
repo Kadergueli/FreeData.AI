@@ -187,8 +187,8 @@ def render_agro_assessment_pdf(
         story.append(warn_tbl)
         story.append(Spacer(1, 0.15 * cm))
 
-    # --- BLOC A : FICHE D'IDENTIFICATION PARCELLAIRE & LOCALISATION GPS ---
-    story.append(Paragraph("BLOC A — Fiche d'Identification Parcellaire & Localisation GPS", h2_style))
+    # --- 1. FICHE D'IDENTIFICATION PARCELLAIRE & LOCALISATION GPS ---
+    story.append(Paragraph("1. Fiche d'Identification Parcellaire & Localisation GPS", h2_style))
     gps_str = (
         f"{gps['gps_lat']:.5f}, {gps['gps_lon']:.5f}"
         if gps.get("gps_provided")
@@ -217,8 +217,8 @@ def render_agro_assessment_pdf(
     ]
     story.append(_bulletin_table(ident_rows, col_widths=[5.2 * cm, 12.8 * cm]))
 
-    # --- BLOC B : BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
-    story.append(Paragraph("BLOC B — Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))
+    # --- 2. BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
+    story.append(Paragraph("2. Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))
     lab_params = bulletin.get("lab_parameters") or []
     if lab_params:
         b_rows = [["Paramètre mesuré / modélisé", "Valeur Parcelle", "Norme / Seuil", "Statut", "Source & Maille"]]
@@ -232,8 +232,8 @@ def render_agro_assessment_pdf(
             ])
         story.append(_bulletin_table(b_rows, col_widths=[4.4 * cm, 4.4 * cm, 3.0 * cm, 2.2 * cm, 4.0 * cm]))
 
-    # --- BLOC C : MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
-    story.append(Paragraph("BLOC C — Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
+    # --- 3. MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
+    story.append(Paragraph("3. Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
     crop_rows = [["Culture", "Score /100", "Détail (Eau/50 + Sol/30 + Marché/20)", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
     for c in scores.get("crop_assessments") or []:
         cecon = c.get("verified_economics") or {}
@@ -282,8 +282,8 @@ def render_agro_assessment_pdf(
             ])
         story.append(_bulletin_table(comp_rows, col_widths=[2.4 * cm, 2.8 * cm, 2.4 * cm, 2.0 * cm, 2.2 * cm, 3.4 * cm, 2.8 * cm]))
 
-    # --- BLOC D : DIAGNOSTIC DES FACTEURS LIMITANTS & PRESCRIPTIONS TECHNIQUES ---
-    story.append(Paragraph("BLOC D — Diagnostic des Facteurs Limitants & Prescriptions Techniques", h2_style))
+    # --- 4. DIAGNOSTIC DES FACTEURS LIMITANTS & PRESCRIPTIONS TECHNIQUES ---
+    story.append(Paragraph("4. Diagnostic des Facteurs Limitants & Prescriptions Techniques", h2_style))
     prescriptions = bulletin.get("prescriptions") or []
     for rx in prescriptions:
         story.append(Paragraph(_clean_pdf_text(f"- {rx}"), body_style))

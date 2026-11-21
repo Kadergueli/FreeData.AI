@@ -177,6 +177,7 @@ class _AgroProScreenState extends State<AgroProScreen>
                 ),
                 AgronomistProScreen(
                   apiService: widget.apiService,
+                  onAskAssistant: widget.onAskAssistant,
                   embedded: true,
                 ),
                 if (isPro)
