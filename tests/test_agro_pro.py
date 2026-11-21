@@ -127,6 +127,8 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "Références bibliographiques" in pdf_sat_text
     assert "NASA POWER" in pdf_sat_text
     assert "World Bank" in pdf_sat_text
+    assert "1.0 ha ha" not in pdf_sat_text
+    assert "Scénario plancher historique" in pdf_sat_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
