@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/agro-pdf-quality]
+    branches: [main, feature/agro-pdf-quality, feature/agro-location-area-provenance]
   pull_request:
   workflow_dispatch:
 
