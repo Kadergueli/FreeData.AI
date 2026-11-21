@@ -1,4 +1,4 @@
-"""Générateur PDF exécutif co-brandé — Bulletin d'Analyse Agronomique & Pédologique en 4 Blocs."""
+"""Générateur PDF exécutif co-brandé — Bulletin d'Analyse Agronomique & Pédologique en 4 sections."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,7 +11,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from src.reports.pdf_generator import _clean_pdf_text, _resolve_logo_path, _styled_table
+from src.reports.pdf_generator import _clean_pdf_text, _resolve_logo_path
 
 
 def _fmt_num(val: Any, suffix: str = "") -> str:
@@ -23,21 +23,6 @@ def _fmt_num(val: Any, suffix: str = "") -> str:
     return f"{val}{suffix}"
 
 
-def _bulletin_table(rows: list[list[Any]], col_widths: list[float]) -> Table:
-    """Tableau style fiche technique de laboratoire (en-tête #F0F9FF, bordures fines #CBD5E1)."""
-    tbl = _styled_table(rows, col_widths=col_widths)
-    tbl.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F0F9FF")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ])
-    )
-    return tbl
-
-
 def render_agro_assessment_pdf(
     assessment: dict[str, Any],
     *,
@@ -47,13 +32,13 @@ def render_agro_assessment_pdf(
     agronomist_contact: Optional[str] = None,
     comparison: Optional[dict[str, Any]] = None,
 ) -> bytes:
-    """Construit un Bulletin d'Analyse Agronomique & Pédologique A4 en 4 blocs + pied verrouillé."""
+    """Construit un Bulletin d'Analyse Agronomique & Pédologique A4 sans chevauchement de texte."""
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
-        leftMargin=1.5 * cm,
-        rightMargin=1.5 * cm,
+        leftMargin=1.4 * cm,
+        rightMargin=1.4 * cm,
         topMargin=1.4 * cm,
         bottomMargin=1.5 * cm,
         title="Bulletin d'Analyse Agronomique & Pédologique — FreeData.td",
@@ -62,16 +47,16 @@ def render_agro_assessment_pdf(
     title_style = ParagraphStyle(
         "AgroTitle",
         parent=styles["Heading1"],
-        fontSize=14.5,
-        leading=18,
+        fontSize=13.5,
+        leading=17,
         textColor=colors.HexColor("#0F172A"),
         spaceAfter=4,
     )
     h2_style = ParagraphStyle(
         "AgroH2",
         parent=styles["Heading2"],
-        fontSize=10.5,
-        leading=14,
+        fontSize=10.2,
+        leading=13.5,
         textColor=colors.HexColor("#0284C7"),
         spaceBefore=9,
         spaceAfter=4,
@@ -79,8 +64,8 @@ def render_agro_assessment_pdf(
     body_style = ParagraphStyle(
         "AgroBody",
         parent=styles["Normal"],
-        fontSize=8.5,
-        leading=12,
+        fontSize=8.3,
+        leading=11.5,
         textColor=colors.HexColor("#334155"),
     )
     bold_style = ParagraphStyle(
@@ -89,16 +74,56 @@ def render_agro_assessment_pdf(
         fontName="Helvetica-Bold",
         textColor=colors.HexColor("#0F172A"),
     )
+    cell_style = ParagraphStyle(
+        "AgroCell",
+        parent=styles["Normal"],
+        fontSize=8.0,
+        leading=10.5,
+        textColor=colors.HexColor("#0F172A"),
+    )
+    cell_bold_style = ParagraphStyle(
+        "AgroCellBold",
+        parent=cell_style,
+        fontName="Helvetica-Bold",
+    )
     formula_style = ParagraphStyle(
         "AgroFormula",
-        parent=body_style,
+        parent=styles["Normal"],
         fontName="Courier-Bold",
-        fontSize=8.2,
-        leading=11.5,
+        fontSize=7.8,
+        leading=10.8,
         textColor=colors.HexColor("#0F172A"),
-        backColor=colors.HexColor("#F8FAFC"),
-        borderPadding=5,
     )
+
+    def _make_table(rows: list[list[Any]], col_widths: list[float], *, has_header: bool = True) -> Table:
+        wrapped: list[list[Paragraph]] = []
+        for r_idx, row in enumerate(rows):
+            is_hdr = has_header and r_idx == 0
+            w_row: list[Paragraph] = []
+            for c_idx, cell in enumerate(row):
+                st = cell_bold_style if (is_hdr or (not has_header and c_idx == 0)) else cell_style
+                w_row.append(Paragraph(_clean_pdf_text(str(cell)), st))
+            wrapped.append(w_row)
+        tbl = Table(wrapped, colWidths=col_widths, repeatRows=1 if has_header else 0)
+        style_cmds: list[Any] = [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]
+        if has_header:
+            style_cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F0F9FF")))
+            for r_idx in range(1, len(wrapped)):
+                bg = colors.HexColor("#FFFFFF") if r_idx % 2 == 1 else colors.HexColor("#F8FAFC")
+                style_cmds.append(("BACKGROUND", (0, r_idx), (-1, r_idx), bg))
+        else:
+            for r_idx in range(len(wrapped)):
+                style_cmds.append(("BACKGROUND", (0, r_idx), (0, r_idx), colors.HexColor("#F0F9FF")))
+                style_cmds.append(("BACKGROUND", (1, r_idx), (-1, r_idx), colors.HexColor("#FFFFFF")))
+        tbl.setStyle(TableStyle(style_cmds))
+        return tbl
 
     scores = assessment.get("computed_scores") or {}
     gps = scores.get("gps_logistics") or {}
@@ -143,11 +168,12 @@ def render_agro_assessment_pdf(
         left_cells.append(Paragraph(_clean_pdf_text(f"Contact : {contact}"), body_style))
 
     right_html = _clean_pdf_text(
-        f"<b>BULLETIN D'ANALYSE AGRONOMIQUE & PÉDOLOGIQUE</b> [{qa_badge}]<br/>"
+        f"<b>BULLETIN D'ANALYSE AGRONOMIQUE & PÉDOLOGIQUE</b><br/>"
+        f"Statut : <b>{qa_badge}</b><br/>"
         f"Réf. : {code} | Date : {date_str}<br/>"
         f"Confiance : {conf_label}"
     )
-    header_tbl = Table([[left_cells, Paragraph(right_html, body_style)]], colWidths=[8.8 * cm, 9.2 * cm])
+    header_tbl = Table([[left_cells, Paragraph(right_html, body_style)]], colWidths=[8.8 * cm, 9.4 * cm])
     header_tbl.setStyle(
         TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
@@ -172,7 +198,7 @@ def render_agro_assessment_pdf(
                 ),
                 body_style,
             )]],
-            colWidths=[18.0 * cm],
+            colWidths=[18.2 * cm],
         )
         warn_tbl.setStyle(
             TableStyle([
@@ -215,7 +241,7 @@ def render_agro_assessment_pdf(
             f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/50 + Sol {bd.get('soil_quality', {}).get('score', '—')}/30 + Marché {bd.get('market_logistics', {}).get('score', '—')}/20] · {conf_label}",
         ],
     ]
-    story.append(_bulletin_table(ident_rows, col_widths=[5.2 * cm, 12.8 * cm]))
+    story.append(_make_table(ident_rows, col_widths=[5.0 * cm, 13.2 * cm], has_header=False))
 
     # --- 2. BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
     story.append(Paragraph("2. Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))
@@ -230,11 +256,11 @@ def render_agro_assessment_pdf(
                 str(p.get("status") or "—"),
                 str(p.get("source") or "—"),
             ])
-        story.append(_bulletin_table(b_rows, col_widths=[4.4 * cm, 4.4 * cm, 3.0 * cm, 2.2 * cm, 4.0 * cm]))
+        story.append(_make_table(b_rows, col_widths=[4.4 * cm, 4.6 * cm, 2.8 * cm, 2.2 * cm, 4.2 * cm]))
 
     # --- 3. MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
     story.append(Paragraph("3. Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
-    crop_rows = [["Culture", "Score /100", "Détail (Eau/50 + Sol/30 + Marché/20)", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
+    crop_rows = [["Culture", "Score", "Eau/50 + Sol/30 + Marché/20", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
     for c in scores.get("crop_assessments") or []:
         cecon = c.get("verified_economics") or {}
         fg_price = cecon.get("farmgate_price_central_xaf_kg")
@@ -249,24 +275,38 @@ def render_agro_assessment_pdf(
             f"{_fmt_num(c.get('indicative_gross_revenue_xaf'))} F",
             str(c.get("suitability_label") or "—"),
         ])
-    story.append(_bulletin_table(crop_rows, col_widths=[2.6 * cm, 2.0 * cm, 4.8 * cm, 2.6 * cm, 3.2 * cm, 2.8 * cm]))
+    story.append(_make_table(crop_rows, col_widths=[2.8 * cm, 1.8 * cm, 4.6 * cm, 2.8 * cm, 3.4 * cm, 2.8 * cm]))
 
     if econ and econ.get("formula_text"):
-        story.append(Spacer(1, 0.12 * cm))
-        story.append(
-            Paragraph(
-                _clean_pdf_text(
-                    "Formule : CA Brut = Superficie (ha) x Rendement réf. (834.6 kg/ha World Bank) x Prix ML t+1 (FCFA/kg) x (1 - Décote logistique %)"
-                ),
-                body_style,
-            )
-        )
+        story.append(Spacer(1, 0.18 * cm))
         unc = econ.get("uncertainty_revenue_range_xaf") or []
         unc_str = f" | Fourchette ±{econ.get('mape_pct', '—')}% : {_fmt_num(unc[0])} à {_fmt_num(unc[1])} FCFA" if len(unc) == 2 else ""
         stress_str = f" | Plancher Stress 2024–2026 : {_fmt_num(econ.get('ca_stress_xaf'))} FCFA" if econ.get("ca_stress_xaf") else ""
-        story.append(Paragraph(_clean_pdf_text(f"{econ['formula_text']}{unc_str}{stress_str}"), formula_style))
+        formula_box = Table(
+            [
+                [Paragraph(
+                    _clean_pdf_text(
+                        "<b>Formule :</b> CA Brut = Superficie (ha) x Rendement réf. (834.6 kg/ha World Bank) "
+                        "x Prix ML t+1 (FCFA/kg) x (1 - Décote logistique %)"
+                    ),
+                    body_style,
+                )],
+                [Paragraph(_clean_pdf_text(f"{econ['formula_text']}{unc_str}{stress_str}"), formula_style)],
+            ],
+            colWidths=[18.2 * cm],
+        )
+        formula_box.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ])
+        )
+        story.append(formula_box)
 
-    # Tableau comparatif multi-terrains optionnel si demandé
     if comparison and comparison.get("comparison_table"):
         story.append(Paragraph("Comparatif Multi-Terrains", h2_style))
         comp_rows = [["Terrain", "Pôle", "Dist. marché", "Hum. rac.", "Prix ML", "CA Central", "Rang"]]
@@ -280,7 +320,7 @@ def render_agro_assessment_pdf(
                 _fmt_num(row.get("ca_central_xaf")),
                 str(row.get("rank_label") or f"#{row.get('rank', '')}"),
             ])
-        story.append(_bulletin_table(comp_rows, col_widths=[2.4 * cm, 2.8 * cm, 2.4 * cm, 2.0 * cm, 2.2 * cm, 3.4 * cm, 2.8 * cm]))
+        story.append(_make_table(comp_rows, col_widths=[2.6 * cm, 2.8 * cm, 2.4 * cm, 2.0 * cm, 2.2 * cm, 3.4 * cm, 2.8 * cm]))
 
     # --- 4. DIAGNOSTIC DES FACTEURS LIMITANTS & PRESCRIPTIONS TECHNIQUES ---
     story.append(Paragraph("4. Diagnostic des Facteurs Limitants & Prescriptions Techniques", h2_style))
@@ -312,7 +352,7 @@ def render_agro_assessment_pdf(
         footer_text = _clean_pdf_text(
             f"Propulse par FreeData.td  |  Verification : {code}  |  Page {pdf_doc.page}"
         )
-        canvas.drawString(1.5 * cm, 1.0 * cm, footer_text)
+        canvas.drawString(1.4 * cm, 1.0 * cm, footer_text)
         canvas.restoreState()
 
     doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)

@@ -573,7 +573,11 @@ def compute_verified_economics(
     p_low = round(p_central * max(0.0, 1.0 - mape_ratio), 1)
     p_high = round(p_central * (1.0 + mape_ratio), 1)
 
-    raw_stress = float(stress_min_xaf_kg) if (stress_min_xaf_kg and stress_min_xaf_kg > 0) else round(p_ml * max(0.5, 1.0 - mape_ratio), 1)
+    raw_stress = (
+        min(float(stress_min_xaf_kg), p_ml)
+        if (stress_min_xaf_kg and stress_min_xaf_kg > 0)
+        else round(p_ml * max(0.5, 1.0 - mape_ratio), 1)
+    )
     p_stress = round(raw_stress * (1.0 - disc_ratio), 1)
 
     ca_central = round(q_kg * p_central)
