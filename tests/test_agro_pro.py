@@ -94,6 +94,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "En attente d'analyse physique" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
     assert res_no_lab["qa"]["can_deliver_pdf"] is True
     assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
+    assert any("22/30 pts" in warning for warning in res_no_lab["qa"]["warnings"])
     # Vérifier la formule unifiée 50/30/20 entre bandeau et meilleure culture + bulletin 6 paramètres
     cs = res_no_lab["assessment"]["computed_scores"]
     ws = cs["weighted_score"]
