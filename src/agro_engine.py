@@ -1596,8 +1596,18 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
     if not has_lab:
+        soil_basis = scores.get("soil_basis")
+        soil_cap = 22 if soil_basis == "soilgrids_zonal" else 15 if soil_basis == "satellite_proxy" else None
+        soil_method = (
+            "estimation zonale SoilGrids"
+            if soil_basis == "soilgrids_zonal"
+            else "proxy satellitaire"
+            if soil_basis == "satellite_proxy"
+            else "estimation non caractérisée"
+        )
+        cap_text = f" (plafond du modèle : {soil_cap}/30 pts)" if soil_cap is not None else ""
         warnings.append(
-            "Mesures sol laboratoire non fournies : la composante sol (max 15/30 pts) est estimée par satellite en attente d'analyse."
+            f"Mesures sol laboratoire non fournies : la composante sol repose sur une {soil_method}{cap_text} et doit être confirmée par une analyse physique."
         )
     if not assessment.get("province_hub"):
         blockers.append("Pôle régional manquant.")

@@ -1,5 +1,8 @@
 """Tests Étape 3 (P2) — Espace Agronome PRO : diagnostic de terrain, porte QA et PDF co-brandé."""
+from io import BytesIO
 from pathlib import Path
+
+from pypdf import PdfReader
 
 import pandas as pd
 import pytest
@@ -94,6 +97,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "En attente d'analyse physique" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
     assert res_no_lab["qa"]["can_deliver_pdf"] is True
     assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
+    assert any("22/30 pts" in warning for warning in res_no_lab["qa"]["warnings"])
     # Vérifier la formule unifiée 50/30/20 entre bandeau et meilleure culture + bulletin 6 paramètres
     cs = res_no_lab["assessment"]["computed_scores"]
     ws = cs["weighted_score"]
@@ -119,6 +123,10 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     )
     assert pdf_sat.media_type == "application/pdf"
     assert pdf_sat.body.startswith(b"%PDF")
+    pdf_sat_text = "\\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_sat.body)).pages)
+    assert "Références bibliographiques" in pdf_sat_text
+    assert "NASA POWER" in pdf_sat_text
+    assert "World Bank" in pdf_sat_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
@@ -260,4 +268,27 @@ def test_gps_logistics_verified_economics_and_compare_assessments(tmp_path):
     assert len(radar["hubs"]) == radar["summary"]["hubs_count"]
     assert "NASA POWER Agro (Public Domain)" in radar["sources"]
 
+@pytest.mark.parametrize("area_hectares", [1.0, 5.0, 10.0, 20.0])
+def test_verified_economics_scales_linearly_with_declared_area(area_hectares):
+    from src.agro_engine import compute_verified_economics
 
+    result = compute_verified_economics(
+        crop_id="sorghum_red",
+        area_hectares=area_hectares,
+        yield_kg_ha=834.6,
+        yield_source="World Bank reference yield (model assumption)",
+        predicted_xaf_kg=300.0,
+        mape_pct=10.0,
+        stress_min_xaf_kg=200.0,
+        farmgate_discount_pct=15.0,
+    )
+
+    expected_production = round(area_hectares * 834.6, 1)
+    expected_farmgate_price = round(300.0 * (1.0 - 0.15), 1)
+    expected_revenue = round(expected_production * expected_farmgate_price)
+
+    assert result["area_hectares"] == area_hectares
+    assert result["area_assumed_1ha"] is False
+    assert result["production_kg"] == expected_production
+    assert result["farmgate_price_central_xaf_kg"] == expected_farmgate_price
+    assert result["ca_central_xaf"] == expected_revenue

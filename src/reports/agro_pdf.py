@@ -138,16 +138,31 @@ def render_agro_assessment_pdf(
     date_str = str(assessment.get("created_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d"))[:10]
     has_lab = bool(scores.get("has_lab_measurements"))
     conf_label = scores.get("confidence_level") or (
-        "Satellite IDW + Labo Certifié"
+        "Données de laboratoire fournies — certification non vérifiée"
         if has_lab
         else "Satellite IDW Uniquement — En attente d'analyse physique"
     )
-    qa_badge = "QA TERRAIN VALIDÉ" if has_lab else "ESTIMATION SATELLITAIRE GPS"
+    qa_badge = "DONNÉES LABORATOIRE FOURNIES — VALIDATION REQUISE" if has_lab else "ESTIMATION RÉGIONALE — SANS MESURE LABORATOIRE"
+    gps_provided = bool(gps.get("gps_provided") or assessment.get("gps_lat") is not None and assessment.get("gps_lon") is not None)
     resolution_title = (
-        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
+        "PRÉ-DIAGNOSTIC AGRONOMIQUE — DONNÉES LABORATOIRE FOURNIES"
         if has_lab
-        else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
+        else (
+            "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (ESTIMATION SATELLITAIRE GÉORÉFÉRENCÉE)"
+            if gps_provided
+            else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE RÉGIONALE — GPS NON FOURNI)"
+        )
     )
+    soil_basis = scores.get("soil_basis")
+    soil_cap = 22 if soil_basis == "soilgrids_zonal" else 15 if soil_basis == "satellite_proxy" else None
+    soil_method = (
+        "SoilGrids zonal"
+        if soil_basis == "soilgrids_zonal"
+        else "proxy satellitaire"
+        if soil_basis == "satellite_proxy"
+        else "estimation pédologique"
+    )
+    soil_cap_text = f" (plafond modèle : {soil_cap}/30 pts)" if soil_cap is not None else ""
 
     story: list[Any] = []
 
@@ -193,8 +208,8 @@ def render_agro_assessment_pdf(
         warn_tbl = Table(
             [[Paragraph(
                 _clean_pdf_text(
-                    "<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
-                    "la composante sol (plafonnée à 15/30 pts) est estimée par satellite en attente d'analyse physique."
+                    f"<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
+                    f"la composante sol repose sur {soil_method}{soil_cap_text} ; cette estimation ne remplace pas une analyse physique."
                 ),
                 body_style,
             )]],
@@ -233,12 +248,16 @@ def render_agro_assessment_pdf(
             if (h.get("weight_pct") or 0) > 0
         )
         if gps.get("gps_provided") and idw_hubs
-        else "Maille pôle unique (100%)"
+        else "Maille régionale du pôle (100%) — coordonnées GPS non fournies"
     )
     firm_label = f"{firm} (N° {lic})" if lic else firm
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
-    area_val = assessment.get("area_hectares") or "1.0 (réf.)"
+    area_val = (
+        f"{assessment.get('area_hectares')} (superficie déclarée)"
+        if assessment.get("area_hectares")
+        else "Non renseignée — hypothèse économique par défaut : 1,0 ha"
+    )
     bd = ws.get("breakdown") or {}
     ident_rows = [
         [
@@ -260,7 +279,7 @@ def render_agro_assessment_pdf(
         [
             "Score Unifié & Confiance",
             f"Score Global : {ws.get('total_score', '—')}/100 ({ws.get('verdict', '—')}) "
-            f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/50 + Sol {bd.get('soil_quality', {}).get('score', '—')}/30 + Marché {bd.get('market_logistics', {}).get('score', '—')}/20] · {conf_label}",
+            f"[Eau {bd.get('hydric_security', {}).get('score', '—')}/{bd.get('hydric_security', {}).get('max', '—')} + Sol {bd.get('soil_quality', {}).get('score', '—')}/{bd.get('soil_quality', {}).get('max', '—')} + Marché {bd.get('market_logistics', {}).get('score', '—')}/{bd.get('market_logistics', {}).get('max', '—')}] · {conf_label}",
         ],
     ]
     story.append(_make_table(ident_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm], has_header=False))
@@ -306,10 +325,13 @@ def render_agro_assessment_pdf(
         unc = econ.get("uncertainty_revenue_range_xaf") or []
         area_f = econ.get("area_hectares", 1.0)
         y_f = econ.get("yield_kg_ha", 834.6)
-        p_ml = econ.get("market_price_central_xaf_kg") or econ.get("farmgate_price_central_xaf_kg") or "—"
+        p_ml = econ.get("predicted_market_xaf_kg")
         disc_f = econ.get("farmgate_discount_pct", 8)
         ca_c = _fmt_num(econ.get("ca_central_xaf"))
-        line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (Réf. World Bank) x {p_ml} FCFA/kg x (1 - {disc_f:g}%) = {ca_c} FCFA"
+        if isinstance(p_ml, (int, float)):
+            line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (source rendement : {econ.get('yield_source') or 'non précisée'}) x {p_ml:.1f} FCFA/kg (prix marché prédit) x (1 - {disc_f:g}% de décote bord-champ) = {ca_c} FCFA"
+        else:
+            line1 = f"Calcul de production : {area_f:g} ha x {y_f:.1f} kg/ha = {y_f * area_f:,.1f} kg ; chiffre d'affaires non calculable (prix marché indisponible)"
         if len(unc) == 2:
             line2 = f"Intervalle de confiance modèle (± {econ.get('mape_pct', '—')}% MAPE hors-temps) : {_fmt_num(unc[0])} FCFA à {_fmt_num(unc[1])} FCFA"
         else:
@@ -317,7 +339,8 @@ def render_agro_assessment_pdf(
         stress_scen = next((s for s in (econ.get("scenarios") or []) if s.get("id") == "stress_floor"), {})
         p_min = stress_scen.get("market_price_xaf_kg", "—")
         ca_s = _fmt_num(econ.get("ca_stress_xaf"))
-        line3 = f"Scénario Plancher Stress (Prix min. historique 2024–2026 : {p_min} FCFA/kg) : {ca_s} FCFA"
+        stress_farmgate = stress_scen.get("farmgate_price_xaf_kg", "—")
+        line3 = f"Scénario Plancher Stress (prix marché min. historique : {p_min} FCFA/kg ; après décote bord-champ : {stress_farmgate} FCFA/kg) : CA brut estimé {ca_s} FCFA"
 
         formula_box = Table(
             [
@@ -368,10 +391,100 @@ def render_agro_assessment_pdf(
         story.append(Paragraph(_clean_pdf_text(f"<b>Signature Agronome PRO :</b> {firm}"), body_style))
 
     story.append(Spacer(1, 0.12 * cm))
+    # --- 5. PROVENANCE, LICENCES & LIMITES DES DONNÉES ---
+    story.append(Paragraph("5. Provenance, Licences & Limites des Données", h2_style))
+    prov_blocks = [
+        ("Indicateurs régionaux", scores.get("provenance") or {}),
+        ("Indicateurs nationaux", scores.get("national_provenance") or {}),
+    ]
+    site = scores.get("site_profile") or {}
+    site_sources: set[str] = set()
+    if (site.get("soil") or {}).get("provenance"):
+        sp = (site.get("soil") or {})["provenance"]
+        if sp.get("source"):
+            site_sources.add(str(sp["source"]).casefold())
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"Sol — {sp.get('source', 'Source non précisée')} | Licence : {sp.get('license', 'non précisée')} | "
+                f"Résolution : {sp.get('spatial_resolution', 'non précisée')} | {sp.get('note', '')}"
+            ), body_style
+        ))
+        if sp.get("attribution"):
+            story.append(Paragraph(_clean_pdf_text(f"Attribution sol : {sp['attribution']}"), body_style))
+    if (site.get("climate") or {}).get("provenance"):
+        cp = (site.get("climate") or {})["provenance"]
+        if cp.get("source"):
+            site_sources.add(str(cp["source"]).casefold())
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"Climat — {cp.get('source', 'Source non précisée')} | Licence : {cp.get('license', 'non précisée')} | "
+                f"Résolution : {cp.get('spatial_resolution', 'non précisée')} | {cp.get('note', '')}"
+            ), body_style
+        ))
+        if cp.get("attribution"):
+            story.append(Paragraph(_clean_pdf_text(f"Attribution climat : {cp['attribution']}"), body_style))
+
+    for label, prov in prov_blocks:
+        sources = prov.get("sources") or []
+        licenses = prov.get("licenses") or []
+        period = prov.get("reference_period") or {}
+        resolutions = prov.get("spatial_resolution") or []
+        confidence = prov.get("confidence_level") or []
+        if not (sources or licenses or period or resolutions or confidence):
+            continue
+        period_text = (
+            f"{period.get('first', '—')} à {period.get('last', '—')}"
+            if isinstance(period, dict) else str(period)
+        )
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"{label} — Sources : {', '.join(map(str, sources)) or 'non renseignées'} | "
+                f"Licences déclarées : {', '.join(map(str, licenses)) or 'non renseignées'} | "
+                f"Période : {period_text} | Maille : {', '.join(map(str, resolutions)) or 'non renseignée'} | "
+                f"Confiance : {', '.join(map(str, confidence)) or 'non précisée'}"
+            ), body_style
+        ))
+    # Références bibliographiques : n'afficher que les fournisseurs réellement présents dans ce dossier.
+    source_names = {
+        str(name).casefold()
+        for _label, prov in prov_blocks
+        for name in (prov.get("sources") or [])
+    } | site_sources
+    reference_rows: list[tuple[str, str]] = []
+    if any("soilgrids" in name for name in source_names):
+        reference_rows.append((
+            "SoilGrids 2.0 — Poggio, L., de Sousa, L. M., Batjes, N. H., Heuvelink, G. B. M., "
+            "Kempen, B., Ribeiro, E. and Rossiter, D. (2021). SoilGrids 2.0: producing soil information "
+            "for the globe with quantified spatial uncertainty. SOIL, 7, 217–240. "
+            "https://doi.org/10.5194/soil-7-217-2021. Données CC BY 4.0 ; attribution ISRIC.",
+            "Documentation et politique de partage : https://docs.isric.org/globaldata/soilgrids/"
+        ))
+    if any("nasa power" in name for name in source_names):
+        reference_rows.append((
+            "NASA POWER — NASA Langley Research Center, Prediction of Worldwide Energy Resources. "
+            "Référence officielle du projet ; la version du service et la date d'accès ne sont pas "
+            "conservées dans les métadonnées de ce dossier.",
+            "Guide de citation : https://power.larc.nasa.gov/docs/referencing/ | "
+            "Services et résolution : https://power.larc.nasa.gov/docs/services/"
+        ))
+    if any("world bank" in name for name in source_names):
+        reference_rows.append((
+            "World Bank — indicateurs de la Banque mondiale. La licence CC BY 4.0 est déclarée "
+            "pour les lignes utilisées ; vérifier les conditions propres à chaque jeu de données.",
+            "Conditions et licences des jeux de données : https://datacatalog.worldbank.org/public-licenses"
+        ))
+    if reference_rows:
+        story.append(Paragraph("6. Références bibliographiques & documentation des fournisseurs", h2_style))
+        for citation, reference_url in reference_rows:
+            story.append(Paragraph(_clean_pdf_text(citation), body_style))
+            story.append(Paragraph(_clean_pdf_text(reference_url), body_style))
+    story.append(Spacer(1, 0.08 * cm))
     story.append(
         Paragraph(
             _clean_pdf_text(
-                "Sources & Licences : NASA POWER Agro (Public Domain) | World Bank (CC BY 4.0) | WFP (CC BY-IGO 3.0) | FEWS NET (Attribution Required)."
+                "Limites : les valeurs régionales, zonales ou satellitaires sont des estimations et ne constituent pas des mesures de la parcelle. "
+                "Les rendements de référence, prix prédits, décotes logistiques et chiffres d'affaires sont des hypothèses de modèle, non des garanties de production ou de vente. "
+                "Vérifier les licences, dates et conditions de réutilisation auprès de chaque fournisseur avant toute redistribution."
             ),
             body_style,
         )
