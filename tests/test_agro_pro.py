@@ -123,11 +123,11 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     )
     assert pdf_sat.media_type == "application/pdf"
     assert pdf_sat.body.startswith(b"%PDF")
-    pdf_sat_text = "\\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_sat.body)).pages)
+    pdf_sat_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_sat.body)).pages)
     assert "Références bibliographiques" in pdf_sat_text
     assert "NASA POWER" in pdf_sat_text
     assert "World Bank" in pdf_sat_text
-    assert "1.0 ha ha" not in pdf_sat_text
+    assert "ha ha" not in pdf_sat_text
     assert "Scénario plancher historique" in pdf_sat_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
