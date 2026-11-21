@@ -2701,19 +2701,19 @@ class FreeDataAIAgent(FormattersMixin):
         if not orig:
             orig = self.provinces[0] if self.provinces else "N'Djamena"
 
-        buy_p = self.provider._median_province_commodity_price(orig, comm)
+        buy_p = self.provider._median_province_commodity_price(orig, comm, "observed")
         if buy_p is None and raw_data and isinstance(raw_data.get("buy_price_xaf"), (int, float)):
             buy_p = float(raw_data["buy_price_xaf"])
         if buy_p is None and not self.provider.forecast_df.empty:
             fc_sub = self.provider.forecast_df[self.provider.forecast_df["commodity_std"] == comm]
             if not fc_sub.empty:
-                ps = self.provider._resolve_price_series(fc_sub).dropna()
+                ps = self.provider._resolve_price_series(fc_sub, "observed").dropna()
                 if not ps.empty:
                     buy_p = float(ps.median())
         if buy_p is None or buy_p <= 0:
             return None
 
-        sell_p = self.provider._median_province_commodity_price(dest, comm) if dest else None
+        sell_p = self.provider._median_province_commodity_price(dest, comm, "forecast") if dest else None
         predicted_t1_sell_p = None
         fc_target = self.provider.get_forecasts(province=dest or orig, commodity=comm)
         fc_recs = fc_target.get("records") or []
@@ -2749,6 +2749,9 @@ class FreeDataAIAgent(FormattersMixin):
             loss_rate_pct=5.0,
             user_instructions=instructions,
             predicted_t1_sell_price_per_kg=predicted_t1_sell_p,
+            observed_sell_price_per_kg=(
+                self.provider._median_province_commodity_price(dest, comm, "observed") if dest else None
+            ),
         )
 
     def _synthesize_with_llm(

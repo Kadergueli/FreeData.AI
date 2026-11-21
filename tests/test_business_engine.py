@@ -204,3 +204,50 @@ def test_non_rentable_status_and_commercial_strategy():
     assert cs["long_distance_freight_warning"] is True
     assert len(cs["field_validation_checklist"]) == 5
 
+
+
+def test_verdict_payback_safety_margin_and_price_basis():
+    bp = build_professional_business_plan(
+        commodity="Millet", commodity_fr="Mil", origin_province="Lac", dest_province="N'Djamena",
+        buy_price_per_kg=200.0, sell_price_per_kg=320.0, volatility_cv_pct=25.0, credit_score=82.0, capital_xaf=1_000_000.0,
+    )
+    ue = bp["unit_economics"]
+    assert ue["safety_margin_pct"] == round((320.0 - ue["break_even_price_per_kg"]) / 320.0 * 100, 1)
+    assert bp["verdict"]["level"] in ("green", "amber") and bp["verdict"]["label"]
+    assert ue["payback_month"] is None or 1 <= ue["payback_month"] <= 6
+    assert "constaté" in bp["price_basis"]["buy"] and "prévision" in bp["price_basis"]["sell"]
+    md = format_business_plan_markdown(bp)
+    for section in ("Synthèse exécutive", "Hypothèses et provenance", "Allocation du capital", "Économie unitaire",
+                    "Projection sur 6 mois", "Tests de résistance", "Risques identifiés", "Stratégie commerciale"):
+        assert section in md
+    assert "Volatilité des prix (CV) | 25.0 % — élevée" in md
+
+
+def test_non_rentable_verdict_is_red():
+    bp = build_professional_business_plan(
+        commodity="Millet", commodity_fr="Mil", origin_province="Lac", dest_province="N'Djamena",
+        buy_price_per_kg=220.0, sell_price_per_kg=240.0, volatility_cv_pct=None, credit_score=None, capital_xaf=150_000.0,
+    )
+    assert bp["verdict"]["level"] == "red"
+    assert "NON RENTABLE" in format_business_plan_markdown(bp)
+
+
+def test_sell_price_cap_is_flagged_not_silent():
+    bp = build_professional_business_plan(
+        commodity="Millet", commodity_fr="Mil", origin_province="Lac", dest_province="N'Djamena",
+        buy_price_per_kg=200.0, sell_price_per_kg=400.0, volatility_cv_pct=8.0, credit_score=80.0,
+        max_observed_dest_price_per_kg=320.0,
+    )
+    ue = bp["unit_economics"]
+    assert ue["sell_price_capped"] is True and ue["sell_price_per_kg"] == 320.0 and ue["requested_sell_price_per_kg"] == 400.0
+    assert "plafonné" in format_business_plan_markdown(bp)
+
+
+def test_invalid_numeric_inputs_are_rejected():
+    import pytest
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            build_professional_business_plan(
+                commodity="Millet", commodity_fr="Mil", origin_province="Lac", dest_province=None,
+                buy_price_per_kg=bad, sell_price_per_kg=300.0, volatility_cv_pct=None, credit_score=None,
+            )

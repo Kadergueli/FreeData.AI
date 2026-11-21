@@ -50,8 +50,8 @@ def build_market_study_dossier(
     # 1. Données de prix & prévisions (origine & destination)
     fc_orig = provider.get_forecasts(province=orig, commodity=resolved_comm)
     fc_dest = provider.get_forecasts(province=dest, commodity=resolved_comm) if dest else {}
-    buy_price = provider._median_province_commodity_price(orig, resolved_comm)
-    sell_price = provider._median_province_commodity_price(dest, resolved_comm) if dest else None
+    buy_price = provider._median_province_commodity_price(orig, resolved_comm, "observed")
+    sell_price = provider._median_province_commodity_price(dest, resolved_comm, "forecast") if dest else None
 
     if buy_price is None:
         raise ValueError(f"Aucune donnée de prix vérifiée pour {comm_fr} à {orig}.")
@@ -112,6 +112,7 @@ def build_market_study_dossier(
         zero_capex=zero_capex_flag,
         predicted_t1_sell_price_per_kg=predicted_t1_sell,
         max_observed_dest_price_per_kg=max_obs_dest,
+        observed_sell_price_per_kg=provider._median_province_commodity_price(dest, resolved_comm, "observed") if dest else None,
     )
 
     eff_sell = (

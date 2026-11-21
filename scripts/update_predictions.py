@@ -27,6 +27,8 @@ FORECAST_SRC_COLS = [
     "predicted_price", "deviation_pct",
     # 'standard' ou 'reduced' (dernier relevé après un trou) : sql/06 doit être appliqué avant ce script.
     "forecast_quality",
+    # Statut de calibration de l'intervalle à 80 % : sql/15 doit être appliqué avant ce script.
+    "interval_status",
 ]
 
 PASSPORT_COLS = [

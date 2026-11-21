@@ -12,6 +12,27 @@ RESERVE_SHARE = 0.12
 REINVEST_RATE = 0.75
 
 
+def _finite(name: str, value: Optional[float], *, optional: bool = False) -> Optional[float]:
+    """Refuse NaN / infini : un business plan ne doit jamais être calculé sur une entrée invalide."""
+    if value is None:
+        if optional:
+            return None
+        raise ValueError(f"Paramètre manquant : {name}.")
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Paramètre invalide : {name}.") from exc
+    if not math.isfinite(v):
+        raise ValueError(f"Paramètre invalide (non fini) : {name}.")
+    return v
+
+
+DEFAULT_PRICE_BASIS = {
+    "buy": "dernier prix constaté sur les marchés de l'origine (médiane)",
+    "sell": "prévision du mois suivant (t+1) sur les marchés de destination (médiane)",
+}
+
+
 def _norm_instruction(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text or "")
     stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
@@ -131,14 +152,21 @@ def build_professional_business_plan(
     zero_capex: Optional[bool] = None,
     predicted_t1_sell_price_per_kg: Optional[float] = None,
     max_observed_dest_price_per_kg: Optional[float] = None,
+    price_basis: Optional[dict] = None,
+    observed_sell_price_per_kg: Optional[float] = None,
 ) -> dict:
     """Construit un modèle financier complet et déterministe pour un business plan bancable."""
-    cap = max(float(capital_xaf), 1.0)
-    buy_p = max(float(buy_price_per_kg), 1.0)
-    transport_p = max(float(transport_cost_per_kg), 0.0)
-    loss_pct = min(max(float(loss_rate_pct), 0.0), 50.0)
-    fixed_xaf = max(float(monthly_fixed_costs_xaf), 0.0)
-    cycles = max(float(cycles_per_month), 0.25)
+    cap = max(_finite("capital_xaf", capital_xaf), 1.0)
+    buy_p = max(_finite("buy_price_per_kg", buy_price_per_kg), 1.0)
+    transport_p = max(_finite("transport_cost_per_kg", transport_cost_per_kg), 0.0)
+    loss_pct = min(max(_finite("loss_rate_pct", loss_rate_pct), 0.0), 50.0)
+    fixed_xaf = max(_finite("monthly_fixed_costs_xaf", monthly_fixed_costs_xaf), 0.0)
+    cycles = max(_finite("cycles_per_month", cycles_per_month), 0.25)
+    _finite("sell_price_per_kg", sell_price_per_kg, optional=True)
+    _finite("predicted_t1_sell_price_per_kg", predicted_t1_sell_price_per_kg, optional=True)
+    _finite("max_observed_dest_price_per_kg", max_observed_dest_price_per_kg, optional=True)
+    _finite("observed_sell_price_per_kg", observed_sell_price_per_kg, optional=True)
+    basis = {**DEFAULT_PRICE_BASIS, **(price_basis or {})}
 
     inst_reinvest, inst_zero_capex = _parse_instruction_overrides(user_instructions)
     eff_reinvest = True if reinvest is None and inst_reinvest is None else (reinvest if reinvest is not None else bool(inst_reinvest))
@@ -170,8 +198,11 @@ def build_professional_business_plan(
         eff_sell_price = round(float(predicted_t1_sell_price_per_kg), 1)
     else:
         eff_sell_price = round(break_even_price_per_kg * 1.15, 1)
+    requested_sell_price = eff_sell_price
+    sell_price_capped = False
     if max_observed_dest_price_per_kg is not None and eff_sell_price > float(max_observed_dest_price_per_kg):
         eff_sell_price = round(float(max_observed_dest_price_per_kg), 1)
+        sell_price_capped = True  # plafonné au plus haut prix réellement constaté à destination (prudence)
 
     gross_revenue_xaf = round(volume_sellable_kg * eff_sell_price)
     total_variable_cost_xaf = round(volume_bought_kg * unit_landed_cost)
@@ -223,6 +254,12 @@ def build_professional_business_plan(
         "min_theoretical_capital_xaf": min_theoretical_capital_xaf,
         "reinvest_enabled": eff_reinvest,
         "reinvest_rate_pct": round(REINVEST_RATE * 100.0, 1) if eff_reinvest else 0.0,
+        "unit_margin_per_bought_kg": round(unit_margin_per_bought_kg, 1),
+        "safety_margin_pct": round((eff_sell_price - break_even_price_per_kg) / eff_sell_price * 100.0, 1)
+        if eff_sell_price > 0
+        else None,
+        "sell_price_capped": sell_price_capped,
+        "requested_sell_price_per_kg": requested_sell_price if sell_price_capped else None,
     }
 
     # 3. Projection financière sur 6 mois (75 % du bénéfice réinvesti dans le BFR par défaut, ou BFR constant si reinvest=False)
@@ -283,18 +320,57 @@ def build_professional_business_plan(
             "viable": sm["net_profit"] > 0,
         })
 
+    cumulative_profit = 0.0
+    payback_month: Optional[int] = None
+    for row in projection_6_months:
+        cumulative_profit += row["net_profit"]
+        if payback_month is None and cumulative_profit >= cap:
+            payback_month = row["month"]
+    unit_economics["payback_month"] = payback_month
+    unit_economics["cumulative_net_profit_6m_xaf"] = round(cumulative_profit)
+
+    viable_stress = sum(1 for st in stress_tests if st["viable"])
+    safety = unit_economics["safety_margin_pct"]
+    if is_non_rentable:
+        verdict = {
+            "level": "red",
+            "label": "NON RENTABLE À CETTE ÉCHELLE",
+            "summary": "Le prix de vente prévu ne couvre pas le point mort : ne pas engager le capital en l'état.",
+        }
+    elif viable_stress == len(stress_tests):
+        verdict = {
+            "level": "green",
+            "label": "RENTABLE ET RÉSISTANT AUX CHOCS",
+            "summary": f"Le résultat reste positif dans les {len(stress_tests)} scénarios de stress testés.",
+        }
+    elif viable_stress >= 1:
+        verdict = {
+            "level": "amber",
+            "label": "RENTABLE MAIS FRAGILE",
+            "summary": f"Le résultat devient négatif dans {len(stress_tests) - viable_stress} scénario(s) de stress sur {len(stress_tests)}.",
+        }
+    else:
+        verdict = {
+            "level": "amber",
+            "label": "RENTABLE MAIS TRÈS SENSIBLE AUX CHOCS",
+            "summary": "Le moindre choc (prix, fret ou pertes) rend l'opération déficitaire : marge de sécurité insuffisante.",
+        }
+    verdict["safety_margin_pct"] = safety
+
     long_distance_freight_warning = bool(
         dest_province
         and origin_province
         and dest_province.strip().lower() != origin_province.strip().lower()
         and abs(transport_p - 25.0) < 1e-6
     )
-    if predicted_t1_sell_price_per_kg is not None and sell_price_per_kg is not None and predicted_t1_sell_price_per_kg < sell_price_per_kg:
+    # Tendance = prévision t+1 comparée au dernier prix constaté à destination (à défaut, au prix de vente retenu).
+    trend_ref = observed_sell_price_per_kg if observed_sell_price_per_kg is not None else sell_price_per_kg
+    if predicted_t1_sell_price_per_kg is not None and trend_ref is not None and predicted_t1_sell_price_per_kg < trend_ref:
         flow_strategy = (
             "Tendance baissière (Prix prévu t+1 < Prix observé) : rotation rapide impérative "
             "(flux tendu < 15 jours) sans stockage spéculatif."
         )
-    elif predicted_t1_sell_price_per_kg is not None and sell_price_per_kg is not None and predicted_t1_sell_price_per_kg > sell_price_per_kg:
+    elif predicted_t1_sell_price_per_kg is not None and trend_ref is not None and predicted_t1_sell_price_per_kg > trend_ref:
         flow_strategy = (
             "Tendance haussière (Prix prévu t+1 > Prix observé) : stockage court terme envisageable "
             "sous réserve de maîtriser les pertes techniques (5 % par défaut) et le coût de magasinage."
@@ -343,88 +419,187 @@ def build_professional_business_plan(
         "unit_economics": unit_economics,
         "projection_6_months": projection_6_months,
         "stress_tests": stress_tests,
+        "verdict": verdict,
+        "price_basis": basis,
         "commercial_strategy": commercial_strategy,
         "user_instructions": list(user_instructions or []),
     }
 
 
+def _xaf(value: float | int) -> str:
+    """Montant entier avec espace comme séparateur de milliers (format français)."""
+    return f"{int(round(value)):,}".replace(",", " ")
+
+
+def _signed_xaf(value: float | int) -> str:
+    return f"{int(round(value)):+,}".replace(",", " ")
+
+
+def _volatility_label(cv: Optional[float]) -> str:
+    if cv is None:
+        return "non disponible"
+    if cv < 10.0:
+        return f"{cv:.1f} % — faible"
+    if cv < 20.0:
+        return f"{cv:.1f} % — modérée"
+    return f"{cv:.1f} % — élevée"
+
+
+_VERDICT_ICON = {"green": "🟢", "amber": "🟠", "red": "🔴"}
+
+
 def format_business_plan_markdown(bp: dict) -> str:
-    """Rendu Markdown structuré du modèle financier pour le mode gratuit ou repli LLM."""
+    """Rendu Markdown professionnel du modèle financier (synthèse, hypothèses, projections, risques, décision)."""
     ca = bp["capital_allocation"]
     ue = bp["unit_economics"]
     cs = bp.get("commercial_strategy") or {}
+    cm = bp.get("certified_market_metrics") or {}
+    basis = bp.get("price_basis") or DEFAULT_PRICE_BASIS
+    verdict = bp.get("verdict") or {"level": "amber", "label": ue.get("profitability_status", ""), "summary": ""}
     route = (
-        f"{bp['origin_province']} -> {bp['dest_province']}"
+        f"{bp['origin_province']} → {bp['dest_province']}"
         if bp.get("dest_province")
         else f"{bp['origin_province']} (marché local / simulation)"
     )
-    sell_label = (
-        f"{ue['target_sell_price_per_kg']} XAF/kg *(cible simulée +15 % sur point mort)*"
-        if ue["is_simulated_sell_price"]
-        else f"{ue['sell_price_per_kg']} XAF/kg"
-    )
+    simulated = ue["is_simulated_sell_price"]
+    sell_value = ue["target_sell_price_per_kg"] if simulated else ue["sell_price_per_kg"]
+    sell_label = f"{sell_value} XAF/kg" + (" *(cible simulée : point mort + 15 %)*" if simulated else "")
     wc_pct = f"{ca.get('working_capital_share_pct', 80.0):.0f} %"
     capex_pct = f"{ca.get('capex_share_pct', 8.0):.0f} %"
     res_pct = f"{ca.get('safety_share_pct', 12.0):.0f} %"
-    reinvest_label = (
-        f"Réinvestissement {ue.get('reinvest_rate_pct', 75.0):.0f} % du bénéfice net dans le BFR"
-        if ue.get("reinvest_enabled", True)
-        else "Sans réinvestissement (BFR constant M1-M6)"
-    )
+    payback = ue.get("payback_month")
+    safety = ue.get("safety_margin_pct")
+
     lines = [
         f"### Business Plan Financier — {bp['commodity_fr']} ({route})",
         "",
-        f"- **Statut de rentabilité** : **{ue.get('profitability_status', 'RENTABLE')}**",
-        f"- **Capital engagé** : {ca['total_capital_xaf']:,} XAF | **Résultat net Cycle 1** : {ue['net_profit_cycle1_xaf']:+,} XAF (**ROI {ue['roi_cycle1_pct']:+.1f}%**)".replace(",", " "),
-        f"- **Volume acheté** : {ue['volume_bought_kg']:,} kg ({ue['volume_bought_bags_100kg']} sacs de 100 kg) | **Point mort** : {ue['break_even_price_per_kg']} XAF/kg ({ue['break_even_bag_100kg_xaf']:,} XAF/sac)".replace(",", " "),
-        f"- **Prix de vente retenu** : {sell_label} | **Mode BFR** : {reinvest_label}",
+        f"> {_VERDICT_ICON.get(verdict['level'], '')} **Verdict : {verdict['label']}**  ",
+        f"> {verdict.get('summary', '')}",
+        "",
+        "#### 1. Synthèse exécutive",
+        "",
+        "| Indicateur | Valeur |",
+        "| :--- | ---: |",
+        f"| Capital engagé | {_xaf(ca['total_capital_xaf'])} XAF |",
+        f"| Volume acheté (cycle 1) | {_xaf(ue['volume_bought_kg'])} kg ({ue['volume_bought_bags_100kg']} sacs de 100 kg) |",
+        f"| Prix d'achat → prix de vente retenus | {ue['buy_price_per_kg']} → {sell_value} XAF/kg |",
+        f"| Point mort (prix de vente minimal) | {ue['break_even_price_per_kg']} XAF/kg ({_xaf(ue['break_even_bag_100kg_xaf'])} XAF/sac) |",
+        f"| Marge de sécurité sur le point mort | {safety:+.1f} % |" if safety is not None else "| Marge de sécurité sur le point mort | n/d |",
+        f"| Résultat net — cycle 1 | **{_signed_xaf(ue['net_profit_cycle1_xaf'])} XAF** (ROI {ue['roi_cycle1_pct']:+.1f} %) |",
+        f"| Retour sur capital (bénéfices cumulés ≥ capital) | {'mois ' + str(payback) if payback else 'au-delà de 6 mois'} |",
     ]
+
     if ue.get("profitability_status") == "NON RENTABLE À CETTE ÉCHELLE":
         min_cap = ue.get("min_theoretical_capital_xaf")
         if min_cap is not None and min_cap > 0:
-            lines.append(
-                f"- **Capital minimum théorique requis** (pour absorber {ue['monthly_fixed_costs_xaf']:,} XAF de coûts fixes) : **{min_cap:,} XAF**".replace(",", " ")
-            )
+            lines += ["", f"**Capital minimum théorique** pour absorber {_xaf(ue['monthly_fixed_costs_xaf'])} XAF de charges fixes : **{_xaf(min_cap)} XAF**."]
         else:
-            lines.append("- **Capital minimum théorique** : corridor structurellement déficitaire à ces prix (marge unitaire <= 0).")
-    if cs.get("long_distance_freight_warning"):
-        lines.append(
-            "- **Alerte fret inter-provinces** : le tarif par défaut de 25 XAF/kg doit être réévalué selon un devis transporteur réel sur ce corridor longue distance."
-        )
+            lines += ["", "**Corridor structurellement déficitaire** à ces prix (marge unitaire ≤ 0) : aucun capital ne le rend rentable."]
+
     lines += [
         "",
-        "| Poste de capital | Montant (XAF) | Part |",
+        "#### 2. Hypothèses et provenance des chiffres",
+        "",
+        "| Paramètre | Valeur | Origine |",
+        "| :--- | ---: | :--- |",
+        f"| Prix d'achat | {ue['buy_price_per_kg']} XAF/kg | Données FreeData.AI — {basis['buy']} |",
+        f"| Prix de vente | {sell_value} XAF/kg | "
+        + ("Hypothèse de calcul (aucun prix de destination disponible)" if simulated else f"Données FreeData.AI — {basis['sell']}")
+        + " |",
+        f"| Fret | {ue['transport_cost_per_kg']} XAF/kg | Hypothèse à confirmer par devis transporteur |",
+        f"| Sacherie | {ue['packaging_cost_per_kg']} XAF/kg | Hypothèse (500 XAF par sac de 100 kg) |",
+        f"| Pertes techniques | {ue['loss_rate_pct']} % | Hypothèse standard à ajuster |",
+        f"| Charges fixes mensuelles | {_xaf(ue['monthly_fixed_costs_xaf'])} XAF | Hypothèse à ajuster |",
+        f"| Volatilité des prix (CV) | {_volatility_label(cm.get('volatility_cv_pct'))} | Données FreeData.AI |",
+        f"| Score Credit Passport | {cm['credit_score']:.0f} / 100 | Données FreeData.AI |"
+        if cm.get("credit_score") is not None
+        else "| Score Credit Passport | non disponible | — |",
+    ]
+    if ue.get("sell_price_capped"):
+        lines.append(
+            f"\n*Prix de vente plafonné à {ue['sell_price_per_kg']} XAF/kg (plus haut prix réellement constaté à destination) ; "
+            f"prix initialement envisagé : {ue['requested_sell_price_per_kg']} XAF/kg.*"
+        )
+
+    lines += [
+        "",
+        "#### 3. Allocation du capital",
+        "",
+        "| Poste | Montant (XAF) | Part |",
         "| :--- | ---: | ---: |",
-        f"| BFR opérationnel (stock + fret + sacherie) | {ca['working_capital_xaf']:,} | {wc_pct} |".replace(",", " "),
-        f"| CAPEX équipement (balance, bâches, palettes) | {ca['capex_equipment_xaf']:,} | {capex_pct} |".replace(",", " "),
-        f"| Réserve de trésorerie (sécurité) | {ca['safety_cash_reserve_xaf']:,} | {res_pct} |".replace(",", " "),
+        f"| BFR opérationnel (stock + fret + sacherie) | {_xaf(ca['working_capital_xaf'])} | {wc_pct} |",
+        f"| CAPEX équipement (balance, bâches, palettes) | {_xaf(ca['capex_equipment_xaf'])} | {capex_pct} |",
+        f"| Réserve de trésorerie (jamais investie en stock) | {_xaf(ca['safety_cash_reserve_xaf'])} | {res_pct} |",
+        f"| **Total** | **{_xaf(ca['total_capital_xaf'])}** | **100 %** |",
+        "",
+        "#### 4. Économie unitaire (par kg acheté)",
+        "",
+        "| Élément | XAF/kg |",
+        "| :--- | ---: |",
+        f"| Prix d'achat | {ue['buy_price_per_kg']} |",
+        f"| + Fret | {ue['transport_cost_per_kg']} |",
+        f"| + Sacherie | {ue['packaging_cost_per_kg']} |",
+        f"| **= Coût de revient rendu** | **{ue['unit_landed_cost']}** |",
+        f"| Recette nette de pertes ({ue['loss_rate_pct']} %) | {round(sell_value * (1 - ue['loss_rate_pct'] / 100.0), 1)} |",
+        f"| **Marge unitaire** | **{ue['unit_margin_per_bought_kg']:+}** |",
+        "",
+        "#### 5. Projection sur 6 mois",
+        "",
+        f"*{('Réinvestissement de ' + format(ue.get('reinvest_rate_pct', 75.0), '.0f') + ' % du bénéfice net dans le BFR') if ue.get('reinvest_enabled', True) else 'Sans réinvestissement (BFR constant M1-M6)'}.*",
         "",
         "| Mois | BFR (XAF) | Chiffre d'affaires | Coûts totaux | Résultat net | Trésorerie cumulée |",
         "| :---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in bp["projection_6_months"]:
         lines.append(
-            f"| M{row['month']} | {row['working_capital']:,} | {row['revenue']:,} | {row['total_costs']:,} | {row['net_profit']:+,} | {row['cumulative_cash']:,} |".replace(",", " ")
+            f"| M{row['month']} | {_xaf(row['working_capital'])} | {_xaf(row['revenue'])} | {_xaf(row['total_costs'])} "
+            f"| {_signed_xaf(row['net_profit'])} | {_xaf(row['cumulative_cash'])} |"
         )
-    lines += ["", "| Scénario de résistance (Cycle 1) | Hypothèse | Résultat net (XAF) | ROI |", "| :--- | :--- | ---: | ---: |"]
+
+    lines += [
+        "",
+        "#### 6. Tests de résistance (cycle 1)",
+        "",
+        "| Scénario | Hypothèse | Résultat net (XAF) | ROI | Viable |",
+        "| :--- | :--- | ---: | ---: | :---: |",
+    ]
     for st in bp["stress_tests"]:
         lines.append(
-            f"| {st['scenario']} | {st['assumption']} | {st['net_profit_xaf']:+,} | {st['roi_pct']:+.1f}% |".replace(",", " ")
+            f"| {st['scenario']} | {st['assumption']} | {_signed_xaf(st['net_profit_xaf'])} | {st['roi_pct']:+.1f} % | {'✔' if st['viable'] else '✘'} |"
         )
+
+    risks: list[str] = []
+    if safety is not None and safety < 10.0:
+        risks.append(f"Marge de sécurité faible ({safety:+.1f} %) : une baisse de prix modeste efface le bénéfice.")
+    cv = cm.get("volatility_cv_pct")
+    if cv is not None and cv >= 20.0:
+        risks.append(f"Volatilité élevée du produit (CV {cv:.1f} %) : privilégier une rotation rapide et des achats fractionnés.")
+    if cs.get("long_distance_freight_warning"):
+        risks.append("Fret inter-provinces au tarif par défaut (25 XAF/kg) : à remplacer par un devis réel avant décaissement.")
+    if ue.get("is_simulated_sell_price"):
+        risks.append("Prix de vente simulé (aucune donnée de destination) : les résultats sont indicatifs.")
+    if ue.get("sell_price_capped"):
+        risks.append("Prix de vente plafonné au plus haut prix constaté à destination : ne pas compter sur un prix supérieur.")
+    if not risks:
+        risks.append("Aucun signal de risque majeur détecté dans les données disponibles ; les hypothèses restent à valider sur le terrain.")
+    lines += ["", "#### 7. Risques identifiés", ""] + [f"- {r}" for r in risks]
+
     if cs:
         lines += [
             "",
-            "#### Stratégie Commerciale & Plan de Validation Terrain",
-            f"- **Stratégie d'écoulement** : {cs.get('flow_strategy', '')}",
-            f"- **Canal de distribution adapté au capital** : {cs.get('distribution_channel', '')}",
-            "- **Checklist de Validation Terrain (À vérifier avant décaissement en 24h-48h)** :",
+            "#### 8. Stratégie commerciale et validation terrain",
+            "",
+            f"- **Écoulement** : {cs.get('flow_strategy', '')}",
+            f"- **Canal de distribution** : {cs.get('distribution_channel', '')}",
+            "- **À vérifier avant tout décaissement (24-48 h)** :",
         ]
         for idx, item in enumerate(cs.get("field_validation_checklist", []), 1):
             lines.append(f"  {idx}. {item}")
-    lines.append("")
-    lines.append(
-        "*Limites méthodologiques : Prix observés/prévus, volatilité (CV %) et score Credit Passport proviennent de FreeData.AI ; "
-        "sacherie 5 XAF/kg, pertes 5 %, fret 25 XAF/kg et charges fixes 35 000 XAF/mois sont des hypothèses standards à ajuster selon vos devis locaux.*"
-    )
-    return "\n".join(lines)
 
+    lines += [
+        "",
+        "---",
+        "*Les prix et la volatilité proviennent de FreeData.AI (prévisions statistiques, non garanties). Fret, sacherie, pertes et charges "
+        "fixes sont des hypothèses standards à remplacer par vos devis locaux. Ce document est une aide à la décision, pas un conseil financier.*",
+    ]
+    return "\n".join(lines)
