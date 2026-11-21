@@ -555,7 +555,12 @@ class _MainShellState extends State<MainShell> {
           onConfigureKey: _configurePremiumKey,
           onSessionChanged: () {
             if (mounted) {
-              setState(() {});
+              setState(() {
+                if (!_apiService.isAuthenticated) {
+                  _activeConversationId = null;
+                  _selectedIndex = 0;
+                }
+              });
               _reloadConversations();
             }
           },
@@ -564,7 +569,12 @@ class _MainShellState extends State<MainShell> {
     )
         .then((_) {
       if (mounted) {
-        setState(() {});
+        setState(() {
+          if (!_apiService.isAuthenticated) {
+            _activeConversationId = null;
+            _selectedIndex = 0;
+          }
+        });
         _reloadConversations();
       }
     });
@@ -603,10 +613,31 @@ class _MainShellState extends State<MainShell> {
   void _openSettingsScreen() {
     Navigator.of(context)
         .push(MaterialPageRoute(
-            builder: (_) => SettingsScreen(apiService: _apiService)))
+            builder: (_) => SettingsScreen(
+                  apiService: _apiService,
+                  onConfigureKey: _configurePremiumKey,
+                  onSessionChanged: () {
+                    if (!mounted) return;
+                    setState(() {
+                      if (!_apiService.isAuthenticated) {
+                        _activeConversationId = null;
+                        _selectedIndex = 0;
+                      }
+                    });
+                    _reloadConversations();
+                  },
+                  onPreferencesSaved: () {
+                    if (mounted) setState(() {});
+                  },
+                )))
         .then((_) {
       if (mounted) {
-        setState(() {});
+        setState(() {
+          if (!_apiService.isAuthenticated) {
+            _activeConversationId = null;
+            _selectedIndex = 0;
+          }
+        });
         _reloadConversations();
       }
     });

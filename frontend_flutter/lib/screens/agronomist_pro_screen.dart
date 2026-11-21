@@ -135,7 +135,13 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       final savedLic = prefs.getString('agro_firm_license')?.trim() ?? '';
       final savedAddr = prefs.getString('agro_firm_address')?.trim() ?? '';
       final savedContact = prefs.getString('agro_firm_contact')?.trim() ?? '';
+      final prefHub = prefs.getString('fd_pref_agro_hub')?.trim() ?? '';
       if (!mounted) return;
+      if (widget.initialHub == null &&
+          prefHub.isNotEmpty &&
+          widget.availableHubs.contains(prefHub)) {
+        setState(() => _hub = prefHub);
+      }
       if (savedName.isNotEmpty) _firmCtrl.text = savedName;
       if (savedLic.isNotEmpty) _licenseCtrl.text = savedLic;
       if (savedAddr.isNotEmpty) _addressCtrl.text = savedAddr;

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
+import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
@@ -332,12 +333,15 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _exportData() async {
     try {
       final data = await widget.apiService.exportMyPrivacyData();
-      await Clipboard.setData(ClipboardData(
-          text: const JsonEncoder.withIndent('  ').convert(data)));
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
+      triggerPdfDownload(
+          Uint8List.fromList(utf8.encode(jsonStr)), 'freedata_rgpd_export.json');
+      await Clipboard.setData(ClipboardData(text: jsonStr));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Export RGPD JSON copié dans le presse-papiers.')),
+            content: Text(
+                'Export RGPD téléchargé (freedata_rgpd_export.json) et copié.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -525,95 +529,102 @@ class _AccountScreenState extends State<AccountScreen> {
         TextEditingController(text: _agroProfile?['contact']?.toString() ?? '');
     String? err;
 
-    final submitted = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('Informations officielles Agronome / Cabinet'),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: firmCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Raison sociale / Nom officiel *',
+    try {
+      final submitted = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDlg) => AlertDialog(
+            title: const Text('Informations officielles Agronome / Cabinet'),
+            content: SizedBox(
+              width: 440,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: firmCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Raison sociale / Nom officiel *',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: licCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'N° d’agrément / Ordre / RCCM *',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: addrCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Adresse officielle / Ville',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: contactCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Téléphone & Email professionnel',
-                    ),
-                  ),
-                  if (err != null) ...[
                     const SizedBox(height: 8),
-                    Text(err!, style: const TextStyle(color: AppColors.danger)),
+                    TextField(
+                      controller: licCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'N° d’agrément / Ordre / RCCM *',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: addrCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Adresse officielle / Ville',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: contactCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Téléphone & Email professionnel',
+                      ),
+                    ),
+                    if (err != null) ...[
+                      const SizedBox(height: 8),
+                      Text(err!, style: const TextStyle(color: AppColors.danger)),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (firmCtrl.text.trim().length < 2 ||
+                      licCtrl.text.trim().length < 2) {
+                    setDlg(() => err =
+                        'Nom officiel et numéro d’agrément requis (min. 2 caractères).');
+                    return;
+                  }
+                  Navigator.pop(ctx, true);
+                },
+                child: const Text('Soumettre à l’admin'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (firmCtrl.text.trim().length < 2 ||
-                    licCtrl.text.trim().length < 2) {
-                  setDlg(() => err =
-                      'Nom officiel et numéro d’agrément requis (min. 2 caractères).');
-                  return;
-                }
-                Navigator.pop(ctx, true);
-              },
-              child: const Text('Soumettre à l’admin'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (submitted != true || !mounted) return;
-    setState(() => _savingAgroProfile = true);
-    try {
-      final updated = await widget.apiService.submitMyAgroProfile(
-        firmName: firmCtrl.text,
-        licenseNumber: licCtrl.text,
-        address: addrCtrl.text,
-        contact: contactCtrl.text,
-      );
-      if (!mounted) return;
-      setState(() => _agroProfile = updated);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Profil officiel envoyé à l’administrateur pour validation.'),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (submitted != true || !mounted) return;
+      setState(() => _savingAgroProfile = true);
+      try {
+        final updated = await widget.apiService.submitMyAgroProfile(
+          firmName: firmCtrl.text,
+          licenseNumber: licCtrl.text,
+          address: addrCtrl.text,
+          contact: contactCtrl.text,
+        );
+        if (!mounted) return;
+        setState(() => _agroProfile = updated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Profil officiel envoyé à l’administrateur pour validation.'),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      } finally {
+        if (mounted) setState(() => _savingAgroProfile = false);
+      }
     } finally {
-      if (mounted) setState(() => _savingAgroProfile = false);
+      firmCtrl.dispose();
+      licCtrl.dispose();
+      addrCtrl.dispose();
+      contactCtrl.dispose();
     }
   }
 

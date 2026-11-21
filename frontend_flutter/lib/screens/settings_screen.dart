@@ -10,8 +10,17 @@ import 'account_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ApiService apiService;
+  final Future<void> Function()? onConfigureKey;
+  final VoidCallback? onSessionChanged;
+  final VoidCallback? onPreferencesSaved;
 
-  const SettingsScreen({super.key, required this.apiService});
+  const SettingsScreen({
+    super.key,
+    required this.apiService,
+    this.onConfigureKey,
+    this.onSessionChanged,
+    this.onPreferencesSaved,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -33,7 +42,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     {'id': 'transport', 'label': 'Transport (en préparation)'},
   ];
 
+  static const List<String> _agroHubOptions = [
+    "N'Djamena",
+    'Abeche',
+    'Ati',
+    'Bol',
+    'Bongor',
+    'Doba',
+    'Koumra',
+    'Mao',
+    'Mongo',
+    'Moundou',
+    'Pala',
+    'Sarh',
+  ];
+
   String _defaultDomain = 'auto';
+  String _defaultAgroHub = "N'Djamena";
   bool _saving = false;
 
   @override
@@ -48,8 +73,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final stored = prefs.getString('fd_pref_domain') ?? 'auto';
     final validDomain =
         _domainOptions.any((d) => d['id'] == stored) ? stored : 'auto';
+    final storedHub = prefs.getString('fd_pref_agro_hub') ?? "N'Djamena";
+    final validHub =
+        _agroHubOptions.contains(storedHub) ? storedHub : "N'Djamena";
     setState(() {
       _defaultDomain = validDomain;
+      _defaultAgroHub = validHub;
     });
   }
 
@@ -60,6 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           apiService: widget.apiService, initialRegisterMode: register),
     );
     if (ok == true && mounted) {
+      widget.onSessionChanged?.call();
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -75,6 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAuthTokenStorageKey);
     await LocalConversationStorage.instance.saveAll(const []);
+    widget.onSessionChanged?.call();
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +119,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('fd_pref_domain', _defaultDomain);
+      await prefs.setString('fd_pref_agro_hub', _defaultAgroHub);
+      widget.onPreferencesSaved?.call();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Préférences enregistrées.')),
@@ -181,7 +214,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 MaterialPageRoute(
                                   builder: (_) => AccountScreen(
                                     apiService: widget.apiService,
+                                    onConfigureKey: widget.onConfigureKey,
                                     onSessionChanged: () {
+                                      widget.onSessionChanged?.call();
                                       if (mounted) setState(() {});
                                     },
                                   ),
@@ -271,6 +306,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           .toList(),
                       onChanged: (v) =>
                           setState(() => _defaultDomain = v ?? 'auto'),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_defaultAgroHub),
+                      initialValue: _defaultAgroHub,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Pôle agro-climatique favori',
+                        helperText:
+                            'Utilisé par défaut pour vos pré-diagnostics et audits agricoles.',
+                      ),
+                      items: _agroHubOptions
+                          .map(
+                            (h) => DropdownMenuItem<String>(
+                              value: h,
+                              child: Text(h),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) =>
+                          setState(() => _defaultAgroHub = v ?? "N'Djamena"),
                     ),
                     const SizedBox(height: 16),
                     FDPrimaryButton(
