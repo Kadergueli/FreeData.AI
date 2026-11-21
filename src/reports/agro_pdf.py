@@ -256,7 +256,7 @@ def render_agro_assessment_pdf(
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
     area_val = (
-        f"{float(assessment.get('area_hectares')):g} ha (superficie déclarée)"
+        f"{float(assessment.get('area_hectares')):g} (superficie déclarée)"
         if assessment.get("area_hectares") is not None
         else "Non renseignée — estimation économique provisoire sur 1 ha, à ne pas utiliser comme dimension réelle"
     )
