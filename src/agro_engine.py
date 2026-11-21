@@ -50,10 +50,10 @@ HUB_COORDINATES: dict[str, tuple[float, float]] = {
 ZONE_TITLE = "Pré-diagnostic agro-climatique de zone"
 
 LIMITATIONS = (
-    "Données satellitaires modélisées au niveau d'un pôle urbain/provincial : ce n'est pas une analyse de parcelle.",
-    "Cette version ne contient ni température ni précipitations : aucun résultat n'en est déduit.",
-    "Les alertes de déficit hydrique sont des repères indicatifs fondés sur l'écart à la normale 2020–2023 du même mois.",
-    "Ne remplace ni une analyse de sol en laboratoire ni une visite de terrain.",
+    "Couverture spatiale : indicateurs satellitaires modélisés à l'échelle du pôle régional (maille urbaine/provinciale), ne constituant pas une mesure parcellaire.",
+    "Périmètre des variables : jeu de données limité à l'humidité des sols (surface et zone racinaire) et au rayonnement PAR ; aucune variable de température ou de précipitations n'est intégrée.",
+    "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023.",
+    "Portée décisionnelle : ce pré-diagnostic zonal ne se substitue ni à une analyse physico-chimique en laboratoire ni à une expertise agronomique sur site.",
 )
 
 INDICATOR_LABELS_FR = {

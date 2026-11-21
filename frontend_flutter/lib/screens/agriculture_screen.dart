@@ -820,9 +820,12 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
             row('Licence nationale',
                 _joinMapped(natProv['licenses'], const {})),
           ],
+          const SizedBox(height: 6),
+          row('Sources marchés',
+              'WFP (CC BY-IGO 3.0) · FEWS NET (Attribution Required)'),
           if (limitations.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Text('À savoir',
+            const SizedBox(height: 10),
+            const Text('Limites méthodologiques & portée d’utilisation',
                 style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
