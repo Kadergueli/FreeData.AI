@@ -254,7 +254,7 @@ def render_agro_assessment_pdf(
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
     area_val = (
-        f"{assessment.get('area_hectares')} (superficie déclarée)"
+        f"{float(assessment.get('area_hectares')):g} ha (superficie déclarée)"
         if assessment.get("area_hectares")
         else "Non renseignée — hypothèse économique par défaut : 1,0 ha"
     )
@@ -266,7 +266,7 @@ def render_agro_assessment_pdf(
         ],
         [
             "GPS & Superficie",
-            f"Coordonnées GPS : {gps_str} | Superficie : {area_val} ha",
+            f"Coordonnées GPS : {gps_str} | Superficie : {area_val}",
         ],
         [
             "Rattachement Spatial",
@@ -302,7 +302,7 @@ def render_agro_assessment_pdf(
 
     # --- 3. MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
     story.append(Paragraph("3. Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
-    crop_rows = [["Culture", "Score /100", "Détail (Eau + Sol + Marché)", "Prix Bord-Champ", "CA Brut Estimé", "Verdict"]]
+    crop_rows = [["Culture", "Score /100", "Détail (Eau + Sol + Marché)", "Prix Bord-Champ", "CA Brut Estimé", "Aptitude"]]
     for c in scores.get("crop_assessments") or []:
         cecon = c.get("verified_economics") or {}
         fg_price = cecon.get("farmgate_price_central_xaf_kg")
@@ -314,7 +314,11 @@ def render_agro_assessment_pdf(
             f"{c.get('suitability_score', 0)}/100",
             f"{w_sc} + {s_sc} + {m_sc}",
             f"{fg_price} FCFA/kg" if fg_price is not None else "N/A",
-            f"{_fmt_num(c.get('indicative_gross_revenue_xaf'))} FCFA",
+            (
+                f"{_fmt_num(c.get('indicative_gross_revenue_xaf'))} FCFA"
+                if c.get("indicative_gross_revenue_xaf") is not None
+                else "Non calculable — prix indisponible"
+            ),
             str(c.get("suitability_label") or "—"),
         ])
     c_widths = [0.20 * usable_w, 0.12 * usable_w, 0.22 * usable_w, 0.16 * usable_w, 0.16 * usable_w, 0.14 * usable_w]
@@ -329,18 +333,43 @@ def render_agro_assessment_pdf(
         disc_f = econ.get("farmgate_discount_pct", 8)
         ca_c = _fmt_num(econ.get("ca_central_xaf"))
         if isinstance(p_ml, (int, float)):
-            line1 = f"Formule appliquée : {area_f:g} ha x {y_f:.1f} kg/ha (source rendement : {econ.get('yield_source') or 'non précisée'}) x {p_ml:.1f} FCFA/kg (prix marché prédit) x (1 - {disc_f:g}% de décote bord-champ) = {ca_c} FCFA"
+            production_kg = round(float(area_f) * float(y_f), 1)
+            farmgate_price = econ.get("farmgate_price_central_xaf_kg")
+            if isinstance(farmgate_price, (int, float)):
+                calculated_ca = round(production_kg * float(farmgate_price))
+                line1 = (
+                    f"Calcul central : {area_f:g} ha x {y_f:.1f} kg/ha = {production_kg:,.1f} kg ; "
+                    f"prix marché prédit {p_ml:.1f} FCFA/kg ; après décote de {disc_f:g} %, "
+                    f"prix bord-champ {farmgate_price:.1f} FCFA/kg ; "
+                    f"CA brut = {production_kg:,.1f} kg x {farmgate_price:.1f} FCFA/kg = "
+                    f"{calculated_ca:,.0f} FCFA (source rendement : {econ.get('yield_source') or 'non précisée'})."
+                )
+            else:
+                line1 = f"Production indicative : {production_kg:,.1f} kg ; prix bord-champ indisponible, CA non calculable."
         else:
-            line1 = f"Calcul de production : {area_f:g} ha x {y_f:.1f} kg/ha = {y_f * area_f:,.1f} kg ; chiffre d'affaires non calculable (prix marché indisponible)"
+            line1 = f"Calcul de production : {area_f:g} ha x {y_f:.1f} kg/ha = {y_f * area_f:,.1f} kg ; chiffre d'affaires non calculable (prix marché indisponible)."
         if len(unc) == 2:
-            line2 = f"Intervalle de confiance modèle (± {econ.get('mape_pct', '—')}% MAPE hors-temps) : {_fmt_num(unc[0])} FCFA à {_fmt_num(unc[1])} FCFA"
+            line2 = f"Intervalle indicatif du modèle (MAPE hors-temps ± {econ.get('mape_pct', '—')} %) : {_fmt_num(unc[0])} FCFA à {_fmt_num(unc[1])} FCFA."
         else:
-            line2 = "Intervalle de confiance modèle : non disponible"
+            line2 = "Intervalle indicatif du modèle : non disponible."
         stress_scen = next((s for s in (econ.get("scenarios") or []) if s.get("id") == "stress_floor"), {})
-        p_min = stress_scen.get("market_price_xaf_kg", "—")
-        ca_s = _fmt_num(econ.get("ca_stress_xaf"))
-        stress_farmgate = stress_scen.get("farmgate_price_xaf_kg", "—")
-        line3 = f"Scénario Plancher Stress (prix marché min. historique : {p_min} FCFA/kg ; après décote bord-champ : {stress_farmgate} FCFA/kg) : CA brut estimé {ca_s} FCFA"
+        p_min = stress_scen.get("market_price_xaf_kg")
+        ca_s = econ.get("ca_stress_xaf")
+        stress_farmgate = stress_scen.get("farmgate_price_xaf_kg")
+        if isinstance(p_min, (int, float)) and isinstance(p_ml, (int, float)) and float(p_min) >= float(p_ml):
+            line3 = (
+                f"Scénario plancher historique : aucun prix historique inférieur au prix central "
+                f"({p_ml:.1f} FCFA/kg) n'a été identifié dans les données disponibles ; "
+                "le scénario plancher ne constitue donc pas un stress-test indépendant."
+            )
+        elif isinstance(p_min, (int, float)) and isinstance(ca_s, (int, float)) and isinstance(stress_farmgate, (int, float)):
+            line3 = (
+                f"Scénario plancher historique : prix marché {p_min:.1f} FCFA/kg ; "
+                f"prix bord-champ après décote {stress_farmgate:.1f} FCFA/kg ; "
+                f"CA brut indicatif {_fmt_num(ca_s)} FCFA."
+            )
+        else:
+            line3 = "Scénario plancher historique : non disponible (historique de prix insuffisant)."
 
         formula_box = Table(
             [
