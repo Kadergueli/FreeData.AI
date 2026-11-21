@@ -841,6 +841,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           if (v != null) setState(() => _hub = v);
                         },
                       ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Les deux coordonnées GPS permettent de demander les indicateurs satellitaires au point de la parcelle. Sans GPS, le système utilise les données régionales disponibles et l’indique dans le PDF.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                      ),
                       const SizedBox(height: 10),
                       const Text(
                         '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
@@ -872,7 +877,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true, signed: true),
                               decoration: const InputDecoration(
-                                labelText: 'Latitude GPS (opt.)',
+                                labelText: 'Latitude GPS (recommandée)',
                               ),
                             ),
                           ),
@@ -884,7 +889,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true, signed: true),
                               decoration: const InputDecoration(
-                                labelText: 'Longitude GPS (opt.)',
+                                labelText: 'Longitude GPS (recommandée)',
                               ),
                             ),
                           ),
