@@ -44,10 +44,12 @@ from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
-from src.agro_assessments import AgroFieldAssessmentStore
+from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_engine import (
     build_zone_profile,
     build_zones_overview,
+    compare_agro_assessments,
+    compute_gps_logistics,
     evaluate_field_assessment,
     validate_field_assessment_qa,
 )
@@ -809,6 +811,7 @@ def agro_zone_profile_endpoint(
 
 
 _AGRO_ASSESSMENT_STORE: Optional[AgroFieldAssessmentStore] = None
+_AGRO_PROFILE_STORE: Optional[AgronomistProfileStore] = None
 
 
 def get_agro_assessment_store() -> AgroFieldAssessmentStore:
@@ -1404,12 +1407,89 @@ def _require_project_owner(
     raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id).")
 
 
+def get_agro_profile_store() -> AgronomistProfileStore:
+    global _AGRO_PROFILE_STORE
+    if _AGRO_PROFILE_STORE is None:
+        _AGRO_PROFILE_STORE = AgronomistProfileStore()
+    return _AGRO_PROFILE_STORE
+
+
+class AgroOfficialProfileRequest(BaseModel):
+    firm_name: str = Field(..., min_length=2, max_length=120)
+    license_number: str = Field(..., min_length=2, max_length=120)
+    address: str = Field("", max_length=200)
+    contact: str = Field("", max_length=160)
+
+
+class AgroProfileReviewRequest(BaseModel):
+    status: Literal["approved", "rejected"]
+    admin_note: str = Field("", max_length=400)
+
+
+@app.get("/api/v1/agro/profile", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_my_agro_profile_endpoint(
+    owner_id: str = Depends(_require_project_owner),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
+):
+    """Retourne le profil officiel d'agronome / cabinet lié au compte utilisateur."""
+    return {"profile": profile_store.get_profile(owner_id)}
+
+
+@app.put("/api/v1/agro/profile", dependencies=[Depends(_chat_rate_limit_dependency)])
+def submit_my_agro_profile_endpoint(
+    payload: AgroOfficialProfileRequest,
+    owner_id: str = Depends(_require_project_owner),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
+):
+    """Soumet les informations officielles de l'agronome / cabinet pour validation par l'administrateur."""
+    prof = profile_store.submit_profile(
+        owner_id,
+        firm_name=payload.firm_name,
+        license_number=payload.license_number,
+        address=payload.address,
+        contact=payload.contact,
+    )
+    return {"profile": prof}
+
+
+@app.get("/api/v1/admin/agro-profiles", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_list_agro_profiles_endpoint(
+    status: Optional[str] = Query(None, max_length=20),
+    x_admin_token: Optional[str] = Header(default=None),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
+):
+    _require_admin_token(x_admin_token, "manage_subscriptions")
+    items = profile_store.list_profiles(status=status)
+    return {"count": len(items), "profiles": items}
+
+
+@app.post("/api/v1/admin/agro-profiles/{target_owner_id}/review", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_review_agro_profile_endpoint(
+    target_owner_id: str,
+    payload: AgroProfileReviewRequest,
+    x_admin_token: Optional[str] = Header(default=None),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
+):
+    actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions")
+    try:
+        prof = profile_store.review_profile(
+            target_owner_id,
+            status=payload.status,
+            admin_note=payload.admin_note,
+            reviewed_by=actor,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"profile": prof}
+
+
 class AgroFieldAssessmentRequest(BaseModel):
-    province_hub: str = Field(..., min_length=2, max_length=80)
+    province_hub: Optional[str] = Field(None, max_length=80)
     project_id: Optional[str] = Field(None, max_length=80)
     gps_lat: Optional[float] = Field(None, ge=-90.0, le=90.0)
     gps_lon: Optional[float] = Field(None, ge=-180.0, le=180.0)
     area_hectares: Optional[float] = Field(None, gt=0.0, le=500000.0)
+    custom_yield_kg_ha: Optional[float] = Field(None, gt=0.0, le=20000.0)
     lab_soil_inputs: dict[str, Any] = Field(default_factory=dict)
     agronomist_field_notes: str = Field("", max_length=4000)
     target_crops: list[str] = Field(default_factory=lambda: ["millet", "sorghum", "maize", "groundnut_raw"])
@@ -1417,6 +1497,30 @@ class AgroFieldAssessmentRequest(BaseModel):
 
 class AgroFieldPdfRequest(BaseModel):
     agronomist_name: str = Field("", max_length=120)
+    agronomist_license: str = Field("", max_length=120)
+    agronomist_address: str = Field("", max_length=200)
+    agronomist_contact: str = Field("", max_length=160)
+    compare_assessment_ids: list[str] = Field(default_factory=list, max_length=4)
+
+
+class AgroCandidateInput(BaseModel):
+    label: str = Field("", max_length=80)
+    province_hub: Optional[str] = Field(None, max_length=80)
+    gps_lat: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    gps_lon: Optional[float] = Field(None, ge=-180.0, le=180.0)
+    area_hectares: Optional[float] = Field(None, gt=0.0, le=500000.0)
+    custom_yield_kg_ha: Optional[float] = Field(None, gt=0.0, le=20000.0)
+    lab_soil_inputs: dict[str, Any] = Field(default_factory=dict)
+    target_crops: list[str] = Field(default_factory=lambda: ["millet", "sorghum", "maize", "groundnut_raw"])
+
+
+class AgroCompareRequest(BaseModel):
+    assessment_ids: list[str] = Field(default_factory=list, max_length=4)
+    candidates: list[AgroCandidateInput] = Field(default_factory=list, max_length=4)
+    agronomist_name: str = Field("", max_length=120)
+    agronomist_license: str = Field("", max_length=120)
+    agronomist_address: str = Field("", max_length=200)
+    agronomist_contact: str = Field("", max_length=160)
 
 
 @app.post("/api/v1/agro/field-assessment", dependencies=[Depends(_chat_rate_limit_dependency)])
@@ -1429,11 +1533,13 @@ def create_agro_field_assessment_endpoint(
     project_store: ProjectStore = Depends(get_project_store),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    """Enregistre les mesures terrain/labo de l'Agronome PRO, calcule le diagnostic et le payload du rapport."""
+    """Enregistre les mesures terrain/labo de l'Agronome PRO, calcule l'audit GPS/économique et le payload du rapport."""
     _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain Agronome PRO")
-    hub = canonical_region(payload.province_hub)
+    hub = canonical_region(payload.province_hub) if payload.province_hub else None
+    if hub is None and payload.gps_lat is not None and payload.gps_lon is not None:
+        hub = compute_gps_logistics(payload.gps_lat, payload.gps_lon).get("closest_hub")
     if hub is None or hub == AGRO_NATIONAL:
-        raise HTTPException(status_code=422, detail=f"Pôle régional invalide. Pôles couverts : {', '.join(AGRO_HUBS)}.")
+        raise HTTPException(status_code=422, detail=f"Pôle régional invalide ou coordonnées GPS manquantes. Pôles couverts : {', '.join(AGRO_HUBS)}.")
     verified_pid = _assert_project_owned(owner_id, payload.project_id, project_store)
     regional = store.regional_rows(hub)
     if not regional:
@@ -1446,7 +1552,11 @@ def create_agro_field_assessment_endpoint(
         lab_soil_inputs=payload.lab_soil_inputs,
         target_crops=payload.target_crops,
         area_hectares=payload.area_hectares,
+        gps_lat=payload.gps_lat,
+        gps_lon=payload.gps_lon,
+        custom_yield_kg_ha=payload.custom_yield_kg_ha,
         forecast_df=fc_df,
+        hist_df=STATE.get("hist_df"),
         track_record=STATE.get("track_record"),
     )
     saved = assess_store.create_assessment(
@@ -1487,10 +1597,20 @@ def agro_field_assessment_pdf_endpoint(
     owner_id: str = Depends(_require_project_owner),
     x_premium_key: Optional[str] = Header(default=None),
     assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    """Génère le PDF co-brandé Agronome PRO après passage obligatoire par la porte QA."""
+    """Génère le PDF co-brandé Agronome PRO après validation admin du profil officiel et passage porte QA."""
     _require_pro_access(owner_id, x_premium_key, sub_store, "Rapport PDF Agronome PRO")
+    official = profile_store.get_profile(owner_id)
+    if not official or official.get("status") != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Profil officiel agronome non validé par l'administrateur. "
+                "Soumettez vos informations officielles depuis « Mon compte » avant de générer un rapport PDF."
+            ),
+        )
     try:
         saved = assess_store.get_assessment(owner_id, assessment_id)
     except KeyError as exc:
@@ -1502,15 +1622,142 @@ def agro_field_assessment_pdf_endpoint(
             detail={"message": "Porte QA échouée : mesures de sol requises pour un Diagnostic de terrain.", "qa": qa},
         )
     _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
+    comparison_block = None
+    if payload and payload.compare_assessment_ids:
+        comp_items = [saved]
+        for cid in payload.compare_assessment_ids[:3]:
+            if cid != assessment_id:
+                try:
+                    comp_items.append(assess_store.get_assessment(owner_id, cid))
+                except KeyError:
+                    pass
+        if len(comp_items) >= 2:
+            comparison_block = compare_agro_assessments(comp_items)
     pdf_bytes = render_agro_assessment_pdf(
         saved,
-        agronomist_name=payload.agronomist_name if payload else "",
+        agronomist_name=official["firm_name"],
+        agronomist_license=official["license_number"],
+        agronomist_address=official.get("address") or "",
+        agronomist_contact=official.get("contact") or "",
+        comparison=comparison_block,
     )
     code = saved.get("report_verification_code") or assessment_id
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="freedata_agro_{code}.pdf"'},
+    )
+
+
+def _evaluate_compare_payload(
+    payload: AgroCompareRequest,
+    owner_id: str,
+    store: AgroIndicatorStore,
+    assess_store: AgroFieldAssessmentStore,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    items: list[dict[str, Any]] = []
+    if payload.assessment_ids:
+        for aid in payload.assessment_ids[:4]:
+            try:
+                items.append(assess_store.get_assessment(owner_id, aid))
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"Diagnostic introuvable : {aid}") from exc
+    elif payload.candidates:
+        nat_rows = store.national_rows()
+        fc_df = STATE.get("forecast_df")
+        hist_df = STATE.get("hist_df")
+        tr = STATE.get("track_record")
+        for idx, cand in enumerate(payload.candidates[:4]):
+            hub = canonical_region(cand.province_hub) if cand.province_hub else None
+            if hub is None and cand.gps_lat is not None and cand.gps_lon is not None:
+                hub = compute_gps_logistics(cand.gps_lat, cand.gps_lon).get("closest_hub")
+            if hub is None or hub == AGRO_NATIONAL:
+                raise HTTPException(status_code=422, detail=f"Candidat #{idx + 1} : pôle ou GPS valide requis.")
+            regional = store.regional_rows(hub)
+            if not regional:
+                raise HTTPException(status_code=503, detail=f"Données indisponibles pour {hub}.")
+            computed = evaluate_field_assessment(
+                region=hub,
+                regional_rows=regional,
+                national_rows=nat_rows,
+                lab_soil_inputs=cand.lab_soil_inputs,
+                target_crops=cand.target_crops,
+                area_hectares=cand.area_hectares,
+                gps_lat=cand.gps_lat,
+                gps_lon=cand.gps_lon,
+                custom_yield_kg_ha=cand.custom_yield_kg_ha,
+                forecast_df=fc_df,
+                hist_df=hist_df,
+                track_record=tr,
+            )
+            items.append({
+                "label": cand.label.strip() or f"Terrain {chr(65 + idx)}",
+                "province_hub": hub,
+                "gps_lat": cand.gps_lat,
+                "gps_lon": cand.gps_lon,
+                "area_hectares": cand.area_hectares,
+                "lab_soil_inputs": cand.lab_soil_inputs,
+                "computed_scores": computed,
+            })
+    if len(items) < 2:
+        raise HTTPException(status_code=422, detail="Fournissez entre 2 et 4 diagnostics ou terrains candidats à comparer.")
+    return compare_agro_assessments(items), items
+
+
+@app.post("/api/v1/agro/compare-assessments", dependencies=[Depends(_chat_rate_limit_dependency)])
+def compare_agro_assessments_endpoint(
+    payload: AgroCompareRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    store: AgroIndicatorStore = Depends(get_agro_store),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Compare 2 à 4 terrains candidats (par IDs enregistrés ou coordonnées GPS) et les classe par score /100."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Comparaison Multi-Terrains Agronome PRO")
+    comparison, _ = _evaluate_compare_payload(payload, owner_id, store, assess_store)
+    return comparison
+
+
+@app.post("/api/v1/agro/compare-assessments/pdf", dependencies=[Depends(_chat_rate_limit_dependency)])
+def compare_agro_assessments_pdf_endpoint(
+    payload: AgroCompareRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    store: AgroIndicatorStore = Depends(get_agro_store),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    profile_store: AgronomistProfileStore = Depends(get_agro_profile_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Génère le dossier PDF exécutif comparatif multi-terrains (5 blocs + formules vérifiables)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "PDF Comparatif Multi-Terrains Agronome PRO")
+    official = profile_store.get_profile(owner_id)
+    if not official or official.get("status") != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Profil officiel agronome non validé par l'administrateur. "
+                "Soumettez vos informations officielles depuis « Mon compte » avant de générer un rapport PDF."
+            ),
+        )
+    comparison, items = _evaluate_compare_payload(payload, owner_id, store, assess_store)
+    _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
+    lead = items[0]
+    if "report_verification_code" not in lead:
+        lead = {**lead, "report_verification_code": f"FDT-{datetime.now(timezone.utc).year}-CMP{len(items)}"}
+    pdf_bytes = render_agro_assessment_pdf(
+        lead,
+        agronomist_name=official["firm_name"],
+        agronomist_license=official["license_number"],
+        agronomist_address=official.get("address") or "",
+        agronomist_contact=official.get("contact") or "",
+        comparison=comparison,
+    )
+    code = lead.get("report_verification_code") or "COMPARE"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="comparatif_agro_{code}.pdf"'},
     )
 
 

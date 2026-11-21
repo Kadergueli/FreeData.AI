@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
@@ -75,14 +76,19 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
   final _lonCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _firmCtrl = TextEditingController();
+  final _licenseCtrl = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _contactCtrl = TextEditingController();
 
   bool _submitting = false;
   bool _downloadingPdf = false;
+  Map<String, dynamic>? _officialProfile;
   Map<String, dynamic>? _result;
   List<Map<String, dynamic>> _history = const [];
 
   bool get _hasAccess =>
       widget.apiService.isAuthenticated && widget.apiService.hasPremiumKey;
+  bool get _isOfficialApproved => _officialProfile?['status'] == 'approved';
 
   @override
   void initState() {
@@ -93,9 +99,55 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         : (hubs.contains("N'Djamena") ? "N'Djamena" : hubs.first);
     _firmCtrl.text =
         widget.apiService.authUser?['display_name']?.toString().trim() ?? '';
+    _loadSavedBranding();
     if (_hasAccess) {
+      _loadOfficialProfile();
       _loadHistory();
     }
+  }
+
+  Future<void> _loadOfficialProfile() async {
+    try {
+      final prof = await widget.apiService.getMyAgroProfile();
+      if (!mounted) return;
+      setState(() {
+        _officialProfile = prof;
+        if (prof != null && prof['status'] == 'approved') {
+          _firmCtrl.text = prof['firm_name']?.toString() ?? _firmCtrl.text;
+          _licenseCtrl.text =
+              prof['license_number']?.toString() ?? _licenseCtrl.text;
+          _addressCtrl.text =
+              prof['address']?.toString() ?? _addressCtrl.text;
+          _contactCtrl.text =
+              prof['contact']?.toString() ?? _contactCtrl.text;
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadSavedBranding() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedName = prefs.getString('agro_firm_name')?.trim() ?? '';
+      final savedLic = prefs.getString('agro_firm_license')?.trim() ?? '';
+      final savedAddr = prefs.getString('agro_firm_address')?.trim() ?? '';
+      final savedContact = prefs.getString('agro_firm_contact')?.trim() ?? '';
+      if (!mounted) return;
+      if (savedName.isNotEmpty) _firmCtrl.text = savedName;
+      if (savedLic.isNotEmpty) _licenseCtrl.text = savedLic;
+      if (savedAddr.isNotEmpty) _addressCtrl.text = savedAddr;
+      if (savedContact.isNotEmpty) _contactCtrl.text = savedContact;
+    } catch (_) {}
+  }
+
+  Future<void> _persistBranding() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('agro_firm_name', _firmCtrl.text.trim());
+      await prefs.setString('agro_firm_license', _licenseCtrl.text.trim());
+      await prefs.setString('agro_firm_address', _addressCtrl.text.trim());
+      await prefs.setString('agro_firm_contact', _contactCtrl.text.trim());
+    } catch (_) {}
   }
 
   @override
@@ -110,6 +162,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     _lonCtrl.dispose();
     _notesCtrl.dispose();
     _firmCtrl.dispose();
+    _licenseCtrl.dispose();
+    _addressCtrl.dispose();
+    _contactCtrl.dispose();
     super.dispose();
   }
 
@@ -185,9 +240,13 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     if (_downloadingPdf) return;
     setState(() => _downloadingPdf = true);
     try {
+      await _persistBranding();
       final bytes = await widget.apiService.downloadAgroAssessmentPdf(
         assessmentId,
         agronomistName: _firmCtrl.text,
+        agronomistLicense: _licenseCtrl.text,
+        agronomistAddress: _addressCtrl.text,
+        agronomistContact: _contactCtrl.text,
       );
       triggerPdfDownload(bytes, 'freedata_agro_$code.pdf');
       if (!mounted) return;
@@ -202,50 +261,111 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     }
   }
 
-  void _openCompareParcelsDialog() {
+  Future<void> _openCompareParcelsDialog() async {
     final items = _history.take(3).toList();
     if (items.length < 2) return;
-    showDialog<void>(
+    final ids = items.map((e) => e['id'].toString()).toList();
+    Map<String, dynamic>? cmpData;
+    String? cmpErr;
+    bool downloading = false;
+
+    try {
+      cmpData = await widget.apiService.compareAgroAssessments(
+        assessmentIds: ids,
+        agronomistName: _firmCtrl.text,
+      );
+    } catch (e) {
+      cmpErr = '$e';
+    }
+    if (!mounted) return;
+
+    await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Comparaison des parcelles (côte à côte)'),
-        content: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Code')),
-              DataColumn(label: Text('Pôle')),
-              DataColumn(label: Text('Surface (ha)')),
-              DataColumn(label: Text('Confiance')),
-              DataColumn(label: Text('Meilleure culture')),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          final tableRows =
+              ((cmpData?['comparison_table'] as List?) ?? const [])
+                  .whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList();
+          return AlertDialog(
+            title: Text(cmpData?['title']?.toString() ??
+                'Comparaison multi-terrains (côte à côte)'),
+            content: SizedBox(
+              width: 760,
+              child: cmpErr != null
+                  ? Text(cmpErr,
+                      style: const TextStyle(color: AppColors.danger))
+                  : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        columns: const [
+                          DataColumn(label: Text('Rang')),
+                          DataColumn(label: Text('Terrain / Pôle')),
+                          DataColumn(label: Text('Score /100')),
+                          DataColumn(label: Text('Dist. marché')),
+                          DataColumn(label: Text('Hum. rac.')),
+                          DataColumn(label: Text('Prix ML')),
+                          DataColumn(label: Text('CA Central')),
+                        ],
+                        rows: tableRows.map((r) {
+                          return DataRow(cells: [
+                            DataCell(Text(r['rank_label']?.toString() ?? '—',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700))),
+                            DataCell(Text(
+                                '${r['label']} · ${r['region'] ?? '—'}')),
+                            DataCell(Text('${r['score_composite'] ?? '—'}/100')),
+                            DataCell(Text(r['distance_hub_km'] != null
+                                ? '${r['distance_hub_km']} km'
+                                : '—')),
+                            DataCell(Text(r['rainy_root_wetness'] != null
+                                ? '${r['rainy_root_wetness']}'
+                                : '—')),
+                            DataCell(Text(r['predicted_xaf_kg'] != null
+                                ? '${r['predicted_xaf_kg']} F'
+                                : '—')),
+                            DataCell(Text(r['ca_central_xaf'] is num
+                                ? '${formatXaf(r['ca_central_xaf'] as num)} F'
+                                : '—')),
+                          ]);
+                        }).toList(),
+                      ),
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Fermer'),
+              ),
+              if (cmpData != null)
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 17),
+                  label: Text(downloading ? 'PDF…' : 'Télécharger PDF Comparatif'),
+                  onPressed: downloading
+                      ? null
+                      : () async {
+                          setDlg(() => downloading = true);
+                          try {
+                            await _persistBranding();
+                            final bytes =
+                                await widget.apiService.downloadAgroComparePdf(
+                              assessmentIds: ids,
+                              agronomistName: _firmCtrl.text,
+                              agronomistLicense: _licenseCtrl.text,
+                              agronomistAddress: _addressCtrl.text,
+                              agronomistContact: _contactCtrl.text,
+                            );
+                            triggerPdfDownload(
+                                bytes, 'freedata_comparatif_agro.pdf');
+                          } finally {
+                            setDlg(() => downloading = false);
+                          }
+                        },
+                ),
             ],
-            rows: items.map((item) {
-              final scores = item['computed_scores'] is Map
-                  ? item['computed_scores'] as Map
-                  : const {};
-              final crops = (scores['crop_assessments'] as List?) ?? const [];
-              final topCrop = crops.isNotEmpty && crops.first is Map
-                  ? '${(crops.first as Map)['label_fr']} (${(crops.first as Map)['suitability_score']}/100)'
-                  : '—';
-              return DataRow(cells: [
-                DataCell(
-                    Text(item['report_verification_code']?.toString() ?? '—')),
-                DataCell(Text(item['province_hub']?.toString() ?? '—')),
-                DataCell(Text('${item['area_hectares'] ?? 'N/A'}')),
-                DataCell(Text(scores['confidence']?.toString() ??
-                    scores['confidence_level']?.toString() ??
-                    '—')),
-                DataCell(Text(topCrop)),
-              ]);
-            }).toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Fermer'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -549,18 +669,86 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        '3. Inspection terrain & Co-branding cabinet',
+                        '3. Inspection terrain & Co-branding officiel du cabinet',
                         style: TextStyle(
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700,
                             color: AppColors.blue),
                       ),
                       const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _isOfficialApproved
+                              ? AppColors.greenSoft
+                              : const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _isOfficialApproved
+                              ? 'Cabinet vérifié par l’administrateur : vos informations officielles sont pré-remplies automatiquement sur tous vos PDF.'
+                              : (_officialProfile?['status'] == 'pending'
+                                  ? 'Profil officiel en attente de validation par l’administrateur. La génération de PDF sera débloquée dès confirmation.'
+                                  : 'Pour générer des rapports PDF certifiés, soumettez vos informations officielles depuis « Mon compte » pour validation administrateur.'),
+                          style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.ink,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       TextField(
                         controller: _firmCtrl,
+                        readOnly: _isOfficialApproved,
                         decoration: const InputDecoration(
                           labelText:
-                              'Nom de l’agronome / Bureau d’études (en-tête PDF)',
+                              'Raison sociale / Nom officiel de l’agronome (en-tête PDF)',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final half = constraints.maxWidth >= 560
+                              ? (constraints.maxWidth - 10) / 2
+                              : constraints.maxWidth;
+                          return Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              SizedBox(
+                                width: half,
+                                child: TextField(
+                                  controller: _licenseCtrl,
+                                  readOnly: _isOfficialApproved,
+                                  decoration: const InputDecoration(
+                                    labelText:
+                                        'N° d’agrément / Ordre / RCCM (opt.)',
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: half,
+                                child: TextField(
+                                  controller: _contactCtrl,
+                                  readOnly: _isOfficialApproved,
+                                  decoration: const InputDecoration(
+                                    labelText:
+                                        'Téléphone & Email professionnel (opt.)',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _addressCtrl,
+                        readOnly: _isOfficialApproved,
+                        decoration: const InputDecoration(
+                          labelText:
+                              'Adresse officielle du cabinet / ville (opt.)',
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -694,6 +882,75 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
               color: AppColors.ink,
             ),
           ),
+          if (scores['weighted_score'] is Map) ...[
+            const SizedBox(height: 10),
+            Builder(
+              builder: (_) {
+                final ws = scores['weighted_score'] as Map;
+                final bd = (ws['breakdown'] as Map?) ?? const {};
+                final gps = (scores['gps_logistics'] as Map?) ?? const {};
+                final econ = (scores['verified_economics'] as Map?) ?? const {};
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.canvas,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            'Score Audit : ${ws['total_score'] ?? '—'} / 100 (${ws['verdict'] ?? '—'})',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          FDBadge(
+                            label:
+                                'Hydrique ${bd['hydric_security']?['score'] ?? '—'}/40 · '
+                                'Sol ${bd['soil_quality']?['score'] ?? '—'}/30 · '
+                                'Marché ${bd['market_logistics']?['score'] ?? '—'}/30',
+                            color: AppColors.blue,
+                            backgroundColor: AppColors.blueSoft,
+                          ),
+                        ],
+                      ),
+                      if (gps['gps_provided'] == true) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Logistique GPS : ${gps['distance_hub_km']} km de ${gps['selected_hub']} · '
+                          '${gps['distance_ndjamena_km']} km de N’Djamena · '
+                          'Décote bord-champ : -${gps['farmgate_discount_pct']}%',
+                          style: const TextStyle(
+                              fontSize: 12.5, color: AppColors.muted),
+                        ),
+                      ],
+                      if ((econ['formula_text']?.toString() ?? '')
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Formule vérifiable : ${econ['formula_text']}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.greenDark,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
           const SizedBox(height: 10),
           ...crops.map((c) {
             final score = (c['suitability_score'] as num?)?.toInt() ?? 0;
@@ -782,9 +1039,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
               FDPrimaryButton(
                 label: _downloadingPdf
                     ? 'Génération PDF…'
-                    : 'Télécharger le rapport PDF co-brandé',
+                    : (_isOfficialApproved
+                        ? 'Télécharger le rapport PDF co-brandé'
+                        : 'PDF verrouillé (validation admin requise)'),
                 icon: Icons.picture_as_pdf_outlined,
-                onPressed: (!canPdf || _downloadingPdf)
+                onPressed: (!canPdf || _downloadingPdf || !_isOfficialApproved)
                     ? null
                     : () => _downloadPdf(assessment['id'].toString(), code),
               ),

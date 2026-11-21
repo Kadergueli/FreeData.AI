@@ -433,12 +433,105 @@ class ApiService {
 
   // --- Agronome PRO : Diagnostic de terrain & PDF co-brandé ----------------
 
+  Future<Map<String, dynamic>?> getMyAgroProfile() async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/profile');
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final raw = decoded['profile'];
+      return raw is Map ? Map<String, dynamic>.from(raw) : null;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement profil agronome'));
+  }
+
+  Future<Map<String, dynamic>> submitMyAgroProfile({
+    required String firmName,
+    required String licenseNumber,
+    String address = '',
+    String contact = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/profile');
+    final resp = await _client
+        .put(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'firm_name': firmName.trim(),
+            'license_number': licenseNumber.trim(),
+            'address': address.trim(),
+            'contact': contact.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return Map<String, dynamic>.from(decoded['profile'] as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Enregistrement du profil agronome refusé'));
+  }
+
+  Future<List<Map<String, dynamic>>> getAdminAgroProfiles(
+    String adminToken, {
+    String? status,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/admin/agro-profiles').replace(
+      queryParameters:
+          (status != null && status.isNotEmpty) ? {'status': status} : null,
+    );
+    final resp = await _client
+        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['profiles'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement profils agronomes'));
+  }
+
+  Future<Map<String, dynamic>> reviewAdminAgroProfile(
+    String adminToken,
+    String ownerId, {
+    required String status,
+    String adminNote = '',
+  }) async {
+    final uri = Uri.parse(
+        '$baseUrl/api/v1/admin/agro-profiles/${Uri.encodeComponent(ownerId)}/review');
+    final resp = await _client
+        .post(
+          uri,
+          headers: {
+            'X-Admin-Token': adminToken.trim(),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'status': status,
+            'admin_note': adminNote.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Validation profil agronome refusée'));
+  }
+
   Future<Map<String, dynamic>> createAgroFieldAssessment({
     required String provinceHub,
     String? projectId,
     double? gpsLat,
     double? gpsLon,
     double? areaHectares,
+    double? customYieldKgHa,
     required Map<String, dynamic> labSoilInputs,
     String agronomistFieldNotes = '',
     List<String> targetCrops = const [
@@ -454,12 +547,13 @@ class ApiService {
           uri,
           headers: _projectHeaders(includeJson: true),
           body: jsonEncode({
-            'province_hub': provinceHub,
+            if (provinceHub.trim().isNotEmpty) 'province_hub': provinceHub,
             if (projectId != null && projectId.isNotEmpty)
               'project_id': projectId,
             if (gpsLat != null) 'gps_lat': gpsLat,
             if (gpsLon != null) 'gps_lon': gpsLon,
             if (areaHectares != null) 'area_hectares': areaHectares,
+            if (customYieldKgHa != null) 'custom_yield_kg_ha': customYieldKgHa,
             'lab_soil_inputs': labSoilInputs,
             'agronomist_field_notes': agronomistFieldNotes.trim(),
             'target_crops': targetCrops,
@@ -496,6 +590,10 @@ class ApiService {
   Future<Uint8List> downloadAgroAssessmentPdf(
     String assessmentId, {
     String agronomistName = '',
+    String agronomistLicense = '',
+    String agronomistAddress = '',
+    String agronomistContact = '',
+    List<String> compareAssessmentIds = const [],
   }) async {
     final uri =
         Uri.parse('$baseUrl/api/v1/agro/field-assessment/$assessmentId/pdf');
@@ -503,7 +601,14 @@ class ApiService {
         .post(
           uri,
           headers: _projectHeaders(includeJson: true),
-          body: jsonEncode({'agronomist_name': agronomistName.trim()}),
+          body: jsonEncode({
+            'agronomist_name': agronomistName.trim(),
+            'agronomist_license': agronomistLicense.trim(),
+            'agronomist_address': agronomistAddress.trim(),
+            'agronomist_contact': agronomistContact.trim(),
+            if (compareAssessmentIds.isNotEmpty)
+              'compare_assessment_ids': compareAssessmentIds,
+          }),
         )
         .timeout(const Duration(seconds: 35));
     if (resp.statusCode == 200) {
@@ -511,6 +616,63 @@ class ApiService {
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Génération du PDF agronomique refusée'));
+  }
+
+  Future<Map<String, dynamic>> compareAgroAssessments({
+    List<String> assessmentIds = const [],
+    List<Map<String, dynamic>> candidates = const [],
+    String agronomistName = '',
+    String agronomistLicense = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/compare-assessments');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            if (assessmentIds.isNotEmpty) 'assessment_ids': assessmentIds,
+            if (candidates.isNotEmpty) 'candidates': candidates,
+            'agronomist_name': agronomistName.trim(),
+            'agronomist_license': agronomistLicense.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Comparaison multi-terrains impossible'));
+  }
+
+  Future<Uint8List> downloadAgroComparePdf({
+    List<String> assessmentIds = const [],
+    List<Map<String, dynamic>> candidates = const [],
+    String agronomistName = '',
+    String agronomistLicense = '',
+    String agronomistAddress = '',
+    String agronomistContact = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/compare-assessments/pdf');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            if (assessmentIds.isNotEmpty) 'assessment_ids': assessmentIds,
+            if (candidates.isNotEmpty) 'candidates': candidates,
+            'agronomist_name': agronomistName.trim(),
+            'agronomist_license': agronomistLicense.trim(),
+            'agronomist_address': agronomistAddress.trim(),
+            'agronomist_contact': agronomistContact.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 35));
+    if (resp.statusCode == 200) {
+      return resp.bodyBytes;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Génération du PDF comparatif refusée'));
   }
 
   // --- Marché PRO : Watchlists, Arbitrage & Export CSV ---------------------

@@ -11,6 +11,15 @@ class _AgroProFakeApi extends ApiService {
   String? lastPdfId;
 
   @override
+  Future<Map<String, dynamic>?> getMyAgroProfile() async => {
+        'firm_name': 'Cabinet Test',
+        'license_number': 'AGR-TEST-01',
+        'address': "N'Djamena",
+        'contact': '+235 66 00 00 00',
+        'status': 'approved',
+      };
+
+  @override
   Future<List<Map<String, dynamic>>> listAgroFieldAssessments(
           {String? projectId}) async =>
       const [];
@@ -22,6 +31,7 @@ class _AgroProFakeApi extends ApiService {
     double? gpsLat,
     double? gpsLon,
     double? areaHectares,
+    double? customYieldKgHa,
     required Map<String, dynamic> labSoilInputs,
     String agronomistFieldNotes = '',
     List<String> targetCrops = const [
@@ -78,6 +88,10 @@ class _AgroProFakeApi extends ApiService {
   Future<Uint8List> downloadAgroAssessmentPdf(
     String assessmentId, {
     String agronomistName = '',
+    String agronomistLicense = '',
+    String agronomistAddress = '',
+    String agronomistContact = '',
+    List<String> compareAssessmentIds = const [],
   }) async {
     lastPdfId = assessmentId;
     return Uint8List.fromList([0x25, 0x50, 0x44, 0x46]);

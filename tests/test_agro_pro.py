@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from api import server
-from src.agro_assessments import AgroFieldAssessmentStore
+from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_indicators import AgroIndicatorStore
 from src.monetization import SubscriptionStore
 
@@ -43,6 +43,7 @@ def _seed_agro(tmp_path):
 
 def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     ind_store, assess_store = _seed_agro(tmp_path)
+    profile_store = AgronomistProfileStore(str(tmp_path / "agro.db"))
     sub_store = SubscriptionStore(str(tmp_path / "billing.db"))
     proj_store = server.ProjectStore(str(tmp_path / "projects.db"))
     free_owner = "user:u_free_agro_1234567890abcdef123456"
@@ -61,6 +62,25 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert exc_free.value.status_code in (403, 503)
 
     # 2. Sans mesures de sol labo -> confidence_level régional + porte QA bloque le PDF (HTTP 422)
+    profile_store.submit_profile(
+        pro_owner,
+        firm_name="Dr. Moussa — Bureau Agro",
+        license_number="AGR-TD-001",
+        address="N'Djamena",
+        contact="+235 66 00 00 00",
+    )
+    # Tant que non approuvé par l'admin, le PDF est bloqué en 403
+    with pytest.raises(HTTPException) as exc_unverified:
+        server.agro_field_assessment_pdf_endpoint(
+            "AG-ANY",
+            payload=server.AgroFieldPdfRequest(),
+            owner_id=pro_owner, x_premium_key=None,
+            assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
+        )
+    assert exc_unverified.value.status_code == 403
+
+    profile_store.review_profile(pro_owner, status="approved", reviewed_by="admin")
+
     res_no_lab = server.create_agro_field_assessment_endpoint(
         server.AgroFieldAssessmentRequest(province_hub="Moundou", area_hectares=5.0),
         owner_id=pro_owner, x_premium_key=None,
@@ -73,7 +93,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
             res_no_lab["assessment"]["id"],
             payload=server.AgroFieldPdfRequest(agronomist_name="Cabinet Agro Tchad"),
             owner_id=pro_owner, x_premium_key=None,
-            assess_store=assess_store, sub_store=sub_store,
+            assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
         )
     assert exc_qa.value.status_code == 422
 
@@ -94,7 +114,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
         res_lab["assessment"]["id"],
         payload=server.AgroFieldPdfRequest(agronomist_name="Dr. Moussa — Bureau Agro"),
         owner_id=pro_owner, x_premium_key=None,
-        assess_store=assess_store, sub_store=sub_store,
+        assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
     )
     assert pdf_resp.media_type == "application/pdf"
     assert pdf_resp.body.startswith(b"%PDF")
@@ -104,6 +124,8 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     sub_store.admin_update_subscription(
         actor="admin", target_user_id=other_pro, plan_id="premium", status="active", period_days=30,
     )
+    profile_store.submit_profile(other_pro, firm_name="Autre Cabinet", license_number="AGR-TD-002")
+    profile_store.review_profile(other_pro, status="approved", reviewed_by="admin")
     assert server.list_agro_field_assessments_endpoint(
         project_id=None, owner_id=other_pro, x_premium_key=None,
         assess_store=assess_store, project_store=proj_store, sub_store=sub_store,
@@ -112,7 +134,95 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
         server.agro_field_assessment_pdf_endpoint(
             res_lab["assessment"]["id"],
             owner_id=other_pro, x_premium_key=None,
-            assess_store=assess_store, sub_store=sub_store,
+            assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
         )
     assert exc_idor.value.status_code == 404
+
+
+def test_gps_logistics_verified_economics_and_compare_assessments(tmp_path):
+    from src.agro_engine import compute_gps_logistics, compute_verified_economics
+
+    # 1. GPS proche (< 15 km -> décote 8 %) et éloigné (> 50 km -> décote 22 % + alerte)
+    near = compute_gps_logistics(12.14, 15.06)
+    assert near["closest_hub"] == "N'Djamena"
+    assert near["farmgate_discount_pct"] == 8.0
+    assert near["remoteness_alert"] is False
+
+    far = compute_gps_logistics(10.80, 17.20)
+    assert far["distance_hub_km"] > 50.0
+    assert far["farmgate_discount_pct"] == 22.0
+    assert far["remoteness_alert"] is True
+
+    # 2. Modèle économique vérifiable (formule explicite + 3 scénarios)
+    econ = compute_verified_economics(
+        crop_id="millet",
+        area_hectares=10.0,
+        yield_kg_ha=834.6,
+        yield_source="World Bank 2020–2024",
+        predicted_xaf_kg=300.0,
+        mape_pct=10.0,
+        stress_min_xaf_kg=200.0,
+        farmgate_discount_pct=15.0,
+        max_hub_price_xaf_kg=380.0,
+        max_hub_province="Kanem",
+    )
+    assert econ["production_kg"] == 8346.0
+    assert econ["farmgate_price_central_xaf_kg"] == 255.0
+    assert econ["ca_central_xaf"] == round(8346.0 * 255.0)
+    assert "834.6 kg/ha" in econ["formula_text"]
+    assert len(econ["scenarios"]) == 3
+
+    # 3. Comparaison multi-terrains (GPS candidats) + PDF comparatif
+    ind_store, assess_store = _seed_agro(tmp_path)
+    profile_store_cmp = AgronomistProfileStore(str(tmp_path / "agro.db"))
+    sub_store = SubscriptionStore(str(tmp_path / "billing_cmp.db"))
+    pro_owner = "user:u_pro_cmp_1234567890abcdef1234567"
+    sub_store.admin_update_subscription(
+        actor="admin", target_user_id=pro_owner, plan_id="premium", status="active", period_days=30,
+    )
+    profile_store_cmp.submit_profile(pro_owner, firm_name="Cabinet Audit Tchad", license_number="AGR-TD-042")
+    profile_store_cmp.review_profile(pro_owner, status="approved", reviewed_by="admin")
+    cmp_payload = server.AgroCompareRequest(
+        candidates=[
+            server.AgroCandidateInput(
+                label="Terrain A (proche Moundou)",
+                gps_lat=8.58,
+                gps_lon=16.09,
+                area_hectares=5.0,
+                lab_soil_inputs={"ph": 6.3, "texture": "sandy_loam"},
+            ),
+            server.AgroCandidateInput(
+                label="Terrain B (enclavé sans labo)",
+                gps_lat=9.30,
+                gps_lon=16.80,
+                area_hectares=5.0,
+            ),
+        ],
+        agronomist_name="Cabinet Audit Tchad",
+        agronomist_license="AGR-TD-042",
+    )
+    cmp_res = server.compare_agro_assessments_endpoint(
+        cmp_payload,
+        owner_id=pro_owner,
+        x_premium_key=None,
+        store=ind_store,
+        assess_store=assess_store,
+        sub_store=sub_store,
+    )
+    assert cmp_res["count"] == 2
+    assert cmp_res["title"] == "Pré-diagnostic Zonal & Économique (Mesures sol non fournies)"
+    assert cmp_res["comparison_table"][0]["rank_label"] == "#1 Recommandé"
+
+    pdf_cmp = server.compare_agro_assessments_pdf_endpoint(
+        cmp_payload,
+        owner_id=pro_owner,
+        x_premium_key=None,
+        store=ind_store,
+        assess_store=assess_store,
+        profile_store=profile_store_cmp,
+        sub_store=sub_store,
+    )
+    assert pdf_cmp.media_type == "application/pdf"
+    assert pdf_cmp.body.startswith(b"%PDF")
+
 

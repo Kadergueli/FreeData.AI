@@ -24,6 +24,7 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _tickets = const [];
   List<Map<String, dynamic>> _paymentRequests = const [];
   List<Map<String, dynamic>> _proKeys = const [];
+  List<Map<String, dynamic>> _agroProfiles = const [];
   int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements
   bool _loading = false;
   bool _probing = false;
@@ -57,6 +58,7 @@ class _AdminScreenState extends State<AdminScreen> {
       ]);
       List<Map<String, dynamic>> payReqs = const [];
       List<Map<String, dynamic>> proKeys = const [];
+      List<Map<String, dynamic>> agroProfiles = const [];
       if (perms.contains('manage_subscriptions')) {
         final billingRes = await Future.wait<List<Map<String, dynamic>>>([
           widget.apiService
@@ -65,9 +67,13 @@ class _AdminScreenState extends State<AdminScreen> {
           widget.apiService
               .listAdminProKeys(_token)
               .catchError((_) => const <Map<String, dynamic>>[]),
+          widget.apiService
+              .getAdminAgroProfiles(_token)
+              .catchError((_) => const <Map<String, dynamic>>[]),
         ]);
         payReqs = billingRes[0];
         proKeys = billingRes[1];
+        agroProfiles = billingRes[2];
       }
       if (!mounted) return;
       setState(() {
@@ -77,6 +83,7 @@ class _AdminScreenState extends State<AdminScreen> {
         _tickets = results[2] as List<Map<String, dynamic>>;
         _paymentRequests = payReqs;
         _proKeys = proKeys;
+        _agroProfiles = agroProfiles;
         _loading = false;
       });
     } catch (e) {
@@ -1263,6 +1270,85 @@ class _AdminScreenState extends State<AdminScreen> {
                                     color: statusColor,
                                   ),
                                 ),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Validations officielles Agronome PRO (Co-branding PDF)',
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_agroProfiles.isEmpty)
+                      const Text(
+                          'Aucune demande de certification agronome soumise.',
+                          style: TextStyle(color: AppColors.muted))
+                    else
+                      ..._agroProfiles.map((p) {
+                        final oid = p['owner_id'].toString();
+                        final st = p['status']?.toString() ?? 'pending';
+                        final isPending = st == 'pending';
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '${p['firm_name']} · Agrément ${p['license_number']}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(
+                            'Compte : $oid · Adresse : ${p['address'] ?? '—'} · Contact : ${p['contact'] ?? '—'} · Statut : $st',
+                          ),
+                          trailing: isPending
+                              ? Wrap(
+                                  spacing: 6,
+                                  children: [
+                                    TextButton(
+                                      onPressed: () => _runAction(
+                                        () => widget.apiService
+                                            .reviewAdminAgroProfile(
+                                          _token,
+                                          oid,
+                                          status: 'approved',
+                                        ),
+                                        'Profil agronome approuvé : génération PDF débloquée.',
+                                      ),
+                                      child: const Text('Approuver',
+                                          style: TextStyle(
+                                              color: AppColors.green)),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => _runAction(
+                                        () => widget.apiService
+                                            .reviewAdminAgroProfile(
+                                          _token,
+                                          oid,
+                                          status: 'rejected',
+                                          adminNote:
+                                              'Justificatif ou agrément incomplet.',
+                                        ),
+                                        'Profil agronome refusé.',
+                                      ),
+                                      child: const Text('Refuser',
+                                          style: TextStyle(
+                                              color: AppColors.danger)),
+                                    ),
+                                  ],
+                                )
+                              : Text(st.toUpperCase(),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: st == 'approved'
+                                        ? AppColors.green
+                                        : AppColors.danger,
+                                  )),
                         );
                       }),
                   ],

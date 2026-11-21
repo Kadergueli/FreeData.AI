@@ -29,9 +29,11 @@ class AccountScreen extends StatefulWidget {
 
 class _AccountScreenState extends State<AccountScreen> {
   Map<String, dynamic>? _billing;
+  Map<String, dynamic>? _agroProfile;
   List<Map<String, dynamic>> _myDocs = const [];
   bool _loadingBilling = false;
   bool _savingProfile = false;
+  bool _savingAgroProfile = false;
   bool _changingPass = false;
   bool _syncing = false;
 
@@ -60,13 +62,19 @@ class _AccountScreenState extends State<AccountScreen> {
       final docsFuture = widget.apiService
           .listUserDocuments()
           .catchError((_) => const <Map<String, dynamic>>[]);
-      final results = await Future.wait<Object?>([billingFuture, docsFuture]);
+      final agroFuture = widget.apiService
+          .getMyAgroProfile()
+          .catchError((_) => null);
+      final results =
+          await Future.wait<Object?>([billingFuture, docsFuture, agroFuture]);
       final b = results[0] as Map<String, dynamic>?;
       final docs = results[1] as List<Map<String, dynamic>>;
+      final agroProf = results[2] as Map<String, dynamic>?;
       if (!mounted) return;
       setState(() {
         _billing = b;
         _myDocs = docs;
+        _agroProfile = agroProf;
         _loadingBilling = false;
       });
     } catch (_) {
@@ -415,6 +423,200 @@ class _AccountScreenState extends State<AccountScreen> {
     return src.substring(0, src.length >= 2 ? 2 : 1).toUpperCase();
   }
 
+  Widget _buildAgroOfficialProfileCard() {
+    final prof = _agroProfile;
+    final status = prof?['status']?.toString() ?? 'unsubmitted';
+    final isApproved = status == 'approved';
+    final isPending = status == 'pending';
+    final isRejected = status == 'rejected';
+    final badgeLabel = isApproved
+        ? 'VALIDÉ PAR L’ADMIN'
+        : (isPending
+            ? 'EN ATTENTE DE VALIDATION'
+            : (isRejected ? 'REFUSÉ' : 'NON SOUMIS'));
+    final badgeColor = isApproved
+        ? AppColors.greenDark
+        : (isRejected ? AppColors.danger : AppColors.blue);
+    final badgeBg = isApproved
+        ? AppColors.greenSoft
+        : (isRejected ? const Color(0xFFFEE2E2) : AppColors.blueSoft);
+
+    return FDCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Profil officiel Agronome / Cabinet (PDF)',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                ),
+              ),
+              FDBadge(
+                label: badgeLabel,
+                color: badgeColor,
+                backgroundColor: badgeBg,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Renseignez vos informations officielles et soumettez-les à l’administrateur. Une fois validées, elles seront automatiquement pré-remplies sur vos rapports PDF Agronome PRO.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+          ),
+          if (prof != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              '${prof['firm_name']} · Agrément : ${prof['license_number']}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+            if ((prof['address']?.toString() ?? '').isNotEmpty ||
+                (prof['contact']?.toString() ?? '').isNotEmpty)
+              Text(
+                '${prof['address'] ?? ''}${(prof['address']?.toString().isNotEmpty ?? false) && (prof['contact']?.toString().isNotEmpty ?? false) ? ' · ' : ''}${prof['contact'] ?? ''}',
+                style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+              ),
+            if (isRejected &&
+                (prof['admin_note']?.toString().isNotEmpty ?? false))
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Motif : ${prof['admin_note']}',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppColors.danger,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+          const SizedBox(height: 12),
+          FDSecondaryButton(
+            label: _savingAgroProfile
+                ? 'Envoi…'
+                : (prof == null
+                    ? 'Renseigner & soumettre mon profil officiel'
+                    : 'Mettre à jour mes informations officielles'),
+            icon: Icons.verified_user_outlined,
+            onPressed: _savingAgroProfile ? null : _openSubmitAgroProfileDialog,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openSubmitAgroProfileDialog() async {
+    final firmCtrl =
+        TextEditingController(text: _agroProfile?['firm_name']?.toString() ?? '');
+    final licCtrl = TextEditingController(
+        text: _agroProfile?['license_number']?.toString() ?? '');
+    final addrCtrl =
+        TextEditingController(text: _agroProfile?['address']?.toString() ?? '');
+    final contactCtrl =
+        TextEditingController(text: _agroProfile?['contact']?.toString() ?? '');
+    String? err;
+
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Informations officielles Agronome / Cabinet'),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: firmCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Raison sociale / Nom officiel *',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: licCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'N° d’agrément / Ordre / RCCM *',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: addrCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Adresse officielle / Ville',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: contactCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Téléphone & Email professionnel',
+                    ),
+                  ),
+                  if (err != null) ...[
+                    const SizedBox(height: 8),
+                    Text(err!, style: const TextStyle(color: AppColors.danger)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (firmCtrl.text.trim().length < 2 ||
+                    licCtrl.text.trim().length < 2) {
+                  setDlg(() => err =
+                      'Nom officiel et numéro d’agrément requis (min. 2 caractères).');
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('Soumettre à l’admin'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (submitted != true || !mounted) return;
+    setState(() => _savingAgroProfile = true);
+    try {
+      final updated = await widget.apiService.submitMyAgroProfile(
+        firmName: firmCtrl.text,
+        licenseNumber: licCtrl.text,
+        address: addrCtrl.text,
+        contact: contactCtrl.text,
+      );
+      if (!mounted) return;
+      setState(() => _agroProfile = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Profil officiel envoyé à l’administrateur pour validation.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _savingAgroProfile = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final loggedIn = widget.apiService.isAuthenticated;
@@ -576,6 +778,8 @@ class _AccountScreenState extends State<AccountScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 14),
+                _buildAgroOfficialProfileCard(),
                 const SizedBox(height: 14),
                 // Informations personnelles (lecture seule + modal sur action, style Google / ChatGPT)
                 FDCard(
