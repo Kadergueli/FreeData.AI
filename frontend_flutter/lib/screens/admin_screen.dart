@@ -25,7 +25,8 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _paymentRequests = const [];
   List<Map<String, dynamic>> _proKeys = const [];
   List<Map<String, dynamic>> _agroProfiles = const [];
-  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements
+  String _agroFilter = 'all';
+  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements, 4: Centre IA, 5: Agronomes
   bool _loading = false;
   bool _probing = false;
   String? _error;
@@ -540,7 +541,7 @@ class _AdminScreenState extends State<AdminScreen> {
                   selected: _tab == 2,
                   onSelected: (_) => setState(() => _tab = 2),
                 ),
-                if (_hasPerm('manage_subscriptions'))
+                if (_hasPerm('manage_subscriptions')) ...[
                   ChoiceChip(
                     label: Text(
                       'Paiements (${_paymentRequests.where((r) => r['status'] == 'pending').length})',
@@ -548,6 +549,14 @@ class _AdminScreenState extends State<AdminScreen> {
                     selected: _tab == 3,
                     onSelected: (_) => setState(() => _tab = 3),
                   ),
+                  ChoiceChip(
+                    label: Text(
+                      'Agronomes (${_agroProfiles.where((p) => p['status'] == 'pending').length})',
+                    ),
+                    selected: _tab == 5,
+                    onSelected: (_) => setState(() => _tab = 5),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 14),
@@ -1281,85 +1290,6 @@ class _AdminScreenState extends State<AdminScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Validations officielles Agronome PRO (Co-branding PDF)',
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.ink),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_agroProfiles.isEmpty)
-                      const Text(
-                          'Aucune demande de certification agronome soumise.',
-                          style: TextStyle(color: AppColors.muted))
-                    else
-                      ..._agroProfiles.map((p) {
-                        final oid = p['owner_id'].toString();
-                        final st = p['status']?.toString() ?? 'pending';
-                        final isPending = st == 'pending';
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            '${p['firm_name']} · Agrément ${p['license_number']}',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(
-                            'Compte : $oid · Adresse : ${p['address'] ?? '—'} · Contact : ${p['contact'] ?? '—'} · Statut : $st',
-                          ),
-                          trailing: isPending
-                              ? Wrap(
-                                  spacing: 6,
-                                  children: [
-                                    TextButton(
-                                      onPressed: () => _runAction(
-                                        () => widget.apiService
-                                            .reviewAdminAgroProfile(
-                                          _token,
-                                          oid,
-                                          status: 'approved',
-                                        ),
-                                        'Profil agronome approuvé : génération PDF débloquée.',
-                                      ),
-                                      child: const Text('Approuver',
-                                          style: TextStyle(
-                                              color: AppColors.green)),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => _runAction(
-                                        () => widget.apiService
-                                            .reviewAdminAgroProfile(
-                                          _token,
-                                          oid,
-                                          status: 'rejected',
-                                          adminNote:
-                                              'Justificatif ou agrément incomplet.',
-                                        ),
-                                        'Profil agronome refusé.',
-                                      ),
-                                      child: const Text('Refuser',
-                                          style: TextStyle(
-                                              color: AppColors.danger)),
-                                    ),
-                                  ],
-                                )
-                              : Text(st.toUpperCase(),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: st == 'approved'
-                                        ? AppColors.green
-                                        : AppColors.danger,
-                                  )),
-                        );
-                      }),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              FDCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
                       'Demandes de paiement PRO (Mobile Money / Virement)',
                       style: TextStyle(
                           fontSize: 15,
@@ -1435,9 +1365,233 @@ class _AdminScreenState extends State<AdminScreen> {
                 ),
               ),
             ],
+            if (_tab == 5 && _hasPerm('manage_subscriptions')) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Certifications officielles Agronome PRO',
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Vérifiez l’identité et le numéro d’agrément/RCCM des agronomes avant de débloquer la génération de bulletins PDF co-brandés.',
+                      style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final f in const [
+                          ('all', 'Tous'),
+                          ('pending', 'En attente'),
+                          ('approved', 'Validés'),
+                          ('rejected', 'Refusés'),
+                        ])
+                          ChoiceChip(
+                            label: Text(f.$2),
+                            selected: _agroFilter == f.$1,
+                            onSelected: (_) =>
+                                setState(() => _agroFilter = f.$1),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Builder(
+                      builder: (_) {
+                        final visible = _agroFilter == 'all'
+                            ? _agroProfiles
+                            : _agroProfiles
+                                .where((p) => p['status'] == _agroFilter)
+                                .toList();
+                        if (visible.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              'Aucune demande dans cette catégorie.',
+                              style: TextStyle(color: AppColors.muted),
+                            ),
+                          );
+                        }
+                        return Column(
+                          children: visible.map((p) {
+                            final oid = p['owner_id'].toString();
+                            final st = p['status']?.toString() ?? 'pending';
+                            final isPending = st == 'pending';
+                            final isOk = st == 'approved';
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                border: Border.all(
+                                    color: const Color(0xFFCBD5E1)),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        p['firm_name']?.toString() ?? '—',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14.5,
+                                          color: AppColors.ink,
+                                        ),
+                                      ),
+                                      FDBadge(
+                                        label: isOk
+                                            ? 'VALIDÉ'
+                                            : (isPending
+                                                ? 'EN ATTENTE'
+                                                : 'REFUSÉ'),
+                                        color: isOk
+                                            ? AppColors.greenDark
+                                            : (isPending
+                                                ? AppColors.blue
+                                                : AppColors.danger),
+                                        backgroundColor: isOk
+                                            ? AppColors.greenSoft
+                                            : (isPending
+                                                ? AppColors.blueSoft
+                                                : const Color(0xFFFEE2E2)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Agrément / RCCM : ${p['license_number'] ?? '—'}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Adresse : ${(p['address']?.toString().isNotEmpty ?? false) ? p['address'] : '—'} · '
+                                    'Contact : ${(p['contact']?.toString().isNotEmpty ?? false) ? p['contact'] : '—'}',
+                                    style: const TextStyle(
+                                        fontSize: 12.5, color: AppColors.muted),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Compte : $oid · Soumis le : ${p['submitted_at'] ?? '—'}',
+                                    style: const TextStyle(
+                                        fontSize: 11.5, color: AppColors.muted),
+                                  ),
+                                  if ((p['admin_note']?.toString().isNotEmpty ??
+                                      false))
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        'Motif : ${p['admin_note']}',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.danger,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: [
+                                      if (!isOk)
+                                        FDPrimaryButton(
+                                          label: 'Approuver & Débloquer PDF',
+                                          icon: Icons.verified_rounded,
+                                          onPressed: () => _runAction(
+                                            () => widget.apiService
+                                                .reviewAdminAgroProfile(
+                                              _token,
+                                              oid,
+                                              status: 'approved',
+                                            ),
+                                            'Profil agronome approuvé : génération PDF débloquée.',
+                                          ),
+                                        ),
+                                      if (isPending || isOk)
+                                        FDSecondaryButton(
+                                          label: 'Refuser',
+                                          icon: Icons.block_rounded,
+                                          onPressed: () =>
+                                              _rejectAgroProfileDialog(
+                                            oid,
+                                            p['firm_name']?.toString() ?? '',
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ],
       ),
     );
+  }
+
+  Future<void> _rejectAgroProfileDialog(String ownerId, String firmName) async {
+    final noteCtrl = TextEditingController(
+        text: 'Numéro d’agrément ou coordonnées officielles incomplets.');
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Refuser « $firmName »'),
+          content: TextField(
+            controller: noteCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Motif affiché à l’utilisateur',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirmer le refus'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await _runAction(
+        () => widget.apiService.reviewAdminAgroProfile(
+          _token,
+          ownerId,
+          status: 'rejected',
+          adminNote: noteCtrl.text.trim(),
+        ),
+        'Profil agronome refusé.',
+      );
+    } finally {
+      noteCtrl.dispose();
+    }
   }
 }
