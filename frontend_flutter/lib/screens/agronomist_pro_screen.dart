@@ -932,6 +932,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           style: const TextStyle(
                               fontSize: 12.5, color: AppColors.muted),
                         ),
+                        if (gps['idw_hubs'] is List &&
+                            (gps['idw_hubs'] as List).isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Interpolation IDW (k=3) : ' +
+                                (gps['idw_hubs'] as List)
+                                    .whereType<Map>()
+                                    .where((h) =>
+                                        ((h['weight_pct'] as num?) ?? 0) > 0)
+                                    .map((h) =>
+                                        '${h['hub']} (${h['road_distance_km']} km · ${h['weight_pct']}%)')
+                                    .join(' · '),
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.blue),
+                          ),
+                        ],
                       ],
                       if ((econ['formula_text']?.toString() ?? '')
                           .isNotEmpty) ...[
@@ -984,7 +1000,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           ),
                         ),
                         Text(
-                          '$score / 100',
+                          '$score / 100'
+                          '${(c['satellite_score'] != null && c['soil_score'] != null) ? ' (Eau ${c['satellite_score']}/60 + Sol ${c['soil_score']}/40)' : ''}',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             color: score >= 70
@@ -1018,6 +1035,20 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
               ),
             );
           }),
+          if (((qa?['warnings'] as List?) ?? const []).isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'Mode Satellitaire IDW : ${((qa?['warnings'] as List?) ?? const []).join(' ')}',
+                style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           if (!canPdf && blockers.isNotEmpty) ...[
             Container(
               padding: const EdgeInsets.all(10),

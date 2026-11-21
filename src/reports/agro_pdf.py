@@ -98,10 +98,13 @@ def render_agro_assessment_pdf(
     addr = (agronomist_address or "").strip()
     contact = (agronomist_contact or "").strip()
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    conf_label = scores.get("confidence_level") or "Régional uniquement"
+    conf_label = scores.get("confidence_level") or "Modèle Satellitaire IDW"
+    has_lab = bool(scores.get("has_lab_measurements"))
+    qa_badge = "QA TERRAIN VALIDÉ" if has_lab else "ESTIMATION SATELLITAIRE GPS"
     resolution_title = (
-        scores.get("resolution_label")
-        or ("Diagnostic d'Audit Parcellaire & Marché (Pré-Achat)" if scores.get("has_lab_measurements") else "Pré-diagnostic Zonal & Économique (Mesures sol non fournies)")
+        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
+        if has_lab
+        else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
     )
 
     story: list[Any] = []
@@ -123,7 +126,7 @@ def render_agro_assessment_pdf(
         left_cells.append(Paragraph(_clean_pdf_text(f"Contact : {contact}"), body_style))
 
     right_html = _clean_pdf_text(
-        f"<b>DOSSIER D'AUDIT AGRONOMIQUE & MARCHÉ</b><br/>"
+        f"<b>DOSSIER D'AUDIT AGRONOMIQUE & MARCHÉ</b> [{qa_badge}]<br/>"
         f"Date : {date_str} | Code : {code}<br/>"
         f"Confiance : {conf_label}"
     )
@@ -142,6 +145,29 @@ def render_agro_assessment_pdf(
     story.append(header_tbl)
     story.append(Spacer(1, 0.25 * cm))
     story.append(Paragraph(_clean_pdf_text(resolution_title), title_style))
+    if not has_lab:
+        warn_tbl = Table(
+            [[Paragraph(
+                _clean_pdf_text(
+                    "<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
+                    "la composante sol (plafonnée à 20/40 pts) est estimée par satellite en attente d'analyse de laboratoire."
+                ),
+                body_style,
+            )]],
+            colWidths=[17.8 * cm],
+        )
+        warn_tbl.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF3C7")),
+                ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#F59E0B")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ])
+        )
+        story.append(warn_tbl)
+        story.append(Spacer(1, 0.2 * cm))
 
     # --- BLOC 1 : SYNTHÈSE EXÉCUTIVE & VERDICT DÉCISIONNEL ---
     story.append(Paragraph("1. Synthèse Exécutive & Verdict Décisionnel", h2_style))
@@ -169,6 +195,14 @@ def render_agro_assessment_pdf(
             f"Décote appliquée : {gps.get('farmgate_discount_pct', 0)}% ({gps.get('enclavement_label', '—')})",
         ],
     ]
+    idw_hubs = gps.get("idw_hubs") or []
+    if idw_hubs:
+        idw_str = " | ".join(
+            f"{h.get('hub')} ({h.get('road_distance_km', 0)} km, {h.get('weight_pct', 0)}%)"
+            for h in idw_hubs
+            if (h.get("weight_pct") or 0) > 0
+        )
+        exec_rows.append(["Interpolation Spatiale IDW (k=3)", gps.get("idw_mode", "idw_k3"), idw_str or "—"])
     story.append(_styled_table(exec_rows, col_widths=[4.6 * cm, 5.4 * cm, 7.8 * cm]))
     strengths = ws.get("strengths") or []
     vigilances = ws.get("vigilances") or []
@@ -250,20 +284,24 @@ def render_agro_assessment_pdf(
             story.append(_styled_table(scen_rows, col_widths=[6.2 * cm, 3.8 * cm, 3.9 * cm, 3.9 * cm]))
             story.append(Spacer(1, 0.12 * cm))
 
-    crop_rows = [["Culture", "Score", "Aptitude", "Prix ML (FCFA/kg)", "CA Central (FCFA)", "Facteurs limitants"]]
+    crop_rows = [["Culture", "Score (Eau+Sol)", "Rdt WB", "Prix IDW", "Décote", "CA Brut (FCFA)"]]
     for c in scores.get("crop_assessments") or []:
         mkt = c.get("market_forecast") or {}
-        price_str = f"{mkt['predicted_xaf_kg']}" if mkt.get("predicted_xaf_kg") is not None else "N/A"
-        lim = "; ".join(c.get("limiting_factors") or []) or "Aucun facteur limitant majeur"
+        cecon = c.get("verified_economics") or {}
+        price_str = f"{mkt['predicted_xaf_kg']} F" if mkt.get("predicted_xaf_kg") is not None else "N/A"
+        s_sat = c.get("satellite_score", "—")
+        s_soil = c.get("soil_score", "—")
+        yld = cecon.get("yield_kg_ha", 834.6)
+        disc = cecon.get("farmgate_discount_pct", 0)
         crop_rows.append([
             str(c.get("label_fr") or c.get("crop_id")),
-            f"{c.get('suitability_score', 0)}/100",
-            str(c.get("suitability_label") or ""),
+            f"{c.get('suitability_score', 0)}/100 ({s_sat}+{s_soil})",
+            f"{yld} kg/ha",
             price_str,
+            f"-{disc}%",
             _fmt_num(c.get("indicative_gross_revenue_xaf")),
-            lim,
         ])
-    story.append(_styled_table(crop_rows, col_widths=[2.4 * cm, 1.5 * cm, 2.0 * cm, 2.4 * cm, 2.7 * cm, 6.8 * cm]))
+    story.append(_styled_table(crop_rows, col_widths=[2.8 * cm, 3.8 * cm, 2.5 * cm, 2.5 * cm, 2.0 * cm, 4.2 * cm]))
 
     # --- BLOC 5 : SOURCES, LICENCES & MENTIONS LÉGALES ---
     prov = scores.get("provenance") or {}

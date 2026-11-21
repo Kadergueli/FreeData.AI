@@ -82,20 +82,34 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     profile_store.review_profile(pro_owner, status="approved", reviewed_by="admin")
 
     res_no_lab = server.create_agro_field_assessment_endpoint(
-        server.AgroFieldAssessmentRequest(province_hub="Moundou", area_hectares=5.0),
+        server.AgroFieldAssessmentRequest(
+            province_hub="Moundou",
+            gps_lat=8.65,
+            gps_lon=16.25,
+            area_hectares=5.0,
+        ),
         owner_id=pro_owner, x_premium_key=None,
         store=ind_store, assess_store=assess_store, project_store=proj_store, sub_store=sub_store,
     )
-    assert res_no_lab["assessment"]["computed_scores"]["confidence_level"] == "Régional uniquement — Mesures sol non fournies"
-    assert res_no_lab["qa"]["can_deliver_pdf"] is False
-    with pytest.raises(HTTPException) as exc_qa:
-        server.agro_field_assessment_pdf_endpoint(
-            res_no_lab["assessment"]["id"],
-            payload=server.AgroFieldPdfRequest(agronomist_name="Cabinet Agro Tchad"),
-            owner_id=pro_owner, x_premium_key=None,
-            assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
-        )
-    assert exc_qa.value.status_code == 422
+    assert "Mesures labo non fournies" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
+    assert res_no_lab["qa"]["can_deliver_pdf"] is True
+    assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
+    # Les 4 cultures doivent avoir des scores différenciés (plus de 75/100 uniforme)
+    no_lab_scores = {c["crop_id"]: c["suitability_score"] for c in res_no_lab["assessment"]["computed_scores"]["crop_assessments"]}
+    assert len(set(no_lab_scores.values())) >= 2
+    # IDW k=3 sur les 3 pôles les plus proches
+    idw_hubs = res_no_lab["assessment"]["computed_scores"]["gps_logistics"]["idw_hubs"]
+    assert len(idw_hubs) == 3
+    assert 99.8 <= sum(h["weight_pct"] for h in idw_hubs) <= 100.2
+    # Le PDF est désormais générable même sans mesures labo (en mode Pré-diagnostic Satellitaire)
+    pdf_sat = server.agro_field_assessment_pdf_endpoint(
+        res_no_lab["assessment"]["id"],
+        payload=server.AgroFieldPdfRequest(agronomist_name="Cabinet Agro Tchad"),
+        owner_id=pro_owner, x_premium_key=None,
+        assess_store=assess_store, profile_store=profile_store, sub_store=sub_store,
+    )
+    assert pdf_sat.media_type == "application/pdf"
+    assert pdf_sat.body.startswith(b"%PDF")
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
@@ -210,7 +224,7 @@ def test_gps_logistics_verified_economics_and_compare_assessments(tmp_path):
         sub_store=sub_store,
     )
     assert cmp_res["count"] == 2
-    assert cmp_res["title"] == "Pré-diagnostic Zonal & Économique (Mesures sol non fournies)"
+    assert "MAILLE SATELLITAIRE" in cmp_res["title"] or "Mesures sol non fournies" in cmp_res["title"]
     assert cmp_res["comparison_table"][0]["rank_label"] == "#1 Recommandé"
 
     pdf_cmp = server.compare_agro_assessments_pdf_endpoint(

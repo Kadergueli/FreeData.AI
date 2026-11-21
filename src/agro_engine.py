@@ -282,6 +282,10 @@ SUPPORTED_AGRO_CROPS: dict[str, dict[str, Any]] = {
         "ph_tol": (5.0, 8.2),
         "preferred_textures": ("sandy", "sandy_loam", "loamy"),
         "min_wetness": 0.20,
+        "rz_opt": 0.45,
+        "sigma": 0.22,
+        "surf_opt": 0.42,
+        "par_opt": 9.8,
     },
     "sorghum": {
         "label_fr": "Sorgho rouge",
@@ -290,6 +294,10 @@ SUPPORTED_AGRO_CROPS: dict[str, dict[str, Any]] = {
         "ph_tol": (5.0, 8.5),
         "preferred_textures": ("loamy", "clay_loam", "clay", "sandy_loam"),
         "min_wetness": 0.25,
+        "rz_opt": 0.58,
+        "sigma": 0.18,
+        "surf_opt": 0.54,
+        "par_opt": 9.6,
     },
     "maize": {
         "label_fr": "Maïs blanc",
@@ -298,6 +306,10 @@ SUPPORTED_AGRO_CROPS: dict[str, dict[str, Any]] = {
         "ph_tol": (5.2, 7.8),
         "preferred_textures": ("loamy", "sandy_loam", "silty"),
         "min_wetness": 0.35,
+        "rz_opt": 0.72,
+        "sigma": 0.15,
+        "surf_opt": 0.66,
+        "par_opt": 9.4,
     },
     "groundnut_raw": {
         "label_fr": "Arachide",
@@ -306,6 +318,10 @@ SUPPORTED_AGRO_CROPS: dict[str, dict[str, Any]] = {
         "ph_tol": (5.0, 7.6),
         "preferred_textures": ("sandy", "sandy_loam", "loamy"),
         "min_wetness": 0.25,
+        "rz_opt": 0.60,
+        "sigma": 0.16,
+        "surf_opt": 0.55,
+        "par_opt": 9.7,
     },
 }
 
@@ -357,6 +373,12 @@ def compute_gps_logistics(
             "farmgate_discount_pct": 0.0,
             "enclavement_label": "GPS non fourni (prix pôle sans décote bord-champ)",
             "remoteness_alert": False,
+            "idw_mode": "single_hub" if resolved_hub else "none",
+            "idw_hubs": (
+                [{"hub": resolved_hub, "province": HUB_PROVINCE.get(resolved_hub), "distance_km": 0.0, "road_distance_km": 0.0, "weight": 1.0, "weight_pct": 100.0}]
+                if resolved_hub
+                else []
+            ),
         }
 
     lat = float(gps_lat)
@@ -366,6 +388,37 @@ def compute_gps_logistics(
         distances.append((hub, haversine_km(lat, lon, h_lat, h_lon)))
     distances.sort(key=lambda item: item[1])
     closest_hub, min_hav_km = distances[0]
+
+    # Sélection des 3 pôles les plus proches et calcul des poids IDW (1/d^2)
+    top3 = distances[:3]
+    if min_hav_km <= 5.0:
+        idw_mode = "direct_hub"
+        idw_hubs = [
+            {
+                "hub": h,
+                "province": HUB_PROVINCE.get(h),
+                "distance_km": round(d, 1),
+                "road_distance_km": round(d * ROAD_TORTUOSITY_FACTOR, 1),
+                "weight": 1.0 if idx == 0 else 0.0,
+                "weight_pct": 100.0 if idx == 0 else 0.0,
+            }
+            for idx, (h, d) in enumerate(top3)
+        ]
+    else:
+        idw_mode = "idw_k3"
+        raw_weights = [1.0 / max(d, 0.1) ** 2 for _, d in top3]
+        total_w = sum(raw_weights) or 1.0
+        idw_hubs = [
+            {
+                "hub": h,
+                "province": HUB_PROVINCE.get(h),
+                "distance_km": round(d, 1),
+                "road_distance_km": round(d * ROAD_TORTUOSITY_FACTOR, 1),
+                "weight": round(w / total_w, 4),
+                "weight_pct": round((w / total_w) * 100.0, 1),
+            }
+            for (h, d), w in zip(top3, raw_weights)
+        ]
 
     target_hub = resolved_hub or closest_hub
     if target_hub in HUB_COORDINATES:
@@ -404,6 +457,8 @@ def compute_gps_logistics(
         "farmgate_discount_pct": discount_pct,
         "enclavement_label": enclavement,
         "remoteness_alert": alert,
+        "idw_mode": idw_mode,
+        "idw_hubs": idw_hubs,
     }
 
 
@@ -707,11 +762,145 @@ def _latest_national_cereal_yield(national_rows: list[dict[str, Any]]) -> Option
     return {"value_kg_ha": float(latest["value"]), "reference_date": latest["reference_date"], "source": latest["source"], "license": latest["license"]}
 
 
+def _hub_climate_metrics(hub_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calcule RZ_growing (juin-sept), Surf_growing, PAR moyen et années sèches (< 0.45 en juil-août) pour un pôle."""
+    rz_vals: list[float] = []
+    sf_vals: list[float] = []
+    par_vals: list[float] = []
+    crit_by_year: dict[int, list[float]] = {}
+    for r in hub_rows:
+        key = regional_indicator_key(r["indicator"])
+        if not key:
+            continue
+        y, m = _year_month(r["reference_date"])
+        val = float(r["value"])
+        if key == "root_zone_wetness":
+            if m in (6, 7, 8, 9):
+                rz_vals.append(val)
+            if m in (7, 8):
+                crit_by_year.setdefault(y, []).append(val)
+        elif key == "surface_wetness":
+            if m in (6, 7, 8, 9):
+                sf_vals.append(val)
+        elif key == "par":
+            par_vals.append(val)
+    dry_years = sum(1 for vals in crit_by_year.values() if vals and (sum(vals) / len(vals)) < 0.45)
+    return {
+        "rz_growing": (sum(rz_vals) / len(rz_vals)) if rz_vals else None,
+        "surf_growing": (sum(sf_vals) / len(sf_vals)) if sf_vals else None,
+        "par_mean": (sum(par_vals) / len(par_vals)) if par_vals else None,
+        "dry_years": float(dry_years),
+    }
+
+
+def compute_idw_interpolation(
+    *,
+    idw_hubs: list[dict[str, Any]],
+    all_regional_rows: list[dict[str, Any]],
+    fallback_rows: list[dict[str, Any]],
+    forecast_df: Any = None,
+    hist_df: Any = None,
+    track_record: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Interpole les variables climatiques (NASA POWER) et les prix (WFP/FEWS NET) par IDW sur 3 pôles."""
+    rows_by_hub: dict[str, list[dict[str, Any]]] = {}
+    for r in (all_regional_rows or fallback_rows):
+        reg = canonical_region(r.get("region"))
+        if reg and reg != NATIONAL:
+            rows_by_hub.setdefault(reg, []).append(r)
+
+    weighted_climate: list[tuple[float, dict[str, Any]]] = []
+    for h_info in idw_hubs:
+        w = float(h_info.get("weight") or 0.0)
+        if w <= 0:
+            continue
+        hub_name = h_info["hub"]
+        h_rows = rows_by_hub.get(hub_name) or fallback_rows
+        if h_rows:
+            weighted_climate.append((w, _hub_climate_metrics(h_rows)))
+
+    def _wavg(field: str) -> Optional[float]:
+        num = 0.0
+        den = 0.0
+        for w, m in weighted_climate:
+            val = m.get(field)
+            if isinstance(val, (int, float)):
+                num += w * float(val)
+                den += w
+        return round(num / den, 4) if den > 0 else None
+
+    rz_parcel = _wavg("rz_growing")
+    surf_parcel = _wavg("surf_growing")
+    par_parcel = _wavg("par_mean")
+    dry_years_idw = _wavg("dry_years") or 0.0
+
+    # Prix IDW pondérés par les mêmes poids sur les 3 pôles
+    idw_market: dict[str, dict[str, Any]] = {}
+    tr = track_record or {}
+    for crop_id, spec in SUPPORTED_AGRO_CROPS.items():
+        comm = spec["commodity_std"]
+        pred_num = pred_den = 0.0
+        obs_num = obs_den = 0.0
+        stress_num = stress_den = 0.0
+        fc_month = None
+        for h_info in idw_hubs:
+            w = float(h_info.get("weight") or 0.0)
+            if w <= 0:
+                continue
+            prov = h_info.get("province") or HUB_PROVINCE.get(h_info["hub"])
+            sig = _extract_crop_market_signals(forecast_df, prov, track_record=tr).get(crop_id)
+            if sig:
+                if isinstance(sig.get("predicted_xaf_kg"), (int, float)):
+                    pred_num += w * float(sig["predicted_xaf_kg"])
+                    pred_den += w
+                if isinstance(sig.get("last_observed_xaf_kg"), (int, float)):
+                    obs_num += w * float(sig["last_observed_xaf_kg"])
+                    obs_den += w
+                fc_month = fc_month or sig.get("forecast_month")
+            st = _historical_stress_min_price(hist_df, comm, prov)
+            if isinstance(st, (int, float)):
+                stress_num += w * float(st)
+                stress_den += w
+
+        pred_val = round(pred_num / pred_den, 1) if pred_den > 0 else None
+        obs_val = round(obs_num / obs_den, 1) if obs_den > 0 else None
+        stress_val = round(stress_num / stress_den, 1) if stress_den > 0 else None
+        change_pct = round((pred_val - obs_val) / obs_val * 100.0, 1) if (pred_val and obs_val and obs_val > 0) else None
+        rec = tr.get(comm) or {}
+        mape = rec.get("mape_pct") if rec.get("mape_pct") is not None else rec.get("MAPE_pct")
+        scope_label = (
+            f"IDW ({', '.join(h['hub'] for h in idw_hubs if (h.get('weight') or 0) > 0)})"
+            if len([h for h in idw_hubs if (h.get('weight') or 0) > 0]) > 1
+            else (idw_hubs[0].get("province") if idw_hubs else "National")
+        )
+        if pred_val is not None or obs_val is not None:
+            idw_market[crop_id] = {
+                "commodity_std": comm,
+                "scope": scope_label,
+                "last_observed_xaf_kg": obs_val,
+                "predicted_xaf_kg": pred_val,
+                "stress_min_xaf_kg": stress_val,
+                "change_pct": change_pct,
+                "forecast_month": fc_month,
+                "historical_mape_pct": round(float(mape), 2) if isinstance(mape, (int, float)) else None,
+                "source": "FreeData.td / WFP-FEWS NET (IDW + Delta-Ridge ML)",
+            }
+
+    return {
+        "rz_growing": rz_parcel,
+        "surf_growing": surf_parcel,
+        "par_mean": par_parcel,
+        "dry_years": round(dry_years_idw, 2),
+        "market_signals": idw_market,
+    }
+
+
 def evaluate_field_assessment(
     *,
     region: Optional[str] = None,
     regional_rows: list[dict[str, Any]],
     national_rows: list[dict[str, Any]],
+    all_regional_rows: Optional[list[dict[str, Any]]] = None,
     lab_soil_inputs: Optional[dict[str, Any]] = None,
     target_crops: Optional[list[str]] = None,
     area_hectares: Optional[float] = None,
@@ -723,7 +912,7 @@ def evaluate_field_assessment(
     track_record: Optional[dict[str, Any]] = None,
     today: Optional[date] = None,
 ) -> dict[str, Any]:
-    """Calcule un audit agronomique & économique vérifiable (GPS Haversine, NASA POWER, World Bank, WFP/FEWS NET)."""
+    """Calcule un audit agronomique & économique différencié par culture (IDW GPS + Modèle Satellitaire 60 pts + Sol 40 pts)."""
     gps_logistics = compute_gps_logistics(gps_lat, gps_lon, province_hub=region)
     resolved_region = canonical_region(region) if region else gps_logistics.get("selected_hub")
     if not resolved_region or resolved_region == NATIONAL:
@@ -734,23 +923,42 @@ def evaluate_field_assessment(
     lab = dict(lab_soil_inputs or {})
     has_lab = has_lab_soil_measurements(lab)
     resolution_label = (
-        "Diagnostic d'Audit Parcellaire & Marché (Pré-Achat)"
+        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
         if has_lab
-        else "Pré-diagnostic Zonal & Économique (Mesures sol non fournies)"
+        else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
     )
-    confidence_short = "Terrain + Régional" if has_lab else "Régional uniquement"
+    confidence_short = "Satellite IDW + Labo" if has_lab else "Modèle Satellitaire IDW"
     confidence_label = (
-        "Terrain + Régional (Mesures labo fournies)"
+        "Confiance Élevée : Satellite IDW + Mesures Labo Certifiées"
         if has_lab
-        else "Régional uniquement — Mesures sol non fournies"
+        else (
+            "Modèle Satellitaire IDW (Mesures labo non fournies)"
+            if gps_logistics.get("gps_provided")
+            else "Modèle Satellitaire Zonal (Mesures labo non fournies)"
+        )
     )
+
+    idw = compute_idw_interpolation(
+        idw_hubs=gps_logistics.get("idw_hubs") or [],
+        all_regional_rows=all_regional_rows or regional_rows,
+        fallback_rows=regional_rows,
+        forecast_df=forecast_df,
+        hist_df=hist_df,
+        track_record=track_record,
+    )
+    rz_parcel = idw.get("rz_growing")
+    if rz_parcel is None:
+        rz_parcel = (zone.get("latest", {}).get("root_zone_wetness") or {}).get("value")
+    surf_parcel = idw.get("surf_growing")
+    if surf_parcel is None:
+        surf_parcel = (zone.get("latest", {}).get("surface_wetness") or {}).get("value")
+    dry_years = float(idw.get("dry_years") or 0.0)
 
     requested = [c for c in (target_crops or list(SUPPORTED_AGRO_CROPS)) if c in SUPPORTED_AGRO_CROPS]
     if not requested:
         requested = list(SUPPORTED_AGRO_CROPS)
 
-    root_wet = (zone.get("latest", {}).get("root_zone_wetness") or {}).get("value")
-    market_signals = _extract_crop_market_signals(forecast_df, province, track_record=track_record)
+    market_signals = idw.get("market_signals") or _extract_crop_market_signals(forecast_df, province, track_record=track_record)
     cereal_yield = _latest_national_cereal_yield(national_rows)
     wb_mean_yield = (zone.get("hydric_risk_signals") or {}).get("cereal_yield_mean_2020_2024_kg_ha")
     if custom_yield_kg_ha and custom_yield_kg_ha > 0:
@@ -783,56 +991,77 @@ def evaluate_field_assessment(
     crop_results: list[dict[str, Any]] = []
     for crop_id in requested:
         spec = SUPPORTED_AGRO_CROPS[crop_id]
-        score = 60.0
         limiting: list[str] = []
         criteria: list[dict[str, Any]] = []
 
-        if isinstance(root_wet, (int, float)):
-            if root_wet >= spec["min_wetness"]:
-                score += 15.0
-                criteria.append({"factor": "Humidité racinaire zonale", "status": "favorable", "value": round(float(root_wet), 3)})
-            else:
-                score -= 20.0
-                limiting.append(f"Humidité racinaire zonale basse ({root_wet:.2f} < {spec['min_wetness']:.2f})")
-                criteria.append({"factor": "Humidité racinaire zonale", "status": "limitant", "value": round(float(root_wet), 3)})
+        # A. Composante Satellitaire & Climatique (0 à 60 points)
+        if isinstance(rz_parcel, (int, float)):
+            rz_val = float(rz_parcel)
+            rz_opt = float(spec["rz_opt"])
+            sigma = float(spec["sigma"])
+            gauss = 60.0 * math.exp(-((rz_val - rz_opt) ** 2) / (2.0 * (sigma ** 2)))
+            s_sat_raw = gauss - (5.0 * dry_years)
+            if crop_id == "maize" and rz_val < 0.55:
+                s_sat_raw -= 10.0
+                limiting.append(f"Déficit hydrique critique pour le Maïs (RZ={rz_val:.2f} < 0.55)")
+            elif rz_val < spec["min_wetness"]:
+                limiting.append(f"Humidité racinaire basse ({rz_val:.2f} < {spec['min_wetness']:.2f})")
+            s_sat = round(max(10.0, min(60.0, s_sat_raw)), 1)
+            criteria.append({
+                "factor": "Score Satellitaire NASA POWER (IDW)",
+                "status": "favorable" if s_sat >= 42.0 else ("modéré" if s_sat >= 28.0 else "limitant"),
+                "value": f"{s_sat}/60 (RZ={rz_val:.2f}, opt={rz_opt:.2f})",
+            })
+        else:
+            s_sat = 30.0
 
-        if has_lab:
+        # B. Composante Pédologique & Terrain (0 à 40 points)
+        if not has_lab:
+            # Estimation zonale prudente plafonnée à 20/40, modulée par Surf/RZ
+            if isinstance(surf_parcel, (int, float)) and isinstance(rz_parcel, (int, float)) and float(rz_parcel) > 0:
+                ratio = float(surf_parcel) / float(rz_parcel)
+                s_soil = round(max(12.0, min(20.0, 20.0 - abs(ratio - 0.95) * 10.0)), 1)
+            else:
+                s_soil = 16.0
+            limiting.append("Composante sol (max 20/40) estimée par satellite en attente d'analyse laboratoire.")
+            criteria.append({"factor": "Estimation pédologique satellitaire", "status": "estimé", "value": f"{s_soil}/40"})
+        else:
+            s_soil_raw = 22.0
             if ph_val is not None:
                 lo_opt, hi_opt = spec["ph_opt"]
                 lo_tol, hi_tol = spec["ph_tol"]
                 if lo_opt <= ph_val <= hi_opt:
-                    score += 15.0
+                    s_soil_raw += 9.0
                     criteria.append({"factor": "pH du sol (labo)", "status": "optimal", "value": ph_val})
                 elif lo_tol <= ph_val <= hi_tol:
-                    score += 5.0
+                    s_soil_raw += 3.0
                     criteria.append({"factor": "pH du sol (labo)", "status": "tolérable", "value": ph_val})
                 else:
-                    score -= 25.0
+                    s_soil_raw -= 12.0
                     limiting.append(f"pH hors plage ({ph_val:.1f}, attendu {lo_tol}–{hi_tol})")
                     criteria.append({"factor": "pH du sol (labo)", "status": "défavorable", "value": ph_val})
             if texture_val:
                 if texture_val in spec["preferred_textures"]:
-                    score += 10.0
+                    s_soil_raw += 6.0
                     criteria.append({"factor": "Texture du sol (labo)", "status": "adaptée", "value": texture_val})
                 else:
-                    score -= 10.0
+                    s_soil_raw -= 6.0
                     limiting.append(f"Texture « {texture_val} » peu adaptée")
                     criteria.append({"factor": "Texture du sol (labo)", "status": "limitant", "value": texture_val})
             if om_val is not None:
                 if om_val >= 1.5:
-                    score += 5.0
+                    s_soil_raw += 3.0
                     criteria.append({"factor": "Matière organique (%)", "status": "correcte", "value": om_val})
                 elif om_val < 0.8:
-                    score -= 8.0
+                    s_soil_raw -= 5.0
                     limiting.append(f"Matière organique faible ({om_val:.1f} %)")
                     criteria.append({"factor": "Matière organique (%)", "status": "faible", "value": om_val})
-        else:
-            limiting.append("Mesures labo non fournies : évaluation hydrique zonale uniquement.")
+            s_soil = round(max(4.0, min(40.0, s_soil_raw)), 1)
 
-        final_score = max(0, min(100, int(round(score))))
+        final_score = max(0, min(100, int(round(s_sat + s_soil))))
         suitability_label = "Favorable" if final_score >= 70 else ("Modérée" if final_score >= 45 else "Défavorable")
         mkt = market_signals.get(crop_id)
-        stress_min = _historical_stress_min_price(hist_df, spec["commodity_std"], province)
+        stress_min = (mkt or {}).get("stress_min_xaf_kg") or _historical_stress_min_price(hist_df, spec["commodity_std"], province)
         max_hub_p, max_hub_prov = _max_national_hub_price(forecast_df, spec["commodity_std"])
         econ = compute_verified_economics(
             crop_id=crop_id,
@@ -851,6 +1080,8 @@ def evaluate_field_assessment(
         crop_results.append({
             "crop_id": crop_id,
             "label_fr": spec["label_fr"],
+            "satellite_score": s_sat,
+            "soil_score": s_soil,
             "suitability_score": final_score,
             "suitability_label": suitability_label,
             "limiting_factors": limiting,
@@ -881,6 +1112,12 @@ def evaluate_field_assessment(
         "has_lab_measurements": has_lab,
         "confidence_level": confidence_label,
         "gps_logistics": gps_logistics,
+        "idw_climate": {
+            "rz_growing": rz_parcel,
+            "surf_growing": surf_parcel,
+            "par_mean": idw.get("par_mean"),
+            "dry_years": dry_years,
+        },
         "weighted_score": weighted_score,
         "verified_economics": primary_crop.get("verified_economics") if primary_crop else None,
         "hydric_risk_signals": zone.get("hydric_risk_signals"),
@@ -981,13 +1218,14 @@ def compare_agro_assessments(candidates: list[dict[str, Any]]) -> dict[str, Any]
 
 
 def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
-    """Porte QA (6 dimensions) avant génération du PDF co-brandé Agronome PRO."""
+    """Porte QA (6 dimensions) : délivre le PDF en mode Pré-diagnostic Satellitaire OU Audit Parcellaire Certifié."""
     scores = assessment.get("computed_scores") or {}
     has_lab = bool(scores.get("has_lab_measurements"))
     blockers: list[str] = []
+    warnings: list[str] = []
     if not has_lab:
-        blockers.append(
-            "Mesures de sol laboratoire absentes : un « Diagnostic de terrain (pré-achat) » PDF exige au moins un paramètre mesuré (pH, texture, NPK ou matière organique)."
+        warnings.append(
+            "Mesures sol laboratoire non fournies : la composante sol (max 20/40 pts) est estimée par satellite en attente d'analyse."
         )
     if not assessment.get("province_hub"):
         blockers.append("Pôle régional manquant.")
@@ -998,7 +1236,7 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
         blockers.append("Provenance (source/licence) incomplète.")
 
     dimensions = {
-        "data_quality": "pass" if has_lab else "fail",
+        "data_quality": "pass" if has_lab else "estimated_satellite",
         "traceability": "pass" if (prov.get("sources") and assessment.get("report_verification_code")) else "fail",
         "completeness": "pass" if scores.get("crop_assessments") else "fail",
         "transparency": "pass" if scores.get("limitations") else "fail",
@@ -1007,6 +1245,9 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
     }
     return {
         "can_deliver_pdf": len(blockers) == 0,
+        "qa_mode": "CERTIFIED_FIELD_AUDIT" if has_lab else "SATELLITE_ESTIMATION",
+        "qa_badge": "QA TERRAIN VALIDÉ" if has_lab else "ESTIMATION SATELLITAIRE GPS",
+        "warnings": warnings,
         "blockers": blockers,
         "dimensions": dimensions,
     }
