@@ -130,6 +130,8 @@ def render_agro_assessment_pdf(
     ws = scores.get("weighted_score") or {}
     econ = scores.get("verified_economics") or {}
     bulletin = scores.get("bulletin") or {}
+    point_satellite = scores.get("point_satellite_data") or {}
+    point_season = point_satellite.get("growing_season") or {}
     code = assessment.get("report_verification_code") or "FDT-VERIFY"
     firm = (agronomist_name or "").strip() or "Agronome / Bureau d'études"
     lic = (agronomist_license or "").strip()
@@ -254,9 +256,9 @@ def render_agro_assessment_pdf(
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
     area_val = (
-        f"{assessment.get('area_hectares')} (superficie déclarée)"
-        if assessment.get("area_hectares")
-        else "Non renseignée — hypothèse économique par défaut : 1,0 ha"
+        f"{float(assessment.get('area_hectares')):g} ha (superficie déclarée)"
+        if assessment.get("area_hectares") is not None
+        else "Non renseignée — estimation économique provisoire sur 1 ha, à ne pas utiliser comme dimension réelle"
     )
     bd = ws.get("breakdown") or {}
     ident_rows = [
@@ -292,13 +294,38 @@ def render_agro_assessment_pdf(
         for p in lab_params:
             b_rows.append([
                 str(p.get("parameter") or "—"),
-                str(p.get("value") or "—"),
+                (str(p.get("value") or "—") + (f" {p.get('unit')}" if p.get("unit") else "")),
                 str(p.get("optimal") or "—"),
                 str(p.get("status") or "—"),
                 str(p.get("source") or "—"),
             ])
         b_widths = [0.32 * usable_w, 0.26 * usable_w, 0.16 * usable_w, 0.11 * usable_w, 0.15 * usable_w]
         story.append(_make_table(b_rows, col_widths=b_widths))
+
+    if point_satellite:
+        story.append(Spacer(1, 0.12 * cm))
+        point_coords = point_satellite.get("coordinates") or {
+            "latitude": point_satellite.get("latitude"),
+            "longitude": point_satellite.get("longitude"),
+        }
+        point_prov = point_satellite.get("provenance") or {}
+        point_rows = [
+            ["Donnée satellitaire au point GPS", "Valeur / Métadonnée"],
+            ["Coordonnées interrogées", f"{point_coords.get('latitude', '—')}, {point_coords.get('longitude', '—')}"],
+            ["Humidité racinaire moyenne (juin–sept.)", _fmt_num(point_season.get("root_zone_wetness_mean")) + " (fraction 0–1)"],
+            ["Humidité de surface moyenne (juin–sept.)", _fmt_num(point_season.get("surface_wetness_mean")) + " (fraction 0–1)"],
+            ["Précipitations moyennes (juin–sept.)", _fmt_num(point_season.get("precipitation_mean"))],
+            ["Température moyenne (juin–sept.)", _fmt_num(point_season.get("temperature_mean_c"), " °C")],
+            ["Période / climatologie", str(point_prov.get("reference_period") or point_satellite.get("reference_period") or "Non précisée par le fournisseur")],
+            ["Date de récupération UTC", str(point_prov.get("retrieved_at_utc") or point_satellite.get("retrieved_at_utc") or "—")],
+            ["Maille", str(point_prov.get("resolution") or point_satellite.get("spatial_resolution") or "Résolution native variable selon le paramètre")],
+        ]
+        story.append(_make_table(point_rows, col_widths=[7.0 * cm, usable_w - 7.0 * cm], has_header=True))
+    elif gps_provided:
+        story.append(Paragraph(
+            _clean_pdf_text("NASA POWER au point GPS indisponible au moment du calcul : les indicateurs climatiques affichés proviennent du repli IDW/régional indiqué dans la colonne Source & Maille. Aucune valeur ponctuelle n'a été inventée."),
+            body_style,
+        ))
 
     # --- 3. MATRICE COMPARATIVE D'APTITUDE CULTURALE & RENTABILITÉ VÉRIFIABLE ---
     story.append(Paragraph("3. Matrice Comparative d'Aptitude Culturale & Rentabilité Vérifiable", h2_style))
