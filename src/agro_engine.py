@@ -1476,6 +1476,32 @@ def evaluate_field_assessment(
             else "Satellite IDW Uniquement — En attente d'analyse physique"
         ),
         "gps_logistics": gps_logistics,
+        # Keep the GPS point and declared area separate. Without a parcel polygon,
+        # the declared area must never be presented as an area-weighted extraction.
+        "site_context": {
+            "area_hectares": float(area_hectares) if area_hectares and area_hectares > 0 else None,
+            "area_m2": round(float(area_hectares) * 10000.0, 1) if area_hectares and area_hectares > 0 else None,
+            "area_basis": "user_declared" if area_hectares and area_hectares > 0 else "missing",
+            "coordinates": {
+                "latitude": gps_logistics.get("gps_lat"),
+                "longitude": gps_logistics.get("gps_lon"),
+                "provided": bool(gps_logistics.get("gps_provided")),
+            },
+            "climate_method": "IDW inverse-distance-squared from up to 3 nearest covered regional hubs" if gps_logistics.get("gps_provided") else "regional hub aggregate",
+            "climate_hubs": gps_logistics.get("idw_hubs") or [],
+            "soil_method": "laboratory measurements" if has_lab else ("SoilGrids 2.0 regional estimate" if zonal_soil else "satellite proxy"),
+            "soil_values": (
+                {k: zonal_soil.get(k) for k in ("ph", "texture", "texture_usda", "clay_pct", "sand_pct", "organic_matter_pct")}
+                if zonal_soil else {}
+            ),
+            "satellite_values": {
+                "root_zone_wetness": rz_parcel,
+                "surface_wetness": surf_parcel,
+                "par_mean": par_val,
+                "dry_years": dry_years,
+            },
+            "area_usage": "Used to scale estimated production and gross revenue; not used to alter per-hectare soil/climate measurements. Parcel-level zonal statistics require a field boundary polygon.",
+        },
         "idw_climate": {
             "rz_growing": rz_parcel,
             "surf_growing": surf_parcel,
