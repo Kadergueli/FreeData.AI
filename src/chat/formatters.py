@@ -592,9 +592,10 @@ class FormattersMixin:
                 [
                     "",
                     f"#### {r['commodity_fr']}",
-                    f"- **Prix prévu :** achat **{orig_prov}** à **{_fmt_int(r['origin_forecast_xaf'])} XAF/kg** "
-                    f"*(observé : {_fmt_int(r['origin_observed_xaf'])})* → revente **{dest_prov}** à "
-                    f"**{_fmt_int(r['destination_forecast_xaf'])} XAF/kg** *(observé : {_fmt_int(r['destination_observed_xaf'])})*",
+                    f"- **Prix :** achat **{orig_prov}** à **{_fmt_int(r.get('origin_buy_price_xaf', r['origin_forecast_xaf']))} XAF/kg** "
+                    + ("*(dernier prix constaté)*" if r.get("origin_cost_basis", "observed") == "observed" else "*(prévu, prix constaté indisponible)*")
+                    + f" → revente **{dest_prov}** à "
+                    f"**{_fmt_int(r['destination_forecast_xaf'])} XAF/kg** *(prévu ; dernier constaté : {_fmt_int(r['destination_observed_xaf'])})*",
                     f"- **Écart unitaire brut :** **{_fmt_signed_int(r['unit_spread_xaf'])} XAF/kg** "
                     f"(**{_fmt_pct(r['pct_spread'])}**)",
                     "",

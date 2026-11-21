@@ -1358,10 +1358,13 @@ class MarketDataProvider:
 
             o = orig_rows.iloc[0]
             d = dest_rows.iloc[0]
-            p_orig = float(o["prix_prevu_median"])
+            fc_orig = float(o["prix_prevu_median"])
             p_dest = float(d["prix_prevu_median"])
             obs_orig = _clean_float(o["dernier_prix_median"])
             obs_dest = _clean_float(d["dernier_prix_median"])
+            # On achète au dernier prix constaté à l'origine et on vend au prix prévu à destination.
+            p_orig = obs_orig if (obs_orig is not None and obs_orig > 0) else fc_orig
+            origin_cost_basis = "observed" if p_orig == obs_orig else "forecast_fallback"
             unit_spread = p_dest - p_orig
             pct_spread = (unit_spread / p_orig) * 100.0 if p_orig > 0 else 0.0
 
@@ -1370,7 +1373,9 @@ class MarketDataProvider:
                 "commodity_fr": comm_fr,
                 "origin_province": orig_prov,
                 "destination_province": dest_prov,
-                "origin_forecast_xaf": p_orig,
+                "origin_forecast_xaf": fc_orig,
+                "origin_buy_price_xaf": p_orig,
+                "origin_cost_basis": origin_cost_basis,
                 "origin_observed_xaf": obs_orig,
                 "destination_forecast_xaf": p_dest,
                 "destination_observed_xaf": obs_dest,
@@ -1396,11 +1401,20 @@ class MarketDataProvider:
             "missing_notes": missing_notes,
         }
 
-    @staticmethod
-    def _resolve_price_series(df: pd.DataFrame) -> pd.Series:
-        """Retourne la série de prix prioritaire par ligne (`predicted_price`, sinon `last_price`, `forecast_t1`, `last_observed_price`, `value`)."""
+    # Ordre de repli des colonnes de prix selon l'usage :
+    # - "forecast" (prix de VENTE) : prévision t+1 ; `predicted_price` n'est qu'un repli (ancien schéma, il s'agit
+    #   en réalité de la valeur ajustée du dernier mois observé).
+    # - "observed" (prix d'ACHAT) : dernier prix réellement relevé ; l'achat se fait au prix constaté.
+    _PRICE_ORDER = {
+        "forecast": ("forecast_t1", "last_price", "last_observed_price", "value", "predicted_price"),
+        "observed": ("last_observed_price", "value", "last_price", "forecast_t1", "predicted_price"),
+    }
+
+    @classmethod
+    def _resolve_price_series(cls, df: pd.DataFrame, kind: str = "forecast") -> pd.Series:
+        """Série de prix par ligne selon l'usage (`kind` = "forecast" pour vendre, "observed" pour acheter)."""
         series = pd.Series(float("nan"), index=df.index, dtype="float64")
-        for col in ("predicted_price", "last_price", "forecast_t1", "last_observed_price", "value"):
+        for col in cls._PRICE_ORDER[kind]:
             if col in df.columns:
                 col_vals = pd.to_numeric(df[col], errors="coerce")
                 series = series.fillna(col_vals)
@@ -1434,8 +1448,8 @@ class MarketDataProvider:
             "available": available[:4],
         }
 
-    def _median_province_commodity_price(self, province: str, commodity: str) -> Optional[float]:
-        """Calcule la médiane des prix (`predicted_price` ou `last_price` à défaut) pour `(province, commodity)`."""
+    def _median_province_commodity_price(self, province: str, commodity: str, kind: str = "forecast") -> Optional[float]:
+        """Médiane des prix pour `(province, commodity)` : prévision t+1 (`kind="forecast"`, vente) ou dernier prix observé (`kind="observed"`, achat)."""
         if self.forecast_df.empty or not province or not commodity:
             return None
         comm_col = "commodity_std" if "commodity_std" in self.forecast_df.columns else "commodity"
@@ -1451,7 +1465,7 @@ class MarketDataProvider:
         ]
         if sub.empty:
             return None
-        prices = self._resolve_price_series(sub).dropna()
+        prices = self._resolve_price_series(sub, kind).dropna()
         if prices.empty:
             return None
         med = float(prices.median())
@@ -1507,8 +1521,8 @@ class MarketDataProvider:
             "roi_pct": "calculated",
         }
 
-        buy_price = self._median_province_commodity_price(orig_prov, resolved_comm)
-        sell_price = self._median_province_commodity_price(dest_prov, resolved_comm)
+        buy_price = self._median_province_commodity_price(orig_prov, resolved_comm, "observed")
+        sell_price = self._median_province_commodity_price(dest_prov, resolved_comm, "forecast")
 
         if buy_price is None:
             provenance["buy_price"] = "unavailable"
@@ -1736,7 +1750,7 @@ class MarketDataProvider:
         tremplin_sectors: list[dict] = []
         if not self.forecast_df.empty and "province" in self.forecast_df.columns and "commodity_std" in self.forecast_df.columns:
             fc = self.forecast_df.copy()
-            fc["_unit_price"] = self._resolve_price_series(fc)
+            fc["_unit_price"] = self._resolve_price_series(fc, "observed")
             fc_prices = (
                 fc.dropna(subset=["province", "commodity_std", "_unit_price"])
                 .groupby(["province", "commodity_std"], as_index=False)
@@ -1831,7 +1845,7 @@ class MarketDataProvider:
             target_comm = self._resolve_df_commodity(self.forecast_df, commodity) or commodity
             fc_sub = self.forecast_df[self.forecast_df["commodity_std"] == target_comm].copy()
             if not fc_sub.empty:
-                fc_sub["_p"] = self._resolve_price_series(fc_sub)
+                fc_sub["_p"] = self._resolve_price_series(fc_sub, "observed")
                 fc_sub = fc_sub[fc_sub["_p"].notna() & (fc_sub["_p"] > 0)]
                 prov_sub = fc_sub[fc_sub["province"] == province] if province else fc_sub
                 used_scope = province if (province and not prov_sub.empty) else "National"
@@ -2521,7 +2535,7 @@ class FreeDataAIAgent(FormattersMixin):
                 for cand_comm in candidates:
                     eff_cap = capital_xaf
                     if is_default_cap and qty_kg and qty_kg > 0:
-                        buy_p = self.provider._median_province_commodity_price(orig_prov, cand_comm)
+                        buy_p = self.provider._median_province_commodity_price(orig_prov, cand_comm, "observed")
                         if buy_p is not None and (buy_p + transport_cost) > 0:
                             eff_cap = float(math.ceil(qty_kg * (buy_p + transport_cost)))
                     cap_prov = "calculated" if (is_default_cap and qty_kg and qty_kg > 0) else (

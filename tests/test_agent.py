@@ -481,10 +481,10 @@ def test_city_to_province_and_route_revenue_kelo_to_abeche(monkeypatch):
     assert "Riz importé" in res["reply"]
     assert "Rice (local)" not in res["reply"]
     assert "Rice (imported)" not in res["reply"]
-    # Marge brute Riz local : 520 - 350 = +170 XAF/kg -> +17 000 XAF/sac et +170 000 XAF/tonne
-    assert "+170 XAF/kg" in res["reply"]
-    assert "+17 000 XAF" in res["reply"]
-    assert "+170 000 XAF" in res["reply"]
+    # Marge brute Riz local : vente prévue 520 - achat constaté 340 = +180 XAF/kg -> +18 000 XAF/sac et +180 000 XAF/tonne
+    assert "+180 XAF/kg" in res["reply"]
+    assert "+18 000 XAF" in res["reply"]
+    assert "+180 000 XAF" in res["reply"]
 
     # Suivi conversationnel avec volume sur historique (4 derniers tours) + 1 seul appel Groq (timeout=12)
     history = [
