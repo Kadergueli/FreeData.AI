@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased] - Sol réel dans le moteur Agronome PRO
+- `agro_site` : profil de sol (SoilGrids, CC BY 4.0) et de climat (NASA POWER) des 12 pôles, texture USDA calculée, matière organique estimée.
+- Moteur d'analyse : sans mesures labo, le score pédologique utilise le sol réel de la zone (plafonné à 22/30, jamais assimilé à une mesure) ; avec mesures labo, elles prévalent et sont recoupées avec l'estimation zonale (`soil_cross_check`). Le titre « Diagnostic de terrain (pré-achat) » reste réservé aux mesures labo.
+- Moteur d'aptitude FAO (trapèzes, calendrier de semis) prêt mais inactif : besoins EcoCrop non livrés (conditions FAO d'usage commercial à confirmer).
+
 ## [1.2.0] - 2026-11-18
 ### Added
 - Persistent `StudyContext` (`src/study_context.py`) preserving instructions beyond 8 chat turns with contradiction detection.

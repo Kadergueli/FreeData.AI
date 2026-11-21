@@ -12,6 +12,7 @@ import math
 from datetime import date
 from typing import Any, Optional
 
+from src.agro_site import site_profile, zonal_soil_estimate
 from src.agro_indicators import (
     HUB_PROVINCE,
     HUBS,
@@ -648,12 +649,53 @@ def compute_verified_economics(
     }
 
 
+ZONAL_SOIL_CAP = 22.0  # estimation SoilGrids de zone : jamais au niveau d'une mesure de parcelle (plafond sur 30)
+
+
+def _soil_points(spec: dict[str, Any], ph: Optional[float], texture: str, om: Optional[float], *, label: str) -> tuple[float, list[dict[str, Any]], list[str]]:
+    """Points pédologiques (base 17/30) d'une culture : pH, texture, matière organique. `label` = « labo » ou « SoilGrids, zonal »."""
+    pts = 17.0
+    criteria: list[dict[str, Any]] = []
+    limiting: list[str] = []
+    if ph is not None:
+        lo_opt, hi_opt = spec["ph_opt"]
+        lo_tol, hi_tol = spec["ph_tol"]
+        if lo_opt <= ph <= hi_opt:
+            pts += 6.0
+            criteria.append({"factor": f"pH du sol ({label})", "status": "optimal", "value": ph})
+        elif lo_tol <= ph <= hi_tol:
+            pts += 2.0
+            criteria.append({"factor": f"pH du sol ({label})", "status": "tolérable", "value": ph})
+        else:
+            pts -= 9.0
+            limiting.append(f"pH hors plage ({ph:.1f}, attendu {lo_tol}–{hi_tol})")
+            criteria.append({"factor": f"pH du sol ({label})", "status": "défavorable", "value": ph})
+    if texture:
+        if texture in spec["preferred_textures"]:
+            pts += 4.5
+            criteria.append({"factor": f"Texture du sol ({label})", "status": "adaptée", "value": texture})
+        else:
+            pts -= 4.5
+            limiting.append(f"Texture « {texture} » peu adaptée")
+            criteria.append({"factor": f"Texture du sol ({label})", "status": "limitant", "value": texture})
+    if om is not None:
+        if om >= 1.5:
+            pts += 2.5
+            criteria.append({"factor": f"Matière organique % ({label})", "status": "correcte", "value": om})
+        elif om < 0.8:
+            pts -= 4.0
+            limiting.append(f"Matière organique faible ({om:.1f} %)")
+            criteria.append({"factor": f"Matière organique % ({label})", "status": "faible", "value": om})
+    return pts, criteria, limiting
+
+
 def compute_weighted_score(
     *,
     zone: dict[str, Any],
     has_lab: bool,
     ph_val: Optional[float],
     texture_val: str,
+    zonal_soil: Optional[dict[str, Any]] = None,
     primary_crop_id: str,
     primary_market: Optional[dict[str, Any]],
     gps_logistics: dict[str, Any],
@@ -693,7 +735,12 @@ def compute_weighted_score(
         vigilances.append(f"{crit_years} année(s) critique(s) (< 0.45 en juil.–août) observée(s) sur {obs_years or 'la période'}.")
 
     # 2. Qualité Pédologique (30 pts)
-    if not has_lab:
+    if not has_lab and zonal_soil:
+        raw, _c, _l = _soil_points(spec, zonal_soil["ph"], zonal_soil.get("texture") or "", zonal_soil.get("organic_matter_pct"), label="SoilGrids, zonal")
+        soil_pts = max(3.0, min(ZONAL_SOIL_CAP, raw))
+        soil_note = f"Estimé SoilGrids de la zone (plafonné à {ZONAL_SOIL_CAP:.0f}/30 : mesures labo requises pour le reste)"
+        vigilances.append(f"Sol estimé par SoilGrids (pH zonal {zonal_soil['ph']:.1f}) : score pédologique plafonné à {ZONAL_SOIL_CAP:.0f}/30 sans mesures labo.")
+    elif not has_lab:
         soil_pts = 15.0
         soil_note = "Plafonné à 15/30 (mesures sol non fournies)"
         vigilances.append("Mesures de sol laboratoire absentes : score pédologique plafonné à 15/30.")
@@ -1028,6 +1075,7 @@ def evaluate_field_assessment(
     province = zone.get("province")
     lab = dict(lab_soil_inputs or {})
     has_lab = has_lab_soil_measurements(lab)
+    zonal_soil = zonal_soil_estimate(resolved_region)
     resolution_label = (
         "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
         if has_lab
@@ -1126,7 +1174,14 @@ def evaluate_field_assessment(
             s_water = 25.0
 
         # B. Composante Pédologique / Sol (0 à 30 points)
-        if not has_lab:
+        if not has_lab and zonal_soil:
+            raw, z_crit, z_lim = _soil_points(spec, zonal_soil["ph"], zonal_soil.get("texture") or "", zonal_soil.get("organic_matter_pct"), label="SoilGrids, zonal")
+            s_soil = round(max(3.0, min(ZONAL_SOIL_CAP, raw)), 1)
+            criteria.extend(z_crit)
+            limiting.extend(z_lim)
+            limiting.append(f"Sol estimé SoilGrids (zonal, plafonné à {ZONAL_SOIL_CAP:.0f}/30) : mesures labo requises pour un diagnostic de terrain.")
+            criteria.append({"factor": "Estimation pédologique SoilGrids (zone)", "status": "estimé", "value": f"{s_soil}/30"})
+        elif not has_lab:
             # Estimation satellitaire zonale (Surf/RZ + PAR), plafonnée à 15/30 pts
             if isinstance(surf_parcel, (int, float)) and isinstance(rz_parcel, (int, float)) and float(rz_parcel) > 0:
                 ratio = float(surf_parcel) / float(rz_parcel)
@@ -1252,6 +1307,22 @@ def evaluate_field_assessment(
         elif d_km > 50.0:
             vigilances.append(f"Parcelle enclavée ({d_km:.1f} km du pôle) : décote bord-champ de 22 % appliquée.")
 
+    soil_cross_check: Optional[dict[str, Any]] = None
+    if has_lab and zonal_soil:
+        soil_cross_check = {"zonal_ph": zonal_soil["ph"], "zonal_texture": zonal_soil.get("texture_usda"), "source": zonal_soil["provenance"]["source"]}
+        if ph_val is not None:
+            soil_cross_check["ph_gap"] = round(ph_val - zonal_soil["ph"], 2)
+            if abs(ph_val - zonal_soil["ph"]) >= 1.0:
+                vigilances.append(
+                    f"pH mesuré ({ph_val:.1f}) éloigné de l'estimation zonale SoilGrids ({zonal_soil['ph']:.1f}) : vérifier le prélèvement ; la mesure de terrain prévaut."
+                )
+        if texture_val and zonal_soil.get("texture") and texture_val != zonal_soil["texture"]:
+            soil_cross_check["texture_differs"] = True
+    elif not has_lab and zonal_soil:
+        vigilances.append(
+            f"Sol de la zone estimé par SoilGrids (pH {zonal_soil['ph']:.1f}, texture {zonal_soil.get('texture_usda') or 'n/d'}) : indicatif, à confirmer par analyse."
+        )
+
     weighted_score = {
         "total_score": top_total,
         "verdict": top_verdict,
@@ -1261,7 +1332,11 @@ def evaluate_field_assessment(
             "soil_quality": {
                 "score": top_s,
                 "max": 30,
-                "note": "Mesuré sur terrain / labo" if has_lab else "Estimé Satellite (Labo requis pour débloquer les 15 pts restants)",
+                "note": (
+                    "Mesuré sur terrain / labo" if has_lab
+                    else (f"Estimé SoilGrids de la zone, plafonné à {ZONAL_SOIL_CAP:.0f}/30 (labo requis pour le reste)" if zonal_soil
+                          else "Estimé Satellite (Labo requis pour débloquer les 15 pts restants)")
+                ),
             },
             "market_logistics": {"score": top_m, "max": 20, "source": "WFP/FEWS NET + GPS"},
         },
@@ -1303,17 +1378,28 @@ def evaluate_field_assessment(
         },
         {
             "parameter": "Réaction du sol (pH eau)",
-            "value": f"{ph_val:.1f}" if ph_val is not None else "Non mesuré (0–20 cm)",
+            "value": (
+                f"{ph_val:.1f}" if ph_val is not None
+                else (f"{zonal_soil['ph']:.1f} (estimation zonale SoilGrids)" if zonal_soil else "Non mesuré (0–20 cm)")
+            ),
             "optimal": "5.8 – 7.0",
-            "status": ("Bon" if 5.8 <= ph_val <= 7.0 else "Attention") if ph_val is not None else "À analyser",
-            "source": "Labo / Terrain",
+            "status": (
+                ("Bon" if 5.8 <= ph_val <= 7.0 else "Attention") if ph_val is not None
+                else (("Estimé — plutôt bon" if 5.8 <= zonal_soil["ph"] <= 7.0 else "Estimé — à surveiller") if zonal_soil else "À analyser")
+            ),
+            "source": "Labo / Terrain" if ph_val is not None else ("SoilGrids 2.0 (CC BY 4.0)" if zonal_soil else "Labo / Terrain"),
         },
         {
             "parameter": "Texture & Matière Organique",
             "value": (
                 f"{texture_val or 'Texture N/A'}" + (f", MO {om_val:.1f} %" if om_val is not None else "")
                 if (texture_val or om_val is not None)
-                else f"Estimé (Ratio Surf/RZ = {ratio_str})"
+                else (
+                    f"{zonal_soil.get('texture_usda') or 'texture n/d'}"
+                    + (f", MO ≈ {zonal_soil['organic_matter_pct']:.1f} % (estimation zonale SoilGrids)" if zonal_soil.get("organic_matter_pct") is not None else " (estimation zonale SoilGrids)")
+                    if zonal_soil
+                    else f"Estimé (Ratio Surf/RZ = {ratio_str})"
+                )
             ),
             "optimal": "MO > 1.5 %",
             "status": ("Bon" if (om_val is not None and om_val >= 1.5) else ("Attention" if om_val is not None else "Estimé")) if (texture_val or om_val is not None) else "Estimé",
@@ -1397,6 +1483,10 @@ def evaluate_field_assessment(
             "dry_years": dry_years,
         },
         "weighted_score": weighted_score,
+        "soil_basis": "lab" if has_lab else ("soilgrids_zonal" if zonal_soil else "satellite_proxy"),
+        "soil_zonal_estimate": zonal_soil,
+        "soil_cross_check": soil_cross_check,
+        "site_profile": site_profile(resolved_region),
         "bulletin": {
             "lab_parameters": lab_parameters,
             "prescriptions": prescriptions,

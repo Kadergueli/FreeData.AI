@@ -173,3 +173,66 @@ def sowing_calendar(crop: dict[str, Any], profile: dict[str, Any]) -> Optional[l
             trapezoid(sum(temp[i] for i in window) / n, *crop["temp_mean_c"]))
         out.append({"month": start + 1, "score": round(score, 3), "verdict": verdict_for(score), "cycle_end": window[-1] + 1})
     return out
+
+
+# ── Sol de la zone utilisable par le moteur d'analyse (estimation, jamais une mesure de parcelle) ───────────
+
+def usda_texture(clay_pct: float, sand_pct: float) -> Optional[str]:
+    """Classe de texture USDA (triangle standard) à partir de l'argile et du sable en %."""
+    clay, sand = float(clay_pct), float(sand_pct)
+    silt = 100.0 - clay - sand
+    if silt < -1.0 or clay < 0 or sand < 0:
+        return None
+    if silt + 1.5 * clay < 15:
+        return "sand"
+    if silt + 1.5 * clay >= 15 and silt + 2 * clay < 30:
+        return "loamy sand"
+    if (7 <= clay < 20 and sand > 52 and silt + 2 * clay >= 30) or (clay < 7 and silt < 50 and silt + 2 * clay >= 30):
+        return "sandy loam"
+    if 7 <= clay < 27 and 28 <= silt < 50 and sand <= 52:
+        return "loam"
+    if (silt >= 50 and 12 <= clay < 27) or (50 <= silt < 80 and clay < 12):
+        return "silt loam"
+    if silt >= 80 and clay < 12:
+        return "silt"
+    if 20 <= clay < 35 and silt < 28 and sand > 45:
+        return "sandy clay loam"
+    if 27 <= clay < 40 and 20 < sand <= 45:
+        return "clay loam"
+    if 27 <= clay < 40 and sand <= 20:
+        return "silty clay loam"
+    if clay >= 35 and sand > 45:
+        return "sandy clay"
+    if clay >= 40 and silt >= 40:
+        return "silty clay"
+    if clay >= 40:
+        return "clay"
+    return None
+
+
+# classe USDA -> vocabulaire de textures du moteur agro (sandy, sandy_loam, loamy, silty, clay_loam, clay)
+_ENGINE_TEXTURE = {
+    "sand": "sandy", "loamy sand": "sandy", "sandy loam": "sandy_loam", "loam": "loamy", "silt loam": "silty",
+    "silt": "silty", "sandy clay loam": "clay_loam", "clay loam": "clay_loam", "silty clay loam": "clay_loam",
+    "sandy clay": "clay", "silty clay": "clay", "clay": "clay",
+}
+
+
+def zonal_soil_estimate(region: str) -> Optional[dict[str, Any]]:
+    """Estimation du sol de la zone (SoilGrids) dans le vocabulaire du moteur. None si le pôle n'a pas de donnée sol."""
+    prof = site_profile(region)
+    soil = (prof or {}).get("soil")
+    if not soil or soil.get("ph") is None:
+        return None
+    texture_usda = None
+    if soil.get("clay_pct") is not None and soil.get("sand_pct") is not None:
+        texture_usda = usda_texture(soil["clay_pct"], soil["sand_pct"])
+    oc = soil.get("organic_carbon_g_kg")
+    return {
+        "hub": prof["hub"], "ph": float(soil["ph"]),
+        "texture": _ENGINE_TEXTURE.get(texture_usda or ""), "texture_usda": texture_usda,
+        "clay_pct": soil.get("clay_pct"), "sand_pct": soil.get("sand_pct"),
+        # matière organique ≈ carbone organique × 1,724 (facteur de Van Bemmelen), g/kg -> %
+        "organic_matter_pct": round(float(oc) * 1.724 / 10.0, 2) if oc is not None else None,
+        "provenance": soil["provenance"],
+    }
