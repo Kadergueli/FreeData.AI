@@ -1446,7 +1446,7 @@ def evaluate_field_assessment(
     if fg_p is not None and arb.get("target_province") and arb.get("spread_xaf_kg"):
         gain_sac = round(float(arb["spread_xaf_kg"]) * 100.0)
         prescriptions.append(
-            f"Commercialisation & logistique ({primary_label}) : prix bord-champ estimé à {fg_p} FCFA/kg ; le marché déficitaire le plus rémunérateur est {arb['target_province']} ({arb['target_price_xaf_kg']} FCFA/kg), soit un gain brut potentiel de +{gain_sac:,} FCFA par sac de 100 kg (hors transport).".replace(",", " ")
+            f"Commercialisation & logistique ({primary_label}) : prix bord-champ estimé localement à {fg_p} FCFA/kg. Le prix de référence à {arb['target_province']} est de {arb['target_price_xaf_kg']} FCFA/kg ; l'écart brut indicatif par rapport au prix de marché local de référence (avant décote bord-champ) est de +{gain_sac:,} FCFA pour 100 kg, hors transport, stockage, pertes et frais de commercialisation.".replace(",", " ")
         )
     elif fg_p is not None:
         d_txt = f" ({d_hub_km:.1f} km du pôle {sel_hub})" if isinstance(d_hub_km, (int, float)) else f" (pôle {sel_hub})"
