@@ -309,12 +309,14 @@ def render_agro_assessment_pdf(
             "longitude": point_satellite.get("longitude"),
         }
         point_prov = point_satellite.get("provenance") or {}
+        point_parameter_meta = point_satellite.get("parameter_metadata") or {}
+        precipitation_unit = (point_parameter_meta.get("IMERG_PRECTOT") or {}).get("unit") or "unité non précisée"
         point_rows = [
             ["Donnée satellitaire au point GPS", "Valeur / Métadonnée"],
             ["Coordonnées interrogées", f"{point_coords.get('latitude', '—')}, {point_coords.get('longitude', '—')}"],
             ["Humidité racinaire moyenne (juin–sept.)", _fmt_num(point_season.get("root_zone_wetness_mean")) + " (fraction 0–1)"],
             ["Humidité de surface moyenne (juin–sept.)", _fmt_num(point_season.get("surface_wetness_mean")) + " (fraction 0–1)"],
-            ["Précipitations moyennes (juin–sept.)", _fmt_num(point_season.get("precipitation_mean"))],
+            ["Précipitations moyennes (juin–sept.)", f"{_fmt_num(point_season.get('precipitation_mean'))} {precipitation_unit}"],
             ["Température moyenne (juin–sept.)", _fmt_num(point_season.get("temperature_mean_c"), " °C")],
             ["Période / climatologie", str(point_prov.get("reference_period") or point_satellite.get("reference_period") or "Non précisée par le fournisseur")],
             ["Date de récupération UTC", str(point_prov.get("retrieved_at_utc") or point_satellite.get("retrieved_at_utc") or "—")],
