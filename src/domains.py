@@ -75,13 +75,17 @@ class DomainRegistry:
         "agriculture": DomainModule(
             domain_id="agriculture",
             label_fr="Agriculture",
-            description="Pré-diagnostic agro-climatique de zone (12 pôles : humidité des sols, rayonnement) et indicateurs agricoles nationaux du Tchad.",
+            description="Pré-diagnostic agro-climatique IDW (12 pôles), audits parcellaires (50/30/20) et indicateurs agricoles/prix du Tchad.",
             instructions=(
                 "Reste strictement dans le contexte agricole du Tchad. Appuie-toi UNIQUEMENT sur les indicateurs disponibles : humidité de la zone "
-                "racinaire, humidité de surface et rayonnement photosynthétique (NASA POWER Agro, 12 pôles, mensuel 2020–2026), et les indicateurs "
-                "nationaux World Bank (rendement et production céréalière, indices de production, terres, engrais). Cite toujours la source, la période "
-                "et le niveau de confiance. Ces données sont régionales (pôle urbain/provincial), jamais une analyse de parcelle. "
-                "Tu ne disposes d'AUCUNE donnée de température ni de précipitations : ne les évoque pas et n'invente aucune statistique de production."
+                "racinaire, humidité de surface et rayonnement photosynthétique (NASA POWER Agro, 12 pôles, mensuel 2020–2026), les indicateurs "
+                "nationaux World Bank (rendement céréalier moyen 2020–2024 : 834,6 kg/ha), et les prévisions WFP/FEWS NET sur les 4 cultures "
+                "validées (millet, sorghum, maize, groundnut_raw) avec MAPE. "
+                "Méthodologie officielle FreeData.td : interpolation spatiale GPS IDW sur les 3 pôles les plus proches (w_i = 1/d_i^2), "
+                "distance routière Haversine × 1,25, décote bord-champ (8 % ≤ 15 km, 15 % 15–50 km, 22 % > 50 km), et scoring unifié sur 100 "
+                "(50 pts Eau/Climat + 30 pts Sol [plafonné à 15/30 sans mesure labo] + 20 pts Marché/Logistique). "
+                "Cite toujours la source, la période et le niveau de confiance. Tu ne disposes d'AUCUNE donnée de température ni de précipitations : "
+                "ne les évoque jamais et n'invente aucun chiffre."
             ),
             allowed_tools=("chad_market_agent", "analytics_query", "ml_forecast", "rag_hybrid"),
             knowledge_sources=("table_agro_indicators", "table_ml_forecasts", "table_ml_seasonality_studies", "METHODOLOGY.md"),

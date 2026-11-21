@@ -2867,6 +2867,8 @@ def platform_chat_endpoint(
                 private_chunks=private_chunks,
                 quota_info=quota_info,
                 domain_mod=domain_mod,
+                rag=rag,
+                owner_id=owner_id,
             )
         res = agent.answer(
             payload.message,
@@ -2971,8 +2973,10 @@ def _handle_agriculture_chat(
     private_chunks: list[dict],
     quota_info: dict,
     domain_mod: Any,
+    rag: Optional[HybridRAGEngine] = None,
+    owner_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Ancre les réponses Chat du domaine `agriculture` sur les vraies séries NASA POWER Agro & World Bank."""
+    """Ancre les réponses Chat + RAG/LLM du domaine `agriculture` sur NASA POWER, World Bank, WFP/FEWS NET et les bulletins privés."""
     try:
         agro_store = get_agro_store()
         all_rows = agro_store.rows()
@@ -3053,18 +3057,89 @@ def _handle_agriculture_chat(
         ]
         agro_facts = "\n".join(lines)
 
+    # 1. Couplage prix ML validés (4 cultures : Mil, Sorgho rouge, Maïs blanc, Arachide)
+    fc_df = STATE.get("forecast_df")
+    if fc_df is not None and not getattr(fc_df, "empty", True):
+        try:
+            fc_overview = build_validated_forecasts_overview(fc_df, STATE.get("track_record") or {})
+            if fc_overview:
+                agro_facts += "\n\n**Prévisions de prix validées (WFP/FEWS NET · Delta-Ridge ML) :**\n" + "\n".join(
+                    f"- **{f['label_fr']}** : `{f.get('predicted_xaf_kg', '—')} XAF/kg` (MAPE historique : `{f.get('historical_mape_pct', 'N/D')} %`)"
+                    for f in fc_overview
+                )
+        except Exception:
+            pass
+
+    # 2. Bulletin d'audit parcellaire privé de l'utilisateur (si référence FDT-... ou diagnostic existant)
+    if owner_id:
+        try:
+            user_assessments = get_agro_assessment_store().list_assessments(owner_id, limit=5)
+            matched_assess = None
+            q_upper = (payload.message or "").upper()
+            for a in user_assessments:
+                code = str(a.get("report_verification_code") or "").upper()
+                if code and code in q_upper:
+                    matched_assess = a
+                    break
+            if matched_assess is None and user_assessments and any(
+                kw in (payload.message or "").lower() for kw in ("bulletin", "parcelle", "diagnostic", "score", "fdt-")
+            ):
+                matched_assess = user_assessments[0]
+            if matched_assess:
+                cs = matched_assess.get("computed_scores") or {}
+                ws = cs.get("weighted_score") or {}
+                bd = ws.get("breakdown") or {}
+                gps = cs.get("gps_logistics") or {}
+                econ = cs.get("verified_economics") or {}
+                rx = ((cs.get("bulletin") or {}).get("prescriptions") or [])[:3]
+                agro_facts += (
+                    f"\n\n**Bulletin Agronome PRO de l'utilisateur ({matched_assess.get('report_verification_code')}) :**\n"
+                    f"- Pôle : `{matched_assess.get('province_hub')}`, Surface : `{matched_assess.get('area_hectares') or '1.0'} ha`, "
+                    f"Score unifié : `{ws.get('total_score', '—')}/100` "
+                    f"(Eau `{bd.get('hydric_security', {}).get('score', '—')}/50` + "
+                    f"Sol `{bd.get('soil_quality', {}).get('score', '—')}/30` + "
+                    f"Marché `{bd.get('market_logistics', {}).get('score', '—')}/20`).\n"
+                    f"- Logistique GPS : distance `{gps.get('distance_hub_km', '—')} km`, décote bord-champ `-{gps.get('farmgate_discount_pct', 8)}%`.\n"
+                    f"- Formule économique : `{econ.get('formula_text', '—')}`.\n"
+                    f"- Prescriptions : {' | '.join(rx) if rx else '—'}"
+                )
+        except Exception:
+            pass
+
+    # 3. Recherche RAG hybride (base méthodologique + documents privés)
+    rag_hits: list[dict] = []
+    if rag is not None:
+        try:
+            rag_hits = rag.search(payload.message, top_k=3)
+            for h in rag_hits:
+                sources.append({
+                    "title": h.get("title", "Base de connaissances"),
+                    "source": h.get("source", "RAG FreeData.td"),
+                    "score": h.get("score"),
+                })
+        except Exception:
+            rag_hits = []
+
     if private_chunks:
         agro_facts += "\n\n**Extraits des documents privés :**\n" + "\n".join(
             f"- **{c.get('titre') or c.get('title', 'Document')}** : {c.get('content', '')[:320]}"
             for c in private_chunks[:3]
         )
+    if rag_hits:
+        agro_facts += "\n\n**Références méthodologiques (RAG) :**\n" + "\n".join(
+            f"- *{h.get('source', 'RAG')}* : {h.get('compressed_excerpt', '')[:240]}"
+            for h in rag_hits[:2]
+        )
 
     reply = agro_facts
     if eff_tier == "premium" and settings.llm_api_key:
+        system_guided_context = (
+            f"[Directives domaine Agriculture] {domain_mod.instructions}\n\n{agro_facts}"
+        )
         llm_reply = agent._synthesize_with_llm(
             payload.message,
-            agro_facts,
-            private_chunks,
+            system_guided_context,
+            list(private_chunks) + rag_hits,
             history=payload.history,
         )
         if llm_reply and llm_reply.strip():
