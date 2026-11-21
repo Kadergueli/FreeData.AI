@@ -27,7 +27,7 @@ def _payload():
         "properties": {"parameter": {
             "GWETROOT": months,
             "GWETTOP": months,
-            "PRECTOTCORR": months,
+            "IMERG_PRECTOT": months,
             "T2M": {key: value * 10 for key, value in months.items()},
         }},
     }
