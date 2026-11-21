@@ -138,13 +138,13 @@ def render_agro_assessment_pdf(
     date_str = str(assessment.get("created_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d"))[:10]
     has_lab = bool(scores.get("has_lab_measurements"))
     conf_label = scores.get("confidence_level") or (
-        "Satellite IDW + Labo Certifié"
+        "Données de laboratoire fournies — certification non vérifiée"
         if has_lab
         else "Satellite IDW Uniquement — En attente d'analyse physique"
     )
-    qa_badge = "QA TERRAIN VALIDÉ" if has_lab else "ESTIMATION SATELLITAIRE GPS"
+    qa_badge = "DONNÉES LABORATOIRE FOURNIES — VALIDATION REQUISE" if has_lab else "ESTIMATION RÉGIONALE — SANS MESURE LABORATOIRE"
     resolution_title = (
-        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
+        "PRÉ-DIAGNOSTIC AGRONOMIQUE — DONNÉES LABORATOIRE FOURNIES"
         if has_lab
         else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
     )
@@ -194,7 +194,7 @@ def render_agro_assessment_pdf(
             [[Paragraph(
                 _clean_pdf_text(
                     "<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
-                    "la composante sol (plafonnée à 15/30 pts) est estimée par satellite en attente d'analyse physique."
+                    "la composante sol (plafonnée à 22/30 pts dans le modèle) est une estimation régionale et doit être confirmée par une analyse physique."
                 ),
                 body_style,
             )]],
@@ -233,12 +233,16 @@ def render_agro_assessment_pdf(
             if (h.get("weight_pct") or 0) > 0
         )
         if gps.get("gps_provided") and idw_hubs
-        else "Maille pôle unique (100%)"
+        else "Maille régionale du pôle (100%) — coordonnées GPS non fournies"
     )
     firm_label = f"{firm} (N° {lic})" if lic else firm
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
-    area_val = assessment.get("area_hectares") or "1.0 (réf.)"
+    area_val = (
+        f"{assessment.get('area_hectares')} (superficie déclarée)"
+        if assessment.get("area_hectares")
+        else "Non renseignée — hypothèse économique par défaut : 1,0 ha"
+    )
     bd = ws.get("breakdown") or {}
     ident_rows = [
         [
@@ -371,7 +375,7 @@ def render_agro_assessment_pdf(
     story.append(
         Paragraph(
             _clean_pdf_text(
-                "Sources & Licences : NASA POWER Agro (Public Domain) | World Bank (CC BY 4.0) | WFP (CC BY-IGO 3.0) | FEWS NET (Attribution Required)."
+                "Sources, licences et limites : les jeux de données et produits dérivés doivent être accompagnés de leurs métadonnées, dates de collecte, résolutions spatiales et conditions de réutilisation propres à chaque fournisseur. Les valeurs régionales ou satellitaires constituent des estimations et ne remplacent pas des mesures effectuées sur la parcelle."
             ),
             body_style,
         )
