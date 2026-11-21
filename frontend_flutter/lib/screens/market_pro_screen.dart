@@ -31,6 +31,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
   };
 
   Map<String, dynamic>? _overview;
+  Map<String, dynamic>? _radar;
   bool _loading = true;
   bool _creatingWatch = false;
   bool _exportingCsv = false;
@@ -68,10 +69,16 @@ class _MarketProScreenState extends State<MarketProScreen> {
       _error = null;
     });
     try {
-      final data = await widget.apiService.getMarketProOverview();
+      final results = await Future.wait([
+        widget.apiService.getMarketProOverview(),
+        widget.apiService
+            .getAgroCampaignRadar()
+            .catchError((_) => const <String, dynamic>{}),
+      ]);
       if (!mounted) return;
       setState(() {
-        _overview = data;
+        _overview = results[0];
+        _radar = results[1].isNotEmpty ? results[1] : null;
         _loading = false;
       });
     } catch (e) {
@@ -730,6 +737,12 @@ class _MarketProScreenState extends State<MarketProScreen> {
                             ],
                           ),
                         ),
+                        if (_radar != null &&
+                            ((_radar!['hubs'] as List?) ?? const [])
+                                .isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          _buildCampaignRadarCard(_radar!),
+                        ],
                         const SizedBox(height: 14),
                         const FDCard(
                           padding: EdgeInsets.all(14),
@@ -765,6 +778,135 @@ class _MarketProScreenState extends State<MarketProScreen> {
         ],
       ),
       body: body,
+    );
+  }
+
+  Widget _buildCampaignRadarCard(Map<String, dynamic> radar) {
+    final summary = radar['summary'] is Map
+        ? Map<String, dynamic>.from(radar['summary'] as Map)
+        : const <String, dynamic>{};
+    final hubs = ((radar['hubs'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    return FDCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Radar National Agro-Marché (Alerte Précoce & Campagne)',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                ),
+              ),
+              FDBadge(
+                label: 'NASA POWER + DELTA-RIDGE ML',
+                color: AppColors.greenDark,
+                backgroundColor: AppColors.greenSoft,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              FDBadge(
+                label: 'Pôles analysés : ${summary['hubs_count'] ?? hubs.length}',
+                color: AppColors.blue,
+                backgroundColor: AppColors.blueSoft,
+              ),
+              FDBadge(
+                label:
+                    'Double vulnérabilité : ${summary['double_vulnerability_count'] ?? 0}',
+                color: ((summary['double_vulnerability_count'] as num?) ?? 0) > 0
+                    ? AppColors.danger
+                    : AppColors.greenDark,
+                backgroundColor:
+                    ((summary['double_vulnerability_count'] as num?) ?? 0) > 0
+                        ? const Color(0xFFFEE2E2)
+                        : AppColors.greenSoft,
+              ),
+              if (summary['top_opportunity_hub'] != null)
+                FDBadge(
+                  label:
+                      'Top opportunité : ${summary['top_opportunity_hub']} (${summary['top_opportunity_crop'] ?? ''})',
+                  color: AppColors.greenDark,
+                  backgroundColor: AppColors.greenSoft,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DataTable(
+                headingRowColor:
+                    WidgetStateProperty.all(const Color(0xFFF0F9FF)),
+                columnSpacing: 16,
+                horizontalMargin: 12,
+                columns: const [
+                  DataColumn(label: Text('Pôle / Province')),
+                  DataColumn(label: Text('Anomalie Eau')),
+                  DataColumn(label: Text('Années sèches')),
+                  DataColumn(label: Text('Meilleure Culture')),
+                  DataColumn(label: Text('CA / ha (ML t+1)')),
+                  DataColumn(label: Text('Risque Crédit')),
+                  DataColumn(label: Text('Alerte')),
+                ],
+                rows: hubs.map((h) {
+                  final best = h['best_crop'] is Map
+                      ? h['best_crop'] as Map
+                      : const {};
+                  final anom = h['root_anomaly_pct'];
+                  final dbl = h['double_vulnerability'] == true;
+                  final risk = h['credit_risk_level']?.toString() ?? '—';
+                  return DataRow(cells: [
+                    DataCell(Text('${h['region']} (${h['province'] ?? '—'})',
+                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                    DataCell(Text(anom != null ? '$anom %' : '—')),
+                    DataCell(Text(
+                        '${h['critical_july_aug_years'] ?? 0} (${h['dry_year_freq_pct'] ?? 0}%)')),
+                    DataCell(Text('${best['label_fr'] ?? '—'}')),
+                    DataCell(Text(best['ca_per_ha_xaf'] != null
+                        ? '${best['ca_per_ha_xaf']} F'
+                        : '—')),
+                    DataCell(Text(risk,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: risk == 'Élevé'
+                              ? AppColors.danger
+                              : (risk == 'Modéré'
+                                  ? AppColors.warning
+                                  : AppColors.greenDark),
+                        ))),
+                    DataCell(dbl
+                        ? const FDBadge(
+                            label: 'DOUBLE VULNÉRABILITÉ',
+                            color: AppColors.danger,
+                            backgroundColor: Color(0xFFFEE2E2),
+                          )
+                        : const Text('Normal',
+                            style: TextStyle(color: AppColors.muted))),
+                  ]);
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

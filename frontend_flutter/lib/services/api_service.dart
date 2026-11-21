@@ -675,6 +675,17 @@ class ApiService {
         _extractErrorDetail(resp, 'Génération du PDF comparatif refusée'));
   }
 
+  Future<Map<String, dynamic>> getAgroCampaignRadar() async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/campaign-radar');
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Radar Agro-Marché indisponible'));
+  }
+
   // --- Marché PRO : Watchlists, Arbitrage & Export CSV ---------------------
 
   Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async {

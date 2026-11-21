@@ -46,6 +46,7 @@ from src.domains import DomainRegistry
 from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
 from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_engine import (
+    build_campaign_radar,
     build_zone_profile,
     build_zones_overview,
     compare_agro_assessments,
@@ -1780,6 +1781,24 @@ class MarketWatchlistCreateRequest(BaseModel):
     province: str = Field("", max_length=80)
     market_name: str = Field("", max_length=80)
     note: str = Field("", max_length=240)
+
+
+@app.get("/api/v1/agro/campaign-radar", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_campaign_radar_endpoint(
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    store: AgroIndicatorStore = Depends(get_agro_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Radar National Agro-Marché (PRO) : double vulnérabilité, meilleure culture/pôle et risque crédit."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Radar National Agro-Marché")
+    return build_campaign_radar(
+        store.rows(),
+        forecast_df=state.get("forecast_df"),
+        hist_df=state.get("hist_df"),
+        track_record=state.get("track_record") or {},
+    )
 
 
 @app.get("/api/v1/market-pro/overview", dependencies=[Depends(_data_rate_limit_dependency)])

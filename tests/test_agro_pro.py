@@ -248,4 +248,16 @@ def test_gps_logistics_verified_economics_and_compare_assessments(tmp_path):
     assert pdf_cmp.media_type == "application/pdf"
     assert pdf_cmp.body.startswith(b"%PDF")
 
+    # 4. Radar National Agro-Marché
+    radar = server.agro_campaign_radar_endpoint(
+        state=server.STATE,
+        owner_id=pro_owner,
+        x_premium_key=None,
+        store=ind_store,
+        sub_store=sub_store,
+    )
+    assert radar["summary"]["hubs_count"] >= 1
+    assert len(radar["hubs"]) == radar["summary"]["hubs_count"]
+    assert "NASA POWER Agro (Public Domain)" in radar["sources"]
+
 

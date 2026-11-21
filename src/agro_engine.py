@@ -1363,7 +1363,7 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
     if not has_lab:
         warnings.append(
-            "Mesures sol laboratoire non fournies : la composante sol (max 20/40 pts) est estimée par satellite en attente d'analyse."
+            "Mesures sol laboratoire non fournies : la composante sol (max 15/30 pts) est estimée par satellite en attente d'analyse."
         )
     if not assessment.get("province_hub"):
         blockers.append("Pôle régional manquant.")
@@ -1388,6 +1388,116 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
         "warnings": warnings,
         "blockers": blockers,
         "dimensions": dimensions,
+    }
+
+
+def build_campaign_radar(
+    all_rows: list[dict[str, Any]],
+    *,
+    forecast_df: Any = None,
+    hist_df: Any = None,
+    track_record: Optional[dict[str, Any]] = None,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    """Radar National Agro-Marché : croise risque hydrique (NASA POWER), rendement (World Bank) et prix ML t+1 sur les 12 pôles."""
+    national_rows = [r for r in all_rows if r.get("region") == NATIONAL]
+    by_hub: dict[str, list[dict[str, Any]]] = {}
+    for r in all_rows:
+        reg = canonical_region(r.get("region"))
+        if reg and reg != NATIONAL:
+            by_hub.setdefault(reg, []).append(r)
+
+    wb_yield = _latest_national_cereal_yield(national_rows)
+    ref_yield = float(wb_yield["value_kg_ha"]) if (wb_yield and wb_yield.get("value_kg_ha")) else WORLD_BANK_DEFAULT_YIELD_KG_HA
+
+    hubs_out: list[dict[str, Any]] = []
+    for hub in sorted(by_hub.keys()):
+        regional = by_hub[hub]
+        zone = build_zone_profile(hub, regional, national_rows, today=today)
+        province = zone.get("province") or HUB_PROVINCE.get(hub)
+        risks = zone.get("hydric_risk_signals") or {}
+        crit_years = int(risks.get("critical_july_aug_years") or 0)
+        obs_years = int(risks.get("observed_july_aug_years") or 0)
+        false_start = bool(risks.get("false_sowing_start"))
+        dry_freq_pct = round(crit_years / obs_years * 100.0, 1) if obs_years > 0 else 0.0
+
+        rz_pts = (zone.get("series") or {}).get("root_zone_wetness") or []
+        rz_anom = rz_pts[-1].get("anomaly_pct") if rz_pts else None
+        metrics = _hub_climate_metrics(regional)
+        rz_grow = metrics.get("rz_growing")
+
+        signals = _extract_crop_market_signals(forecast_df, province, track_record=track_record)
+        best_crop: Optional[dict[str, Any]] = None
+        any_price_spike = False
+        for crop_id, spec in SUPPORTED_AGRO_CROPS.items():
+            sig = signals.get(crop_id) or {}
+            pred_p = sig.get("predicted_xaf_kg")
+            chg = sig.get("change_pct")
+            if isinstance(chg, (int, float)) and chg >= 10.0:
+                any_price_spike = True
+            if isinstance(rz_grow, (int, float)):
+                w_sc = 50.0 * math.exp(-((float(rz_grow) - float(spec["rz_opt"])) ** 2) / (2.0 * (float(spec["sigma"]) ** 2))) - (4.0 * crit_years)
+                w_sc = round(max(8.0, min(50.0, w_sc)), 1)
+            else:
+                w_sc = 25.0
+            ca_ha = round(ref_yield * float(pred_p) * 0.92) if isinstance(pred_p, (int, float)) else None
+            cand = {
+                "crop_id": crop_id,
+                "label_fr": spec["label_fr"],
+                "water_score": w_sc,
+                "predicted_xaf_kg": pred_p,
+                "change_pct": chg,
+                "ca_per_ha_xaf": ca_ha,
+            }
+            if best_crop is None or (
+                (cand["ca_per_ha_xaf"] or 0) * (cand["water_score"] / 50.0)
+                > (best_crop["ca_per_ha_xaf"] or 0) * (best_crop["water_score"] / 50.0)
+            ):
+                best_crop = cand
+
+        hydric_stress = (isinstance(rz_anom, (int, float)) and float(rz_anom) <= MODERATE_DEFICIT_PCT) or false_start
+        double_vuln = bool(hydric_stress and any_price_spike)
+        if crit_years >= 3 or double_vuln:
+            credit_risk = "Élevé"
+        elif crit_years >= 1 or hydric_stress:
+            credit_risk = "Modéré"
+        else:
+            credit_risk = "Maîtrisé"
+
+        hubs_out.append({
+            "region": hub,
+            "province": province,
+            "root_anomaly_pct": rz_anom,
+            "false_sowing_start": false_start,
+            "critical_july_aug_years": crit_years,
+            "observed_july_aug_years": obs_years,
+            "dry_year_freq_pct": dry_freq_pct,
+            "double_vulnerability": double_vuln,
+            "credit_risk_level": credit_risk,
+            "best_crop": best_crop,
+        })
+
+    hubs_out.sort(key=lambda h: (h["double_vulnerability"], (h.get("best_crop") or {}).get("ca_per_ha_xaf") or 0), reverse=True)
+    top_opp = max(hubs_out, key=lambda h: (h.get("best_crop") or {}).get("ca_per_ha_xaf") or 0) if hubs_out else None
+
+    return {
+        "title": "Radar National Agro-Marché (Alerte Précoce & Allocation Campagne)",
+        "summary": {
+            "hubs_count": len(hubs_out),
+            "double_vulnerability_count": sum(1 for h in hubs_out if h["double_vulnerability"]),
+            "top_opportunity_hub": top_opp["region"] if top_opp else None,
+            "top_opportunity_crop": (top_opp.get("best_crop") or {}).get("label_fr") if top_opp else None,
+            "top_opportunity_ca_ha_xaf": (top_opp.get("best_crop") or {}).get("ca_per_ha_xaf") if top_opp else None,
+            "cereal_yield_ref_kg_ha": round(ref_yield, 1),
+        },
+        "hubs": hubs_out,
+        "sources": [
+            "NASA POWER Agro (Public Domain)",
+            "World Bank (CC BY 4.0)",
+            "WFP (CC BY-IGO 3.0)",
+            "FEWS NET (Attribution Required)",
+        ],
+        "limitations": list(LIMITATIONS),
     }
 
 
