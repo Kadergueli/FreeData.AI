@@ -1129,13 +1129,13 @@ def evaluate_field_assessment(
         yield_source = "Rendement saisi par l'agronome"
     elif isinstance(wb_mean_yield, (int, float)) and wb_mean_yield > 0:
         ref_yield = float(wb_mean_yield)
-        yield_source = "World Bank (moyenne officielle 2020–2024)"
+        yield_source = "World Bank — rendement céréalier national agrégé (proxy, non spécifique à la culture)"
     elif cereal_yield and cereal_yield.get("value_kg_ha"):
         ref_yield = float(cereal_yield["value_kg_ha"])
-        yield_source = f"World Bank ({cereal_yield.get('reference_date', 'officiel')})"
+        yield_source = f"World Bank — rendement céréalier national (proxy non spécifique à la culture; {cereal_yield.get('reference_date', 'officiel')})"
     else:
         ref_yield = WORLD_BANK_DEFAULT_YIELD_KG_HA
-        yield_source = "World Bank (moyenne nationale 2020–2024 : 834.6 kg/ha)"
+        yield_source = "Hypothèse FreeData : 834.6 kg/ha (proxy céréalier national, non spécifique à la culture; à confirmer)"
 
     ph_val: Optional[float] = None
     if lab.get("ph") is not None and str(lab.get("ph")).strip() != "":
