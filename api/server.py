@@ -2380,9 +2380,14 @@ def export_my_privacy_data_endpoint(
     documents = doc_store.list_documents(owner_id) if isinstance(doc_store, UserDocumentStore) else []
     billing = sub_store.get_usage_summary(owner_id) if isinstance(sub_store, SubscriptionStore) else {}
     agro_assessments = []
+    agro_official_profile = None
     market_watchlists = []
     try:
         agro_assessments = get_agro_assessment_store().list_assessments(owner_id, limit=100)
+    except Exception:
+        pass
+    try:
+        agro_official_profile = get_agro_profile_store().get_profile(owner_id)
     except Exception:
         pass
     try:
@@ -2398,6 +2403,7 @@ def export_my_privacy_data_endpoint(
         "conversations": conversations,
         "documents": documents,
         "agro_assessments": agro_assessments,
+        "agro_official_profile": agro_official_profile,
         "market_watchlists": market_watchlists,
     }
 
@@ -2421,6 +2427,10 @@ def delete_my_data_endpoint(
         out["deleted_agro_assessments"] = get_agro_assessment_store().purge_owner(owner_id)
     except Exception:
         out["deleted_agro_assessments"] = 0
+    try:
+        out["deleted_agro_official_profiles"] = get_agro_profile_store().purge_owner(owner_id)
+    except Exception:
+        out["deleted_agro_official_profiles"] = 0
     try:
         out["deleted_market_watchlists"] = get_market_watch_store().purge_owner(owner_id)
     except Exception:
@@ -3302,6 +3312,7 @@ def auth_delete_account_endpoint(
         lambda: sub_store.purge_user(owner_id),
         lambda: get_support_store().purge_owner(owner_id),
         lambda: get_agro_assessment_store().purge_owner(owner_id),
+        lambda: get_agro_profile_store().purge_owner(owner_id),
         lambda: get_market_watch_store().purge_owner(owner_id),
     ):
         try:

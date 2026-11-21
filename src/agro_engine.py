@@ -370,8 +370,8 @@ def compute_gps_logistics(
             "distance_hub_km": None,
             "distance_ndjamena_km": None,
             "road_tortuosity_factor": ROAD_TORTUOSITY_FACTOR,
-            "farmgate_discount_pct": 0.0,
-            "enclavement_label": "GPS non fourni (prix pôle sans décote bord-champ)",
+            "farmgate_discount_pct": 8.0,
+            "enclavement_label": "GPS non fourni (décote minimale 8 % appliquée par défaut)",
             "remoteness_alert": False,
             "idw_mode": "single_hub" if resolved_hub else "none",
             "idw_hubs": (
@@ -994,75 +994,91 @@ def evaluate_field_assessment(
         limiting: list[str] = []
         criteria: list[dict[str, Any]] = []
 
-        # A. Composante Satellitaire & Climatique (0 à 60 points)
+        # A. Composante Agro-Climatique & Hydrique (0 à 50 points)
         if isinstance(rz_parcel, (int, float)):
             rz_val = float(rz_parcel)
             rz_opt = float(spec["rz_opt"])
             sigma = float(spec["sigma"])
-            gauss = 60.0 * math.exp(-((rz_val - rz_opt) ** 2) / (2.0 * (sigma ** 2)))
-            s_sat_raw = gauss - (5.0 * dry_years)
+            gauss = 50.0 * math.exp(-((rz_val - rz_opt) ** 2) / (2.0 * (sigma ** 2)))
+            s_water_raw = gauss - (4.0 * dry_years)
             if crop_id == "maize" and rz_val < 0.55:
-                s_sat_raw -= 10.0
+                s_water_raw -= 8.0
                 limiting.append(f"Déficit hydrique critique pour le Maïs (RZ={rz_val:.2f} < 0.55)")
             elif rz_val < spec["min_wetness"]:
                 limiting.append(f"Humidité racinaire basse ({rz_val:.2f} < {spec['min_wetness']:.2f})")
-            s_sat = round(max(10.0, min(60.0, s_sat_raw)), 1)
+            s_water = round(max(8.0, min(50.0, s_water_raw)), 1)
             criteria.append({
-                "factor": "Score Satellitaire NASA POWER (IDW)",
-                "status": "favorable" if s_sat >= 42.0 else ("modéré" if s_sat >= 28.0 else "limitant"),
-                "value": f"{s_sat}/60 (RZ={rz_val:.2f}, opt={rz_opt:.2f})",
+                "factor": "Agro-Climat & Hydrique NASA POWER (IDW)",
+                "status": "favorable" if s_water >= 35.0 else ("modéré" if s_water >= 24.0 else "limitant"),
+                "value": f"{s_water}/50 (RZ={rz_val:.2f}, opt={rz_opt:.2f})",
             })
         else:
-            s_sat = 30.0
+            s_water = 25.0
 
-        # B. Composante Pédologique & Terrain (0 à 40 points)
+        # B. Composante Pédologique / Sol (0 à 30 points)
         if not has_lab:
-            # Estimation zonale prudente plafonnée à 20/40, modulée par Surf/RZ
+            # Estimation satellitaire zonale (Surf/RZ + PAR), plafonnée à 15/30 pts
             if isinstance(surf_parcel, (int, float)) and isinstance(rz_parcel, (int, float)) and float(rz_parcel) > 0:
                 ratio = float(surf_parcel) / float(rz_parcel)
-                s_soil = round(max(12.0, min(20.0, 20.0 - abs(ratio - 0.95) * 10.0)), 1)
+                s_soil = round(max(9.0, min(15.0, 15.0 - abs(ratio - 0.95) * 8.0)), 1)
             else:
-                s_soil = 16.0
-            limiting.append("Composante sol (max 20/40) estimée par satellite en attente d'analyse laboratoire.")
-            criteria.append({"factor": "Estimation pédologique satellitaire", "status": "estimé", "value": f"{s_soil}/40"})
+                s_soil = 12.0
+            limiting.append("Estimé Satellite (Labo requis pour débloquer les 15 pts restants).")
+            criteria.append({"factor": "Estimation pédologique satellitaire", "status": "estimé", "value": f"{s_soil}/30"})
         else:
-            s_soil_raw = 22.0
+            s_soil_raw = 17.0
             if ph_val is not None:
                 lo_opt, hi_opt = spec["ph_opt"]
                 lo_tol, hi_tol = spec["ph_tol"]
                 if lo_opt <= ph_val <= hi_opt:
-                    s_soil_raw += 9.0
+                    s_soil_raw += 6.0
                     criteria.append({"factor": "pH du sol (labo)", "status": "optimal", "value": ph_val})
                 elif lo_tol <= ph_val <= hi_tol:
-                    s_soil_raw += 3.0
+                    s_soil_raw += 2.0
                     criteria.append({"factor": "pH du sol (labo)", "status": "tolérable", "value": ph_val})
                 else:
-                    s_soil_raw -= 12.0
+                    s_soil_raw -= 9.0
                     limiting.append(f"pH hors plage ({ph_val:.1f}, attendu {lo_tol}–{hi_tol})")
                     criteria.append({"factor": "pH du sol (labo)", "status": "défavorable", "value": ph_val})
             if texture_val:
                 if texture_val in spec["preferred_textures"]:
-                    s_soil_raw += 6.0
+                    s_soil_raw += 4.5
                     criteria.append({"factor": "Texture du sol (labo)", "status": "adaptée", "value": texture_val})
                 else:
-                    s_soil_raw -= 6.0
+                    s_soil_raw -= 4.5
                     limiting.append(f"Texture « {texture_val} » peu adaptée")
                     criteria.append({"factor": "Texture du sol (labo)", "status": "limitant", "value": texture_val})
             if om_val is not None:
                 if om_val >= 1.5:
-                    s_soil_raw += 3.0
+                    s_soil_raw += 2.5
                     criteria.append({"factor": "Matière organique (%)", "status": "correcte", "value": om_val})
                 elif om_val < 0.8:
-                    s_soil_raw -= 5.0
+                    s_soil_raw -= 4.0
                     limiting.append(f"Matière organique faible ({om_val:.1f} %)")
                     criteria.append({"factor": "Matière organique (%)", "status": "faible", "value": om_val})
-            s_soil = round(max(4.0, min(40.0, s_soil_raw)), 1)
+            s_soil = round(max(3.0, min(30.0, s_soil_raw)), 1)
 
-        final_score = max(0, min(100, int(round(s_sat + s_soil))))
-        suitability_label = "Favorable" if final_score >= 70 else ("Modérée" if final_score >= 45 else "Défavorable")
+        # C. Composante Économique & Logistique Marché (0 à 20 points)
         mkt = market_signals.get(crop_id)
+        d_hub = gps_logistics.get("distance_hub_km")
+        s_mkt_raw = 11.0
+        if isinstance(d_hub, (int, float)):
+            if d_hub <= 15.0:
+                s_mkt_raw += 5.0
+            elif d_hub <= 50.0:
+                s_mkt_raw += 2.5
+            else:
+                s_mkt_raw -= 3.0
+        if mkt and isinstance(mkt.get("predicted_xaf_kg"), (int, float)):
+            chg = mkt.get("change_pct")
+            s_mkt_raw += 4.0 if (isinstance(chg, (int, float)) and chg >= 0) else 2.0
+        s_mkt = round(max(4.0, min(20.0, s_mkt_raw)), 1)
+
+        final_score = max(0, min(100, int(round(s_water + s_soil + s_mkt))))
+        suitability_label = "Favorable" if final_score >= 70 else ("Modérée" if final_score >= 45 else "Défavorable")
         stress_min = (mkt or {}).get("stress_min_xaf_kg") or _historical_stress_min_price(hist_df, spec["commodity_std"], province)
         max_hub_p, max_hub_prov = _max_national_hub_price(forecast_df, spec["commodity_std"])
+        disc_pct = float(gps_logistics.get("farmgate_discount_pct") or 8.0)
         econ = compute_verified_economics(
             crop_id=crop_id,
             area_hectares=area_hectares,
@@ -1071,7 +1087,7 @@ def evaluate_field_assessment(
             predicted_xaf_kg=mkt.get("predicted_xaf_kg") if mkt else None,
             mape_pct=mkt.get("historical_mape_pct") if mkt else None,
             stress_min_xaf_kg=stress_min,
-            farmgate_discount_pct=float(gps_logistics.get("farmgate_discount_pct") or 0.0),
+            farmgate_discount_pct=disc_pct,
             max_hub_price_xaf_kg=max_hub_p,
             max_hub_province=max_hub_prov,
         )
@@ -1080,8 +1096,10 @@ def evaluate_field_assessment(
         crop_results.append({
             "crop_id": crop_id,
             "label_fr": spec["label_fr"],
-            "satellite_score": s_sat,
+            "water_score": s_water,
+            "satellite_score": s_water,
             "soil_score": s_soil,
+            "market_score": s_mkt,
             "suitability_score": final_score,
             "suitability_label": suitability_label,
             "limiting_factors": limiting,
@@ -1093,15 +1111,127 @@ def evaluate_field_assessment(
 
     crop_results.sort(key=lambda c: c["suitability_score"], reverse=True)
     primary_crop = crop_results[0] if crop_results else None
-    weighted_score = compute_weighted_score(
-        zone=zone,
-        has_lab=has_lab,
-        ph_val=ph_val,
-        texture_val=texture_val,
-        primary_crop_id=primary_crop["crop_id"] if primary_crop else "millet",
-        primary_market=primary_crop.get("market_forecast") if primary_crop else None,
-        gps_logistics=gps_logistics,
-    )
+
+    # Unification stricte du bandeau résumé avec la meilleure culture (Eau /50 + Sol /30 + Marché /20)
+    top_w = float(primary_crop["water_score"]) if primary_crop else 25.0
+    top_s = float(primary_crop["soil_score"]) if primary_crop else 12.0
+    top_m = float(primary_crop["market_score"]) if primary_crop else 11.0
+    top_total = round(top_w + top_s + top_m, 1)
+    top_verdict = "Favorable" if top_total >= 70.0 else ("Modéré — À sécuriser" if top_total >= 50.0 else "Risque élevé")
+
+    strengths: list[str] = []
+    vigilances: list[str] = []
+    if isinstance(rz_parcel, (int, float)):
+        if float(rz_parcel) >= 0.55:
+            strengths.append(f"Humidité racinaire saisonnière favorable ({float(rz_parcel):.3f} en juin–sept., NASA POWER IDW).")
+        else:
+            vigilances.append(f"Humidité racinaire modérée/faible ({float(rz_parcel):.3f}) : privilégier des cycles courts (85–90 j).")
+    if has_lab:
+        if ph_val is not None and 5.8 <= ph_val <= 7.0:
+            strengths.append(f"pH eau mesuré optimal ({ph_val:.1f}, norme 5.8–7.0).")
+        elif ph_val is not None and ph_val < 5.5:
+            vigilances.append(f"pH acide ({ph_val:.1f} < 5.5) : prévoir un amendement calcique (chaulage) avant labour.")
+        if texture_val:
+            strengths.append(f"Texture mesurée sur terrain : {texture_val}.")
+    else:
+        vigilances.append("Absence d'analyse physique de sol : réaliser 3 prélèvements composites (0–20 cm) avant engagement financier.")
+    if isinstance(gps_logistics.get("distance_hub_km"), (int, float)):
+        d_km = float(gps_logistics["distance_hub_km"])
+        if d_km <= 20.0:
+            strengths.append(f"Bonne accessibilité logistique ({d_km:.1f} km du pôle {gps_logistics.get('selected_hub')}).")
+        elif d_km > 50.0:
+            vigilances.append(f"Parcelle enclavée ({d_km:.1f} km du pôle) : décote bord-champ de 22 % appliquée.")
+
+    weighted_score = {
+        "total_score": top_total,
+        "verdict": top_verdict,
+        "rainy_season_root_wetness_mean": rz_parcel,
+        "breakdown": {
+            "hydric_security": {"score": top_w, "max": 50, "source": "NASA POWER Agro (IDW)"},
+            "soil_quality": {
+                "score": top_s,
+                "max": 30,
+                "note": "Mesuré sur terrain / labo" if has_lab else "Estimé Satellite (Labo requis pour débloquer les 15 pts restants)",
+            },
+            "market_logistics": {"score": top_m, "max": 20, "source": "WFP/FEWS NET + GPS"},
+        },
+        "strengths": strengths[:3],
+        "vigilances": vigilances[:2],
+    }
+
+    # Bulletin Pédologique & Agro-Climatique (BLOC B + BLOC D)
+    rz_latest_info = zone.get("zone_latest") or {} if "zone_latest" in zone else (zone.get("latest") or {})
+    rz_norm = None
+    rz_series = (zone.get("series") or {}).get("root_zone_wetness") or []
+    rainy_norms = [float(p["baseline_mean"]) for p in rz_series if _year_month(p["reference_date"])[1] in (6, 7, 8, 9) and isinstance(p.get("baseline_mean"), (int, float))]
+    if rainy_norms:
+        rz_norm = round(sum(rainy_norms) / len(rainy_norms), 3)
+    par_val = idw.get("par_mean") or ((rz_latest_info.get("par") or {}).get("value"))
+    ratio_str = f"{(float(surf_parcel) / float(rz_parcel)):.2f}" if (isinstance(surf_parcel, (int, float)) and isinstance(rz_parcel, (int, float)) and float(rz_parcel) > 0) else "—"
+    npk_parts = [f"{k.upper()}: {lab.get(k)}" for k in ("nitrogen", "phosphorus", "potassium") if lab.get(k) is not None and str(lab.get(k)).strip() != ""]
+    lab_parameters = [
+        {
+            "parameter": "Humidité zone racinaire (Juin–Sept)",
+            "value": f"{float(rz_parcel):.3f}" + (f" (vs norm. {rz_norm:.3f})" if rz_norm else "") if isinstance(rz_parcel, (int, float)) else "—",
+            "optimal": "0.55 – 0.75",
+            "status": "Bon" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.55 else ("Modéré" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.40 else "Déficit"),
+            "source": "NASA POWER Agro (IDW)",
+        },
+        {
+            "parameter": "Humidité de surface (0–5 cm)",
+            "value": f"{float(surf_parcel):.3f}" if isinstance(surf_parcel, (int, float)) else "—",
+            "optimal": "0.45 – 0.70",
+            "status": "Bon" if isinstance(surf_parcel, (int, float)) and float(surf_parcel) >= 0.45 else "Déficit",
+            "source": "NASA POWER Agro (IDW)",
+        },
+        {
+            "parameter": "Rayonnement photosynthétique (PAR)",
+            "value": f"{float(par_val):.1f} W/m²" if isinstance(par_val, (int, float)) else "—",
+            "optimal": "8.5 – 10.5 W/m²",
+            "status": "Bon" if isinstance(par_val, (int, float)) and 8.5 <= float(par_val) <= 10.5 else "Attention",
+            "source": "NASA POWER Agro",
+        },
+        {
+            "parameter": "Réaction du sol (pH eau)",
+            "value": f"{ph_val:.1f}" if ph_val is not None else "Non mesuré (prélèvement 0–20 cm)",
+            "optimal": "5.8 – 7.0",
+            "status": ("Bon" if 5.8 <= ph_val <= 7.0 else "Attention") if ph_val is not None else "À analyser",
+            "source": "Mesure Labo / Terrain",
+        },
+        {
+            "parameter": "Texture & Matière Organique (MO)",
+            "value": (
+                f"{texture_val or 'Texture N/A'}" + (f", MO {om_val:.1f} %" if om_val is not None else "")
+                if (texture_val or om_val is not None)
+                else f"Estimation zonale (Ratio Surf/RZ = {ratio_str})"
+            ),
+            "optimal": "MO > 1.5 %",
+            "status": ("Bon" if (om_val is not None and om_val >= 1.5) else ("Attention" if om_val is not None else "Estimé")) if (texture_val or om_val is not None) else "Estimé",
+            "source": "Mesure Labo / Satellite" if (texture_val or om_val is not None) else "Estimation Satellite",
+        },
+        {
+            "parameter": "Éléments nutritifs (N - P - K)",
+            "value": ", ".join(npk_parts) if npk_parts else "À analyser en laboratoire avant fumure de fond",
+            "optimal": "Selon culture cible",
+            "status": "Mesuré" if npk_parts else "À analyser",
+            "source": "Mesure Labo / Réf. World Bank",
+        },
+    ]
+
+    prescriptions: list[str] = []
+    if isinstance(rz_parcel, (int, float)) and float(rz_parcel) < 0.55:
+        diff_rz = f" ({float(rz_parcel) - rz_norm:+.3f} vs normale)" if rz_norm else ""
+        prescriptions.append(f"Déficit hydrique modéré{diff_rz} : privilégier des variétés hâtives (cycle 85–90 jours) et un paillage de conservation.")
+    if dry_years >= 1:
+        prescriptions.append(f"{dry_years:g} année(s) critique(s) (< 0.45 en juil.–août) détectée(s) : prévoir un semis échelonné et des diguettes anti-érosives.")
+    if ph_val is not None and ph_val < 5.5:
+        prescriptions.append("pH acide (< 5.5) : prévoir un amendement calcique (chaulage) avant labour.")
+    elif ph_val is not None and ph_val > 7.8:
+        prescriptions.append("pH alcalin (> 7.8) : incorporer du compost / matière organique pour tamponner le sol.")
+    if not has_lab:
+        prescriptions.append("Absence d'analyse physique : réaliser 3 prélèvements composites (0–20 cm) avant engagement financier.")
+    if not prescriptions:
+        prescriptions.append("Paramètres hydriques et pédologiques compatibles avec les cultures sélectionnées : maintenir une fumure organo-minérale raisonnée.")
 
     return {
         "title": resolution_label,
@@ -1110,15 +1240,23 @@ def evaluate_field_assessment(
         "region": zone["region"],
         "province": province,
         "has_lab_measurements": has_lab,
-        "confidence_level": confidence_label,
+        "confidence_level": (
+            "Satellite IDW + Labo Certifié"
+            if has_lab
+            else "Satellite IDW Uniquement — En attente d'analyse physique"
+        ),
         "gps_logistics": gps_logistics,
         "idw_climate": {
             "rz_growing": rz_parcel,
             "surf_growing": surf_parcel,
-            "par_mean": idw.get("par_mean"),
+            "par_mean": par_val,
             "dry_years": dry_years,
         },
         "weighted_score": weighted_score,
+        "bulletin": {
+            "lab_parameters": lab_parameters,
+            "prescriptions": prescriptions,
+        },
         "verified_economics": primary_crop.get("verified_economics") if primary_crop else None,
         "hydric_risk_signals": zone.get("hydric_risk_signals"),
         "zone_alerts": zone["alerts"],

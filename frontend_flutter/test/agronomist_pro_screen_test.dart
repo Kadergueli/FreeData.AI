@@ -141,8 +141,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(proApi.lastPayload?['lab_soil_inputs']?['ph'], 6.3);
-    expect(find.textContaining('FDT-2026-AB12CD'), findsOneWidget);
-    expect(find.textContaining('Mil — Favorable'), findsOneWidget);
+    expect(find.textContaining('FDT-2026-AB12CD'), findsWidgets);
+    expect(find.textContaining('BLOC A'), findsOneWidget);
+    expect(find.textContaining('BLOC C'), findsOneWidget);
+    expect(find.text('Mil'), findsOneWidget);
+    expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

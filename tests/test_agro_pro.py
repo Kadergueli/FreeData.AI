@@ -91,9 +91,18 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
         owner_id=pro_owner, x_premium_key=None,
         store=ind_store, assess_store=assess_store, project_store=proj_store, sub_store=sub_store,
     )
-    assert "Mesures labo non fournies" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
+    assert "En attente d'analyse physique" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
     assert res_no_lab["qa"]["can_deliver_pdf"] is True
     assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
+    # Vérifier la formule unifiée 50/30/20 entre bandeau et meilleure culture + bulletin 6 paramètres
+    cs = res_no_lab["assessment"]["computed_scores"]
+    ws = cs["weighted_score"]
+    assert ws["breakdown"]["hydric_security"]["max"] == 50
+    assert ws["breakdown"]["soil_quality"]["max"] == 30
+    assert ws["breakdown"]["market_logistics"]["max"] == 20
+    assert cs["crop_assessments"][0]["suitability_score"] == round(ws["total_score"])
+    assert len(cs["bulletin"]["lab_parameters"]) == 6
+    assert len(cs["bulletin"]["prescriptions"]) >= 1
     # Les 4 cultures doivent avoir des scores différenciés (plus de 75/100 uniforme)
     no_lab_scores = {c["crop_id"]: c["suitability_score"] for c in res_no_lab["assessment"]["computed_scores"]["crop_assessments"]}
     assert len(set(no_lab_scores.values())) >= 2

@@ -851,6 +851,41 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         .map((e) => e.toString())
         .toList();
     final code = assessment['report_verification_code']?.toString() ?? '';
+    final ws = scores['weighted_score'] is Map
+        ? Map<String, dynamic>.from(scores['weighted_score'] as Map)
+        : const <String, dynamic>{};
+    final bd = ws['breakdown'] is Map
+        ? Map<String, dynamic>.from(ws['breakdown'] as Map)
+        : const <String, dynamic>{};
+    final gps = scores['gps_logistics'] is Map
+        ? Map<String, dynamic>.from(scores['gps_logistics'] as Map)
+        : const <String, dynamic>{};
+    final econ = scores['verified_economics'] is Map
+        ? Map<String, dynamic>.from(scores['verified_economics'] as Map)
+        : const <String, dynamic>{};
+    final bulletin = scores['bulletin'] is Map
+        ? Map<String, dynamic>.from(scores['bulletin'] as Map)
+        : const <String, dynamic>{};
+    final labParams = ((bulletin['lab_parameters'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final prescriptions = ((bulletin['prescriptions'] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
+    final hasLab = scores['has_lab_measurements'] == true;
+    final dateStr = (assessment['created_at']?.toString() ?? '').length >= 10
+        ? assessment['created_at'].toString().substring(0, 10)
+        : '—';
+    final gpsStr = gps['gps_provided'] == true
+        ? '${gps['gps_lat']}, ${gps['gps_lon']}'
+        : 'Non fournies';
+    final idwHubs = ((gps['idw_hubs'] as List?) ?? const [])
+        .whereType<Map>()
+        .where((h) => ((h['weight_pct'] as num?) ?? 0) > 0)
+        .map((h) =>
+            '${h['hub']} (${h['road_distance_km']} km · ${h['weight_pct']}%)')
+        .join(' · ');
 
     return FDCard(
       child: Column(
@@ -861,195 +896,223 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             runSpacing: 6,
             children: [
               FDBadge(
-                label: scores['confidence_level']?.toString() ?? 'Diagnostic',
-                color: AppColors.blue,
-                backgroundColor: AppColors.blueSoft,
+                label: scores['confidence_level']?.toString() ?? 'Bulletin',
+                color: hasLab ? AppColors.greenDark : const Color(0xFF92400E),
+                backgroundColor:
+                    hasLab ? AppColors.greenSoft : const Color(0xFFFEF3C7),
               ),
               if (code.isNotEmpty)
                 FDBadge(
-                  label: 'Code : $code',
-                  color: AppColors.greenDark,
-                  backgroundColor: AppColors.greenSoft,
+                  label: 'Réf. $code',
+                  color: AppColors.blue,
+                  backgroundColor: AppColors.blueSoft,
                 ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            scores['title']?.toString() ?? 'Résultat du diagnostic',
+            scores['title']?.toString() ??
+                'Bulletin d’Analyse Agronomique & Pédologique',
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15.5,
               fontWeight: FontWeight.w800,
               color: AppColors.ink,
             ),
           ),
-          if (scores['weighted_score'] is Map) ...[
-            const SizedBox(height: 10),
-            Builder(
-              builder: (_) {
-                final ws = scores['weighted_score'] as Map;
-                final bd = (ws['breakdown'] as Map?) ?? const {};
-                final gps = (scores['gps_logistics'] as Map?) ?? const {};
-                final econ = (scores['verified_economics'] as Map?) ?? const {};
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.canvas,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.line),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 6,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            'Score Audit : ${ws['total_score'] ?? '—'} / 100 (${ws['verdict'] ?? '—'})',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          FDBadge(
-                            label:
-                                'Hydrique ${bd['hydric_security']?['score'] ?? '—'}/40 · '
-                                'Sol ${bd['soil_quality']?['score'] ?? '—'}/30 · '
-                                'Marché ${bd['market_logistics']?['score'] ?? '—'}/30',
-                            color: AppColors.blue,
-                            backgroundColor: AppColors.blueSoft,
-                          ),
-                        ],
-                      ),
-                      if (gps['gps_provided'] == true) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Logistique GPS : ${gps['distance_hub_km']} km de ${gps['selected_hub']} · '
-                          '${gps['distance_ndjamena_km']} km de N’Djamena · '
-                          'Décote bord-champ : -${gps['farmgate_discount_pct']}%',
-                          style: const TextStyle(
-                              fontSize: 12.5, color: AppColors.muted),
-                        ),
-                        if (gps['idw_hubs'] is List &&
-                            (gps['idw_hubs'] as List).isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Interpolation IDW (k=3) : ' +
-                                (gps['idw_hubs'] as List)
-                                    .whereType<Map>()
-                                    .where((h) =>
-                                        ((h['weight_pct'] as num?) ?? 0) > 0)
-                                    .map((h) =>
-                                        '${h['hub']} (${h['road_distance_km']} km · ${h['weight_pct']}%)')
-                                    .join(' · '),
-                            style: const TextStyle(
-                                fontSize: 12, color: AppColors.blue),
-                          ),
-                        ],
-                      ],
-                      if ((econ['formula_text']?.toString() ?? '')
-                          .isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Formule vérifiable : ${econ['formula_text']}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.greenDark,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              },
+          const SizedBox(height: 12),
+
+          // BLOC A — Fiche d'Identification Parcellaire & Localisation GPS
+          _bulletinSectionTitle(
+              'BLOC A — Fiche d’Identification Parcellaire & GPS'),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFCBD5E1)),
+              borderRadius: BorderRadius.circular(8),
             ),
-          ],
-          const SizedBox(height: 10),
-          ...crops.map((c) {
-            final score = (c['suitability_score'] as num?)?.toInt() ?? 0;
-            final mkt = c['market_forecast'] is Map
-                ? c['market_forecast'] as Map
-                : null;
-            final rev = c['indicative_gross_revenue_xaf'];
-            final lim = ((c['limiting_factors'] as List?) ?? const [])
-                .map((e) => e.toString())
-                .join(' · ');
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              children: [
+                _kvRow('Référence Dossier',
+                    '$code · Date : $dateStr · Cabinet : ${_firmCtrl.text.trim().isNotEmpty ? _firmCtrl.text.trim() : '—'}',
+                    shaded: true),
+                _kvRow('Coordonnées GPS & Surface',
+                    'GPS : $gpsStr · Surface : ${assessment['area_hectares'] ?? '1.0 (réf.)'} ha'),
+                _kvRow(
+                    'Rattachement Spatial (IDW)',
+                    'Pôle : ${gps['selected_hub'] ?? assessment['province_hub'] ?? '—'} '
+                        '(${gps['distance_hub_km'] ?? '—'} km) · N’Djamena : ${gps['distance_ndjamena_km'] ?? '—'} km · '
+                        'Décote : -${gps['farmgate_discount_pct'] ?? 8}%'
+                        '${idwHubs.isNotEmpty ? '\nIDW (k=3) : $idwHubs' : ''}',
+                    shaded: true),
+                _kvRow(
+                    'Score Unifié & Confiance',
+                    '${ws['total_score'] ?? '—'}/100 (${ws['verdict'] ?? '—'}) '
+                        '[Eau ${bd['hydric_security']?['score'] ?? '—'}/50 + '
+                        'Sol ${bd['soil_quality']?['score'] ?? '—'}/30 + '
+                        'Marché ${bd['market_logistics']?['score'] ?? '—'}/20]'),
+              ],
+            ),
+          ),
+
+          if (labParams.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _bulletinSectionTitle(
+                'BLOC B — Bulletin Pédologique & Agro-Climatique'),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
               child: Container(
-                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.canvas,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.line),
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${c['label_fr']} — ${c['suitability_label']}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        Text(
-                          '$score / 100'
-                          '${(c['satellite_score'] != null && c['soil_score'] != null) ? ' (Eau ${c['satellite_score']}/60 + Sol ${c['soil_score']}/40)' : ''}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: score >= 70
-                                ? AppColors.greenDark
-                                : (score >= 45
-                                    ? AppColors.warning
-                                    : AppColors.danger),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (mkt != null && mkt['predicted_xaf_kg'] != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Prix prévu (${mkt['scope']}) : ${mkt['predicted_xaf_kg']} XAF/kg'
-                        '${rev is num ? ' · Potentiel brut indicatif : ${formatXaf(rev)} XAF' : ''}',
-                        style: const TextStyle(
-                            fontSize: 12.5, color: AppColors.blue),
-                      ),
-                    ],
-                    if (lim.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        lim,
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.muted),
-                      ),
-                    ],
+                child: DataTable(
+                  headingRowColor:
+                      WidgetStateProperty.all(const Color(0xFFF0F9FF)),
+                  columnSpacing: 16,
+                  horizontalMargin: 12,
+                  columns: const [
+                    DataColumn(label: Text('Paramètre')),
+                    DataColumn(label: Text('Valeur Parcelle')),
+                    DataColumn(label: Text('Norme / Seuil')),
+                    DataColumn(label: Text('Statut')),
+                    DataColumn(label: Text('Source & Maille')),
                   ],
+                  rows: labParams.map((p) {
+                    final st = p['status']?.toString() ?? '—';
+                    final isOk = st == 'Bon' || st == 'Mesuré';
+                    final isBad = st == 'Déficit' || st == 'Attention';
+                    return DataRow(cells: [
+                      DataCell(Text(p['parameter']?.toString() ?? '—',
+                          style: const TextStyle(fontWeight: FontWeight.w600))),
+                      DataCell(Text(p['value']?.toString() ?? '—')),
+                      DataCell(Text(p['optimal']?.toString() ?? '—')),
+                      DataCell(FDBadge(
+                        label: st,
+                        color: isOk
+                            ? AppColors.greenDark
+                            : (isBad
+                                ? AppColors.danger
+                                : const Color(0xFF92400E)),
+                        backgroundColor: isOk
+                            ? AppColors.greenSoft
+                            : (isBad
+                                ? const Color(0xFFFEE2E2)
+                                : const Color(0xFFFEF3C7)),
+                      )),
+                      DataCell(Text(p['source']?.toString() ?? '—',
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.muted))),
+                    ]);
+                  }).toList(),
                 ),
               ),
-            );
-          }),
-          if (((qa?['warnings'] as List?) ?? const []).isNotEmpty) ...[
+            ),
+          ],
+
+          const SizedBox(height: 14),
+          _bulletinSectionTitle(
+              'BLOC C — Matrice Comparative d’Aptitude Culturale & Rentabilité'),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DataTable(
+                headingRowColor:
+                    WidgetStateProperty.all(const Color(0xFFF0F9FF)),
+                columnSpacing: 16,
+                horizontalMargin: 12,
+                columns: const [
+                  DataColumn(label: Text('Culture')),
+                  DataColumn(label: Text('Score /100')),
+                  DataColumn(label: Text('Eau/50 + Sol/30 + Marché/20')),
+                  DataColumn(label: Text('Prix Bord-Champ')),
+                  DataColumn(label: Text('CA Brut Estimé')),
+                  DataColumn(label: Text('Verdict')),
+                ],
+                rows: crops.map((c) {
+                  final sc = (c['suitability_score'] as num?)?.toInt() ?? 0;
+                  final cecon = c['verified_economics'] is Map
+                      ? c['verified_economics'] as Map
+                      : const {};
+                  final fg = cecon['farmgate_price_central_xaf_kg'];
+                  final rev = c['indicative_gross_revenue_xaf'];
+                  return DataRow(cells: [
+                    DataCell(Text(c['label_fr']?.toString() ?? '—',
+                        style: const TextStyle(fontWeight: FontWeight.w700))),
+                    DataCell(Text('$sc / 100',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: sc >= 70
+                              ? AppColors.greenDark
+                              : (sc >= 45
+                                  ? AppColors.warning
+                                  : AppColors.danger),
+                        ))),
+                    DataCell(Text(
+                        '${c['water_score'] ?? '—'} + ${c['soil_score'] ?? '—'} + ${c['market_score'] ?? '—'}')),
+                    DataCell(Text(fg != null ? '$fg F/kg' : 'N/A')),
+                    DataCell(
+                        Text(rev is num ? '${formatXaf(rev)} F' : '—')),
+                    DataCell(Text(c['suitability_label']?.toString() ?? '—')),
+                  ]);
+                }).toList(),
+              ),
+            ),
+          ),
+          if ((econ['formula_text']?.toString() ?? '').isNotEmpty) ...[
+            const SizedBox(height: 8),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
-                borderRadius: BorderRadius.circular(10),
+                color: const Color(0xFFF8FAFC),
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'Mode Satellitaire IDW : ${((qa?['warnings'] as List?) ?? const []).join(' ')}',
-                style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
+                'Formule vérifiable : ${econ['formula_text']}'
+                '${econ['ca_stress_xaf'] is num ? '\nPlancher Stress 2024–2026 : ${formatXaf(econ['ca_stress_xaf'] as num)} FCFA · Incertitude ±${econ['mape_pct'] ?? '—'}%' : ''}',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink),
               ),
             ),
-            const SizedBox(height: 10),
           ],
+
+          if (prescriptions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _bulletinSectionTitle(
+                'BLOC D — Facteurs Limitants & Prescriptions Techniques'),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: prescriptions
+                    .map((rx) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text('• $rx',
+                              style: const TextStyle(
+                                  fontSize: 12.5, color: AppColors.ink)),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ],
+
           if (!canPdf && blockers.isNotEmpty) ...[
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -1061,8 +1124,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
               ),
             ),
-            const SizedBox(height: 10),
           ],
+          const SizedBox(height: 12),
           Wrap(
             spacing: 10,
             runSpacing: 8,
@@ -1090,4 +1153,48 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       ),
     );
   }
+
+  Widget _bulletinSectionTitle(String title) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0284C7),
+          ),
+        ),
+      );
+
+  Widget _kvRow(String label, String value, {bool shaded = false}) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: shaded ? const Color(0xFFF0F9FF) : Colors.white,
+          border: const Border(
+              bottom: BorderSide(color: Color(0xFFE2E8F0), width: 0.8)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 150,
+              child: Text(
+                label,
+                style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
+              ),
+            ),
+          ],
+        ),
+      );
 }
