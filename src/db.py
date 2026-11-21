@@ -25,6 +25,7 @@ _SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _POOLS: dict[tuple[str, str], Any] = {}
 _POOLS_LOCK = threading.Lock()
 _BOOTSTRAPPED: set[tuple[str, str]] = set()
+_SEARCH_PATH_READY: set[tuple[int, str]] = set()
 
 
 def database_url() -> str:
@@ -152,9 +153,21 @@ class PgConnection:
         self._conn = self._pool.getconn()
         self._released = False
         self._conn.autocommit = False
-        with self._conn.cursor() as cur:
-            cur.execute(f'SET search_path TO "{schema}", public')
-        self._conn.commit()
+        # PgBouncer Transaction Pooler (port 6543) réinitialise search_path entre transactions.
+        # En mode Direct / Session Pooler (port 5432), search_path persiste sur la session physique
+        # identifiée par backend_pid (lu localement en C par libpq sans aller-retour réseau).
+        is_tx_pooler = ":6543" in url
+        backend_pid = getattr(getattr(self._conn, "info", None), "backend_pid", None) or id(self._conn)
+        conn_key = (int(backend_pid), schema)
+        with _POOLS_LOCK:
+            needs_sp = is_tx_pooler or conn_key not in _SEARCH_PATH_READY or getattr(self._conn, "closed", 0) != 0
+        if needs_sp:
+            with self._conn.cursor() as cur:
+                cur.execute(f'SET search_path TO "{schema}", public')
+            self._conn.commit()
+            if not is_tx_pooler:
+                with _POOLS_LOCK:
+                    _SEARCH_PATH_READY.add(conn_key)
 
     # --- API compatible sqlite3 -------------------------------------------------
     def execute(self, sql: str, params: Iterable[Any] = ()) -> PgCursor:
@@ -193,7 +206,9 @@ class PgConnection:
             return
         self._released = True
         try:
-            self._conn.rollback()  # no-op si déjà commité ; évite de rendre une connexion en transaction
+            # Ne pas envoyer un ROLLBACK réseau inutile si la connexion est déjà idle (STATUS_READY == 1).
+            if getattr(self._conn, "closed", 0) == 0 and getattr(self._conn, "status", 0) != 1:
+                self._conn.rollback()
         finally:
             self._pool.putconn(self._conn)
 
@@ -202,10 +217,11 @@ class PgConnection:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
-            if exc_type is None:
-                self._conn.commit()
-            else:
-                self._conn.rollback()
+            if getattr(self._conn, "closed", 0) == 0 and getattr(self._conn, "status", 0) != 1:
+                if exc_type is None:
+                    self._conn.commit()
+                else:
+                    self._conn.rollback()
         finally:
             self._release()
 

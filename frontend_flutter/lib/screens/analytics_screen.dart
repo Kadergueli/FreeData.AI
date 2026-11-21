@@ -7,6 +7,7 @@ import '../core/theme/app_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 import '../widgets/chat/data_cards.dart';
+import 'market_pro_screen.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -296,6 +297,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Analytique PRO',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                        ),
+                        FDSecondaryButton(
+                          label: 'Watchlists & Arbitrage',
+                          icon: Icons.swap_horiz_rounded,
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => MarketProScreen(
+                                  apiService: widget.apiService,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     filterBar,
                     const SizedBox(height: 12),
                     if (_profile != null)

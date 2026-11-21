@@ -368,6 +368,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('AM-9988'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Approuver'));
     await tester.tap(find.text('Approuver'));
     await tester.pumpAndSettle();
     expect(api.lastReviewedRequestId, 'PAY-001');

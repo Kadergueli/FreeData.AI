@@ -2385,9 +2385,9 @@ class FreeDataAIAgent(FormattersMixin):
                     "model": settings.llm_chat_model,
                     "messages": [{"role": "system", "content": system}, *past, {"role": "user", "content": query[:500]}],
                     "temperature": 0.6,
-                    "max_tokens": 220,
+                    "max_tokens": 900,
                 },
-                timeout=10,
+                timeout=18,
             )
             resp.raise_for_status()
             choices = resp.json().get("choices") or []

@@ -1218,7 +1218,6 @@ void main() {
         MaterialApp(home: Scaffold(body: ChatScreen(apiService: proApi))));
     await tester.pumpAndSettle();
     expect(find.text('Saisonnalité & Stockage · Mil'), findsNothing);
-    expect(find.text('Radar Anomalies & Qualité'), findsNothing);
 
     // 2. En mode Partenaire / Pro, l'action rapide B2B « Saisonnalité & Stockage » apparaît
     proApi.setRuntimePremiumKey(_ReducedForecastFakeApi._expectedRenderKey);

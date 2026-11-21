@@ -79,7 +79,7 @@ def main() -> int:
     # 4. Multi-domain discovery
     r_dom = requests.get(f"{base}/api/v1/domains", headers=h2, timeout=15)
     dom_count = len(r_dom.json().get("domains", [])) if r_dom.status_code == 200 else 0
-    all_ok &= _check("GET /api/v1/domains (>=10 domains)", r_dom.status_code == 200 and dom_count >= 10, f"count={dom_count}")
+    all_ok &= _check("GET /api/v1/domains (>=8 Chad domains)", r_dom.status_code == 200 and dom_count >= 8, f"count={dom_count}")
 
     # 5. Project create + delete cleanup
     r_proj = requests.post(f"{base}/api/v1/projects", headers=h2, json={"name": "Staging Smoke Project"}, timeout=15)

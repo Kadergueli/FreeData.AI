@@ -43,6 +43,22 @@ from src.orchestrator_ml_rag import IntelligenceOrchestrator
 from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
+from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
+from src.agro_assessments import AgroFieldAssessmentStore
+from src.agro_engine import (
+    build_zone_profile,
+    build_zones_overview,
+    evaluate_field_assessment,
+    validate_field_assessment_qa,
+)
+from src.reports.agro_pdf import render_agro_assessment_pdf
+from src.market_pro import (
+    MarketWatchlistStore,
+    build_validated_forecasts_overview,
+    compute_inter_province_arbitrage,
+    evaluate_watchlists,
+    export_validated_forecasts_csv,
+)
 from src.entitlements import EntitlementManager
 from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, MAX_SESSION_LIFETIME_SECONDS, get_auth_secret
 from src.conversations import ConversationStore
@@ -693,23 +709,7 @@ def get_metadata(state: dict = Depends(get_state)):
     )
     forecast_month = forecast_months.max() if not forecast_months.empty else None
 
-    active_domain = {
-        "slug": "markets_and_prices",
-        "label": "Marchés et prix des produits",
-        "status": "operational",
-        "description": "Catalogue en cours d'exploitation : marchés, produits, provinces et sources de données.",
-    }
-
-    domains = [
-        active_domain,
-        {"slug": "agriculture", "label": "Agriculture", "status": "in_preparation", "description": "Données agricoles, climat et production."},
-        {"slug": "economy", "label": "Économie", "status": "in_preparation", "description": "Indicateurs et tendances économiques."},
-        {"slug": "health", "label": "Santé", "status": "in_preparation", "description": "Données de santé et de vulnérabilité."},
-        {"slug": "population", "label": "Population", "status": "in_preparation", "description": "Données démographiques et sociales."},
-        {"slug": "environment", "label": "Environnement", "status": "in_preparation", "description": "Conditions environnementales et risques."},
-        {"slug": "infrastructure", "label": "Infrastructures", "status": "in_preparation", "description": "Transport, routes et services essentiels."},
-        {"slug": "transport", "label": "Transport", "status": "in_preparation", "description": "Flux et mobilité des biens et des personnes."},
-    ]
+    active_domain, domains = DomainRegistry.metadata_domains()
 
     return {
         "active_domain": active_domain,
@@ -747,6 +747,75 @@ _SUBSCRIPTION_STORE: Optional[SubscriptionStore] = None
 _AUTH_STORE: Optional[AuthStore] = None
 _CONVERSATION_STORE: Optional[ConversationStore] = None
 _USER_DOCUMENT_STORE: Optional[UserDocumentStore] = None
+_AGRO_STORE: Optional[AgroIndicatorStore] = None
+_AGRO_SEED_LOCK = threading.Lock()
+
+
+def get_agro_store() -> AgroIndicatorStore:
+    """Store des indicateurs agricoles ; graine idempotente depuis le CSV commercial propre si la table est vide."""
+    global _AGRO_STORE
+    if _AGRO_STORE is None:
+        with _AGRO_SEED_LOCK:
+            if _AGRO_STORE is None:
+                try:
+                    store = AgroIndicatorStore()
+                    seed_path = os.getenv("AGRO_SEED_CSV", "freedatatd-agriculture-commercial-clean.csv").strip()
+                    if seed_path and os.path.isfile(seed_path) and store.count() == 0:
+                        try:
+                            report = store.ingest_csv(seed_path)
+                            logger.info("Indicateurs agricoles ingérés depuis %s : %s lignes", seed_path, report.get("written"))
+                        except Exception as exc:  # fichier non conforme : on n'écrit rien et on le journalise
+                            logger.error("Ingestion agricole refusée (%s) : %s", seed_path, exc)
+                    _AGRO_STORE = store
+                except Exception as exc:
+                    logger.exception("Échec connexion AgroIndicatorStore (vérifier SUPABASE_DB_URL) : %s", exc)
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"Base des indicateurs agricoles indisponible : {type(exc).__name__}",
+                    ) from exc
+    return _AGRO_STORE
+
+
+@app.get("/api/v1/agro/zones", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_zones_endpoint(store: AgroIndicatorStore = Depends(get_agro_store)):
+    """Pôles agro-climatiques couverts (NASA POWER Agro) et fraîcheur, avec provenance et limites."""
+    return build_zones_overview(store.rows())
+
+
+@app.get("/api/v1/agro/zone-profile", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_zone_profile_endpoint(
+    region: str = Query(..., min_length=2, max_length=80),
+    store: AgroIndicatorStore = Depends(get_agro_store),
+):
+    """Pré-diagnostic agro-climatique de zone : humidité des sols, PAR, anomalies vs normale 2020–2023, indicateurs nationaux."""
+    hub = canonical_region(region)
+    if hub is None or hub == AGRO_NATIONAL:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Zone inconnue. Pôles couverts : {', '.join(AGRO_HUBS)}.",
+        )
+    regional = store.regional_rows(hub)
+    if not regional:
+        raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
+    return build_zone_profile(hub, regional, store.national_rows())
+
+
+_AGRO_ASSESSMENT_STORE: Optional[AgroFieldAssessmentStore] = None
+
+
+def get_agro_assessment_store() -> AgroFieldAssessmentStore:
+    global _AGRO_ASSESSMENT_STORE
+    if _AGRO_ASSESSMENT_STORE is None:
+        try:
+            _AGRO_ASSESSMENT_STORE = AgroFieldAssessmentStore()
+        except Exception as exc:
+            logger.exception("Échec connexion AgroFieldAssessmentStore : %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Base des diagnostics agronomiques indisponible : {type(exc).__name__}",
+            ) from exc
+    return _AGRO_ASSESSMENT_STORE
+
 
 
 def get_user_document_store() -> UserDocumentStore:
@@ -819,7 +888,7 @@ _STRONG_UID_RE = re.compile(r"^[A-Za-z0-9_-]{32,80}$")
 _ACCOUNT_ID_RE = re.compile(r"^u[0-9a-f]{32}$")
 
 
-def _assert_not_suspended(owner_id: Optional[str]) -> None:
+def _assert_not_suspended(owner_id: Optional[str], *, skip_auth_store_check: bool = False) -> None:
     if not owner_id:
         return
     msg = "Compte suspendu par l'administrateur. Contactez le support."
@@ -832,7 +901,7 @@ def _assert_not_suspended(owner_id: Optional[str]) -> None:
         raise
     except Exception as exc:  # base admin indisponible : ne pas bloquer tout le trafic
         logger.warning("Vérification de suspension (admin_accounts) impossible : %s", exc)
-    if owner_id.startswith("user:"):
+    if not skip_auth_store_check and owner_id.startswith("user:"):
         try:
             u = get_auth_store().get_user(owner_id)
         except HTTPException:
@@ -861,15 +930,19 @@ def _resolve_owner_id_optional(
         sub = verify_signed_user_token(tok, auth_secret)
         if sub:
             auth_store = get_auth_store()
-            if auth_store.is_token_revoked(tok):
+            check = auth_store.get_auth_check_state(tok, sub)
+            if check["revoked"]:
                 raise HTTPException(status_code=401, detail="Session révoquée. Veuillez vous reconnecter.")
             # Compte supprimé : un jeton encore valide ne doit plus ouvrir d'espace (identifiants émis par /auth/*).
-            if _ACCOUNT_ID_RE.fullmatch(sub) and auth_store.get_user(sub) is None:
-                raise HTTPException(status_code=401, detail="Compte introuvable ou supprimé. Veuillez vous reconnecter.")
-            if _ACCOUNT_ID_RE.fullmatch(sub) and auth_store.is_token_stale(tok, sub):
-                raise HTTPException(status_code=401, detail="Session expirée (mot de passe modifié). Veuillez vous reconnecter.")
+            if _ACCOUNT_ID_RE.fullmatch(sub):
+                if not check["exists"]:
+                    raise HTTPException(status_code=401, detail="Compte introuvable ou supprimé. Veuillez vous reconnecter.")
+                if check["stale"]:
+                    raise HTTPException(status_code=401, detail="Session expirée (mot de passe modifié). Veuillez vous reconnecter.")
+                if check["status"] == "suspended":
+                    raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
             owner = f"user:{sub}"
-            _assert_not_suspended(owner)
+            _assert_not_suspended(owner, skip_auth_store_check=True)
             return owner
         raise HTTPException(status_code=401, detail="Jeton Bearer invalide ou expiré.")
 
@@ -994,7 +1067,7 @@ def chat_endpoint(
                 owner_id,
                 payload.message,
                 project_id=verified_project_id,
-                top_k=3,
+                top_k=5,
             )
         except Exception:
             private_chunks = []
@@ -1321,6 +1394,221 @@ def _require_project_owner(
     if require_signed:
         raise HTTPException(status_code=401, detail="Authentification requise (Bearer token).")
     raise HTTPException(status_code=401, detail="Authentification requise (Bearer token, X-Premium-Key, ou X-User-Id).")
+
+
+class AgroFieldAssessmentRequest(BaseModel):
+    province_hub: str = Field(..., min_length=2, max_length=80)
+    project_id: Optional[str] = Field(None, max_length=80)
+    gps_lat: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    gps_lon: Optional[float] = Field(None, ge=-180.0, le=180.0)
+    area_hectares: Optional[float] = Field(None, gt=0.0, le=500000.0)
+    lab_soil_inputs: dict[str, Any] = Field(default_factory=dict)
+    agronomist_field_notes: str = Field("", max_length=4000)
+    target_crops: list[str] = Field(default_factory=lambda: ["millet", "sorghum", "maize", "groundnut_raw"])
+
+
+class AgroFieldPdfRequest(BaseModel):
+    agronomist_name: str = Field("", max_length=120)
+
+
+@app.post("/api/v1/agro/field-assessment", dependencies=[Depends(_chat_rate_limit_dependency)])
+def create_agro_field_assessment_endpoint(
+    payload: AgroFieldAssessmentRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    store: AgroIndicatorStore = Depends(get_agro_store),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    project_store: ProjectStore = Depends(get_project_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Enregistre les mesures terrain/labo de l'Agronome PRO, calcule le diagnostic et le payload du rapport."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain Agronome PRO")
+    hub = canonical_region(payload.province_hub)
+    if hub is None or hub == AGRO_NATIONAL:
+        raise HTTPException(status_code=422, detail=f"Pôle régional invalide. Pôles couverts : {', '.join(AGRO_HUBS)}.")
+    verified_pid = _assert_project_owned(owner_id, payload.project_id, project_store)
+    regional = store.regional_rows(hub)
+    if not regional:
+        raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
+    fc_df = STATE.get("forecast_df")
+    computed = evaluate_field_assessment(
+        region=hub,
+        regional_rows=regional,
+        national_rows=store.national_rows(),
+        lab_soil_inputs=payload.lab_soil_inputs,
+        target_crops=payload.target_crops,
+        area_hectares=payload.area_hectares,
+        forecast_df=fc_df,
+    )
+    saved = assess_store.create_assessment(
+        owner_id,
+        province_hub=hub,
+        project_id=verified_pid,
+        gps_lat=payload.gps_lat,
+        gps_lon=payload.gps_lon,
+        area_hectares=payload.area_hectares,
+        lab_soil_inputs=payload.lab_soil_inputs,
+        agronomist_field_notes=payload.agronomist_field_notes,
+        target_crops=payload.target_crops,
+        computed_scores=computed,
+    )
+    qa = validate_field_assessment_qa(saved)
+    return {"assessment": saved, "qa": qa}
+
+
+@app.get("/api/v1/agro/field-assessments", dependencies=[Depends(_data_rate_limit_dependency)])
+def list_agro_field_assessments_endpoint(
+    project_id: Optional[str] = Query(None, max_length=80),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    project_store: ProjectStore = Depends(get_project_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Historique Agronome PRO")
+    verified_pid = _assert_project_owned(owner_id, project_id, project_store)
+    items = assess_store.list_assessments(owner_id, project_id=verified_pid)
+    return {"count": len(items), "assessments": items}
+
+
+@app.post("/api/v1/agro/field-assessment/{assessment_id}/pdf", dependencies=[Depends(_chat_rate_limit_dependency)])
+def agro_field_assessment_pdf_endpoint(
+    assessment_id: str,
+    payload: Optional[AgroFieldPdfRequest] = None,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Génère le PDF co-brandé Agronome PRO après passage obligatoire par la porte QA."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Rapport PDF Agronome PRO")
+    try:
+        saved = assess_store.get_assessment(owner_id, assessment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    qa = validate_field_assessment_qa(saved)
+    if not qa["can_deliver_pdf"]:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Porte QA échouée : mesures de sol requises pour un Diagnostic de terrain.", "qa": qa},
+        )
+    _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
+    pdf_bytes = render_agro_assessment_pdf(
+        saved,
+        agronomist_name=payload.agronomist_name if payload else "",
+    )
+    code = saved.get("report_verification_code") or assessment_id
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="freedata_agro_{code}.pdf"'},
+    )
+
+
+_MARKET_WATCH_STORE: Optional[MarketWatchlistStore] = None
+
+
+def get_market_watch_store() -> MarketWatchlistStore:
+    global _MARKET_WATCH_STORE
+    if _MARKET_WATCH_STORE is None:
+        _MARKET_WATCH_STORE = MarketWatchlistStore()
+    return _MARKET_WATCH_STORE
+
+
+class MarketWatchlistCreateRequest(BaseModel):
+    crop_id: str = Field(..., min_length=2, max_length=40)
+    threshold_xaf_kg: float = Field(..., gt=0.0, le=1000000.0)
+    direction: Literal["above", "below"] = "above"
+    province: str = Field("", max_length=80)
+    market_name: str = Field("", max_length=80)
+    note: str = Field("", max_length=240)
+
+
+@app.get("/api/v1/market-pro/overview", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_pro_overview_endpoint(
+    crop_id: Optional[str] = Query(None, max_length=40),
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    watch_store: MarketWatchlistStore = Depends(get_market_watch_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Marché PRO : prévisions 4 cultures avec MAPE, arbitrage inter-provinces et watchlists évaluées."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Espace Marché PRO")
+    fc_df = state.get("forecast_df")
+    tr = state.get("track_record") or {}
+    watches = evaluate_watchlists(watch_store.list_watches(owner_id), fc_df)
+    try:
+        arbitrage = compute_inter_province_arbitrage(fc_df, crop_id=crop_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "validated_forecasts": build_validated_forecasts_overview(fc_df, tr),
+        "arbitrage": arbitrage,
+        "watchlists": watches,
+    }
+
+
+@app.post("/api/v1/market-pro/watchlists", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_market_watchlist_endpoint(
+    payload: MarketWatchlistCreateRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    watch_store: MarketWatchlistStore = Depends(get_market_watch_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Watchlists Marché PRO")
+    try:
+        return watch_store.create_watch(
+            owner_id,
+            crop_id=payload.crop_id,
+            threshold_xaf_kg=payload.threshold_xaf_kg,
+            direction=payload.direction,
+            province=payload.province,
+            market_name=payload.market_name,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/market-pro/watchlists/{watch_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def delete_market_watchlist_endpoint(
+    watch_id: str,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    watch_store: MarketWatchlistStore = Depends(get_market_watch_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Watchlists Marché PRO")
+    if not watch_store.delete_watch(owner_id, watch_id):
+        raise HTTPException(status_code=404, detail="Alerte introuvable.")
+    return {"deleted": True, "watch_id": watch_id}
+
+
+@app.get("/api/v1/market-pro/export.csv", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_pro_export_csv_endpoint(
+    crop_id: Optional[str] = Query(None, max_length=40),
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Export CSV institutionnel des prévisions validées avec provenance, licence et MAPE."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Export CSV Marché PRO")
+    try:
+        csv_text = export_validated_forecasts_csv(
+            state.get("forecast_df"),
+            state.get("track_record") or {},
+            crop_id=crop_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(
+        content=csv_text.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="freedata_market_pro.csv"'},
+    )
 
 
 class ProjectCreateRequest(BaseModel):
@@ -2199,7 +2487,7 @@ def platform_chat_endpoint(
                 owner_id,
                 payload.message,
                 project_id=verified_project_id,
-                top_k=3,
+                top_k=5,
             )
         except Exception:
             private_chunks = []
@@ -2292,7 +2580,13 @@ def platform_chat_endpoint(
 
 
 def _fallback_domain_reply(domain_mod, query: str, rag_hits: list[dict]) -> str:
-    base = f"**[{domain_mod.label_fr}]** {domain_mod.instructions}"
+    status_note = (
+        "\n\n*Statut des données Tchad : ce domaine est actuellement en préparation. "
+        "Vous pouvez joindre vos propres documents (PDF, CSV, TXT) pour une analyse ciblée.*"
+        if getattr(domain_mod, "data_status", "") == "in_preparation"
+        else ""
+    )
+    base = f"**[{domain_mod.label_fr}]** {domain_mod.instructions}{status_note}"
     if rag_hits:
         excerpts = "\n".join(f"- *{h['source']}* : {h['compressed_excerpt']}" for h in rag_hits[:2])
         return f"{base}\n\n**Références trouvées dans la base de connaissances :**\n{excerpts}"
@@ -2329,7 +2623,17 @@ def auth_register_endpoint(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+    session = auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+    owner_id = f"user:{user['user_id']}"
+    session["owner_id"] = owner_id
+    session["is_pro"] = False
+    try:
+        sub_store = get_subscription_store()
+        session["subscription"] = sub_store.get_subscription(owner_id)
+        session["is_pro"] = _has_pro_access(owner_id, None, sub_store)
+    except Exception:
+        pass
+    return session
 
 
 @app.post("/api/v1/auth/login", dependencies=[Depends(_chat_rate_limit_dependency)])
@@ -2345,7 +2649,17 @@ def auth_login_endpoint(
         user = auth_store.authenticate(payload.email, payload.password)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    return auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+    session = auth_store.issue_session(user, secret=secret, ttl_seconds=DEFAULT_TOKEN_TTL_SECONDS)
+    owner_id = f"user:{user['user_id']}"
+    session["owner_id"] = owner_id
+    session["is_pro"] = False
+    try:
+        sub_store = get_subscription_store()
+        session["subscription"] = sub_store.get_subscription(owner_id)
+        session["is_pro"] = _has_pro_access(owner_id, None, sub_store)
+    except Exception:
+        pass
+    return session
 
 
 @app.get("/api/v1/auth/me", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2355,16 +2669,14 @@ def auth_me_endpoint(
     auth_store: AuthStore = Depends(get_auth_store),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
-    if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Authentification Bearer requise.")
-    tok = authorization.split(" ", 1)[1].strip()
-    sub_id = auth_store.verify_session_token(tok)
-    if not sub_id:
-        raise HTTPException(status_code=401, detail="Session invalide, révoquée ou expirée.")
+    sub_id, _ = _require_bearer_user_id(authorization, auth_store)
     user = auth_store.get_user(sub_id)
     if not user:
         raise HTTPException(status_code=401, detail="Compte introuvable.")
+    if user.get("status") == "suspended":
+        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
     owner_id = f"user:{user['user_id']}"
+    _assert_not_suspended(owner_id, skip_auth_store_check=True)
     sub = sub_store.get_subscription(owner_id)
     is_pro = _has_pro_access(owner_id, x_premium_key, sub_store)
     return {"user": user, "owner_id": owner_id, "subscription": sub, "is_pro": is_pro}
@@ -2378,7 +2690,10 @@ def auth_logout_endpoint(
     if not isinstance(authorization, str) or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Authentification Bearer requise.")
     tok = authorization.split(" ", 1)[1].strip()
-    auth_store.revoke_token(tok)
+    auth_secret = os.getenv("AUTH_SECRET", "").strip()
+    # Ne persister en base que des jetons réellement signés (évite le remplissage de revoked_tokens par des chaînes arbitraires).
+    if auth_secret and verify_signed_user_token(tok, auth_secret):
+        auth_store.revoke_token(tok)
     return {"logged_out": True}
 
 
@@ -2393,8 +2708,7 @@ def auth_refresh_endpoint(
         raise HTTPException(status_code=401, detail="Compte introuvable.")
     if user.get("status") == "suspended":
         raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
-    if _ADMIN_SERVICE is not None and _ADMIN_SERVICE.is_user_suspended(f"user:{sub_id}"):
-        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    _assert_not_suspended(f"user:{sub_id}", skip_auth_store_check=True)
     if auth_store.session_age_seconds(old_tok) > MAX_SESSION_LIFETIME_SECONDS:
         raise HTTPException(status_code=401, detail="Session trop ancienne : reconnectez-vous avec votre mot de passe.")
     from src.security import token_claims as _claims
@@ -2689,42 +3003,31 @@ def admin_review_payment_request_endpoint(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-class ProKeyCreate(BaseModel):
-    plan_id: str = Field("premium", max_length=30)
+class AdminCreateProKeyRequest(BaseModel):
+    plan_id: Literal["trial", "premium"] = "premium"
     duration_days: int = Field(30, ge=1, le=365)
-    note: str = Field("", max_length=200)
+    note: str = Field("", max_length=240)
 
 
-class ProKeyRedeem(BaseModel):
+class RedeemProKeyRequest(BaseModel):
     activation_key: str = Field(..., min_length=8, max_length=64)
-
-
-@app.post("/api/v1/billing/redeem-key", dependencies=[Depends(_chat_rate_limit_dependency)])
-def redeem_pro_key_endpoint(
-    payload: ProKeyRedeem,
-    owner_id: str = Depends(_require_project_owner),
-    sub_store: SubscriptionStore = Depends(get_subscription_store),
-):
-    """Active une clé PRO à usage unique. Réservé aux comptes connectés (jeton Bearer) : la clé se lie au compte."""
-    if not owner_id.startswith("user:"):
-        raise HTTPException(status_code=401, detail="Connectez-vous à votre compte pour activer une clé.")
-    try:
-        return sub_store.redeem_pro_key(owner_id, payload.activation_key)
-    except PermissionError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/admin/billing/keys", dependencies=[Depends(_admin_rate_limit_dependency)])
 def admin_create_pro_key_endpoint(
-    payload: ProKeyCreate,
+    payload: AdminCreateProKeyRequest,
     x_admin_token: Optional[str] = Header(default=None),
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
+    """Génère une clé d'activation PRO unique (1 clé = 1 compte connecté, affichée une seule fois)."""
     actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
     try:
-        return sub_store.create_pro_key(actor=actor, plan_id=payload.plan_id, duration_days=payload.duration_days, note=payload.note)
+        return sub_store.create_activation_key(
+            actor=actor,
+            plan_id=payload.plan_id,
+            duration_days=payload.duration_days,
+            note=payload.note,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2737,8 +3040,8 @@ def admin_list_pro_keys_endpoint(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
-    keys = sub_store.list_pro_keys(status=status, limit=limit)
-    return {"count": len(keys), "keys": keys}
+    items = sub_store.list_activation_keys(status=status, limit=limit)
+    return {"count": len(items), "keys": items}
 
 
 @app.post("/api/v1/admin/billing/keys/{key_id}/revoke", dependencies=[Depends(_admin_rate_limit_dependency)])
@@ -2749,7 +3052,31 @@ def admin_revoke_pro_key_endpoint(
 ):
     actor, _ = _require_admin_token(x_admin_token, "manage_subscriptions", detail="Jeton administrateur requis.")
     try:
-        return sub_store.revoke_pro_key(key_id, actor=actor)
+        return sub_store.revoke_activation_key(key_id, actor=actor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/billing/redeem-key", dependencies=[Depends(_chat_rate_limit_dependency)])
+def redeem_pro_key_endpoint(
+    payload: RedeemProKeyRequest,
+    authorization: Optional[str] = Header(default=None),
+    auth_store: AuthStore = Depends(get_auth_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Active une clé PRO unique pour le compte connecté (Bearer obligatoire, usage unique atomique)."""
+    sub_id, _ = _require_bearer_user_id(authorization, auth_store)
+    user = auth_store.get_user(sub_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Compte introuvable.")
+    if user.get("status") == "suspended":
+        raise HTTPException(status_code=403, detail="Compte suspendu par l'administrateur. Contactez le support.")
+    owner_id = f"user:{user['user_id']}"
+    _assert_not_suspended(owner_id, skip_auth_store_check=True)
+    try:
+        return sub_store.redeem_activation_key(owner_id, payload.activation_key)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

@@ -9,6 +9,8 @@ services:
     envVars:
       - key: RENDER
         value: "true"
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
       - key: ALLOW_LOCALHOST_CORS
         value: "0"
       - key: ENABLE_DOCS

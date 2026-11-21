@@ -234,8 +234,6 @@ class _AdminScreenState extends State<AdminScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Erreur : $e')));
-    } finally {
-      noteCtrl.dispose();
     }
   }
 

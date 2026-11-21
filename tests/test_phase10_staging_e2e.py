@@ -7,18 +7,16 @@ from src.ml_engine import ModelRegistry
 from src.reports.pdf_generator import render_market_study_pdf
 
 
-def test_all_ten_domains_route_and_isolate_correctly():
+def test_all_eight_chad_domains_route_and_isolate_correctly():
     samples = {
-        "tech_programming": "Écris un script Python FastAPI avec regex",
-        "data_science": "Lance un backtest machine learning Ridge avec RMSE et MAE",
-        "education": "Explique le théorème avec un cours et un exercice pour étudiant",
-        "academic_research": "Prépare une revue de littérature et bibliographie pour ma thèse",
-        "productivity": "Organise une checklist et un planning de roadmap",
-        "finance": "Calcule la trésorerie, le BFR, le point mort et le ROI",
-        "business_entrepreneurship": "Rédige un business plan avec SWOT et PESTEL",
-        "agriculture": "Quel est le prix du mil et du sorgho sur le marché agricole",
-        "chad_intelligence": "Compare les provinces du Tchad entre N'Djamena et Moundou en XAF",
-        "general_ai": "Bonjour, comment vas-tu aujourd'hui ?",
+        "health": "Statistiques de santé, vaccination et paludisme au Tchad",
+        "population": "Recensement démographique et croissance de la population",
+        "environment": "Sécheresse, pluviométrie et environnement du Lac Tchad",
+        "infrastructure": "Accès à l'eau potable, forage et infrastructures routières",
+        "transport": "Corridor de fret, camion et coût du transport logistique",
+        "economy": "Inflation, trésorerie, point mort et crédit bancaire",
+        "agriculture": "Rendement des récoltes et campagne agricole au Tchad",
+        "markets_and_prices": "Quel est le prix du mil à N'Djamena en XAF ?",
     }
     for expected_dom, query in samples.items():
         mod = DomainRegistry.classify_domain(query)

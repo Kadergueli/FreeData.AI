@@ -372,6 +372,214 @@ class ApiService {
         resp.statusCode, 'Erreur chargement métadonnées (${resp.statusCode})');
   }
 
+  // --- Domaine Agriculture : pré-diagnostic agro-climatique de zone ---------
+
+  Map<String, dynamic>? _cachedAgroZones;
+  DateTime? _cachedAgroZonesAt;
+  final Map<String, Map<String, dynamic>> _cachedAgroProfiles = {};
+  final Map<String, DateTime> _cachedAgroProfilesAt = {};
+
+  static const Duration _agroCacheTtl = Duration(minutes: 10);
+
+  Map<String, dynamic>? get cachedAgroZones => _cachedAgroZones;
+
+  Map<String, dynamic>? cachedAgroZoneProfile(String region) =>
+      _cachedAgroProfiles[region];
+
+  Future<Map<String, dynamic>> getAgroZones({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _cachedAgroZones != null &&
+        _cachedAgroZonesAt != null &&
+        DateTime.now().difference(_cachedAgroZonesAt!) < _agroCacheTtl) {
+      return _cachedAgroZones!;
+    }
+    final uri = Uri.parse('$baseUrl/api/v1/agro/zones');
+    final resp = await _getWithRetry(uri);
+    if (resp.statusCode == 200) {
+      final data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      _cachedAgroZones = data;
+      _cachedAgroZonesAt = DateTime.now();
+      return data;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement des zones agricoles'));
+  }
+
+  Future<Map<String, dynamic>> getAgroZoneProfile(String region,
+      {bool forceRefresh = false}) async {
+    final at = _cachedAgroProfilesAt[region];
+    if (!forceRefresh &&
+        _cachedAgroProfiles.containsKey(region) &&
+        at != null &&
+        DateTime.now().difference(at) < _agroCacheTtl) {
+      return _cachedAgroProfiles[region]!;
+    }
+    final uri = Uri.parse('$baseUrl/api/v1/agro/zone-profile')
+        .replace(queryParameters: {'region': region});
+    final resp = await _getWithRetry(uri);
+    if (resp.statusCode == 200) {
+      final data = Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+      _cachedAgroProfiles[region] = data;
+      _cachedAgroProfilesAt[region] = DateTime.now();
+      return data;
+    }
+    throw ApiHttpException(
+        resp.statusCode,
+        _extractErrorDetail(
+            resp, 'Erreur chargement du profil agro-climatique'));
+  }
+
+  // --- Agronome PRO : Diagnostic de terrain & PDF co-brandé ----------------
+
+  Future<Map<String, dynamic>> createAgroFieldAssessment({
+    required String provinceHub,
+    String? projectId,
+    double? gpsLat,
+    double? gpsLon,
+    double? areaHectares,
+    required Map<String, dynamic> labSoilInputs,
+    String agronomistFieldNotes = '',
+    List<String> targetCrops = const [
+      'millet',
+      'sorghum',
+      'maize',
+      'groundnut_raw',
+    ],
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/field-assessment');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'province_hub': provinceHub,
+            if (projectId != null && projectId.isNotEmpty)
+              'project_id': projectId,
+            if (gpsLat != null) 'gps_lat': gpsLat,
+            if (gpsLon != null) 'gps_lon': gpsLon,
+            if (areaHectares != null) 'area_hectares': areaHectares,
+            'lab_soil_inputs': labSoilInputs,
+            'agronomist_field_notes': agronomistFieldNotes.trim(),
+            'target_crops': targetCrops,
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Diagnostic de terrain impossible'));
+  }
+
+  Future<List<Map<String, dynamic>>> listAgroFieldAssessments(
+      {String? projectId}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/field-assessments').replace(
+      queryParameters: (projectId != null && projectId.isNotEmpty)
+          ? {'project_id': projectId}
+          : null,
+    );
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      final decoded =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return (decoded['assessments'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement diagnostics'));
+  }
+
+  Future<Uint8List> downloadAgroAssessmentPdf(
+    String assessmentId, {
+    String agronomistName = '',
+  }) async {
+    final uri =
+        Uri.parse('$baseUrl/api/v1/agro/field-assessment/$assessmentId/pdf');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'agronomist_name': agronomistName.trim()}),
+        )
+        .timeout(const Duration(seconds: 35));
+    if (resp.statusCode == 200) {
+      return resp.bodyBytes;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Génération du PDF agronomique refusée'));
+  }
+
+  // --- Marché PRO : Watchlists, Arbitrage & Export CSV ---------------------
+
+  Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-pro/overview').replace(
+      queryParameters:
+          (cropId != null && cropId.isNotEmpty) ? {'crop_id': cropId} : null,
+    );
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Erreur chargement Marché PRO'));
+  }
+
+  Future<Map<String, dynamic>> createMarketWatchlist({
+    required String cropId,
+    required double thresholdXafKg,
+    String direction = 'above',
+    String province = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-pro/watchlists');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'crop_id': cropId,
+            'threshold_xaf_kg': thresholdXafKg,
+            'direction': direction,
+            'province': province.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Création de l’alerte impossible'));
+  }
+
+  Future<void> deleteMarketWatchlist(String watchId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-pro/watchlists/$watchId');
+    final resp = await _client
+        .delete(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      throw ApiHttpException(resp.statusCode,
+          _extractErrorDetail(resp, 'Suppression de l’alerte impossible'));
+    }
+  }
+
+  Future<Uint8List> downloadMarketProCsv({String? cropId}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-pro/export.csv').replace(
+      queryParameters:
+          (cropId != null && cropId.isNotEmpty) ? {'crop_id': cropId} : null,
+    );
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      return resp.bodyBytes;
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Export CSV Marché PRO impossible'));
+  }
+
   Future<List<dynamic>> getForecasts(
       {String? province, String? commodity}) async {
     final params = <String, String>{};

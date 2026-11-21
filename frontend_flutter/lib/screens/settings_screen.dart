@@ -24,7 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'id': 'markets_and_prices',
       'label': 'Marchés et prix des produits (données actives)'
     },
-    {'id': 'agriculture', 'label': 'Agriculture (en préparation)'},
+    {'id': 'agriculture', 'label': 'Agriculture (données actives)'},
     {'id': 'economy', 'label': 'Économie (en préparation)'},
     {'id': 'health', 'label': 'Santé (en préparation)'},
     {'id': 'population', 'label': 'Population (en préparation)'},

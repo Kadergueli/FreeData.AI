@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sqlite3
 
 from src import db as _db
@@ -383,6 +384,22 @@ class SubscriptionStore:
                 CREATE INDEX IF NOT EXISTS idx_pro_keys_status ON pro_activation_keys(status, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_payment_requests_user ON payment_requests(user_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests(status, created_at DESC);
+                CREATE TABLE IF NOT EXISTS pro_activation_keys (
+                    key_id TEXT PRIMARY KEY,
+                    key_hash TEXT UNIQUE NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    plan_id TEXT NOT NULL DEFAULT 'premium',
+                    duration_days INTEGER NOT NULL DEFAULT 30,
+                    status TEXT NOT NULL DEFAULT 'unused',
+                    note TEXT NOT NULL DEFAULT '',
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    redeemed_by_user_id TEXT,
+                    redeemed_at TEXT,
+                    revoked_by TEXT,
+                    revoked_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_pro_keys_status ON pro_activation_keys(status, created_at DESC);
                 """
             )
             if self._pg_url:
@@ -869,6 +886,213 @@ class SubscriptionStore:
                 reason=f"Paiement validé ({request_id} · réf. {updated['transaction_ref']})",
             )
         return {"request": updated, "subscription": subscription}
+
+    # --- Clés d'activation PRO uniques (1 clé = 1 compte connecté) -----------
+
+    @staticmethod
+    def _normalize_activation_key(raw_key: str) -> str:
+        return re.sub(r"\s+", "", (raw_key or "").strip()).upper()
+
+    @staticmethod
+    def _hash_activation_key(normalized_key: str) -> str:
+        return hashlib.sha256(normalized_key.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _generate_plain_activation_key() -> str:
+        import secrets
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        parts = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+        return f"FDPRO-{'-'.join(parts)}"
+
+    def create_activation_key(
+        self,
+        *,
+        actor: str,
+        plan_id: str = "premium",
+        duration_days: int = 30,
+        note: str = "",
+    ) -> dict[str, Any]:
+        if plan_id not in ("trial", "premium"):
+            raise ValueError("Seuls les plans 'trial' ou 'premium' peuvent être activés par clé.")
+        days = max(1, min(365, int(duration_days)))
+        plain_key = self._generate_plain_activation_key()
+        key_hash = self._hash_activation_key(plain_key)
+        key_prefix = plain_key[:10]
+        key_id = f"KEY-{uuid.uuid4().hex[:10].upper()}"
+        now = _iso(_utc_now()) or ""
+        clean_note = (note or "").strip()[:240]
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO pro_activation_keys (
+                    key_id, key_hash, key_prefix, plan_id, duration_days,
+                    status, note, created_by, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'unused', ?, ?, ?)
+                """,
+                (key_id, key_hash, key_prefix, plan_id, days, clean_note, actor, now),
+            )
+        return {
+            "key_id": key_id,
+            "activation_key": plain_key,
+            "key_prefix": key_prefix,
+            "plan_id": plan_id,
+            "duration_days": days,
+            "status": "unused",
+            "note": clean_note,
+            "created_by": actor,
+            "created_at": now,
+        }
+
+    def list_activation_keys(
+        self,
+        *,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(200, int(limit)))
+        with self._connect() as conn:
+            if status:
+                rows = conn.execute(
+                    """
+                    SELECT key_id, key_prefix, plan_id, duration_days, status, note,
+                           created_by, created_at, redeemed_by_user_id, redeemed_at,
+                           revoked_by, revoked_at
+                    FROM pro_activation_keys
+                    WHERE status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (status.strip().lower(), lim),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT key_id, key_prefix, plan_id, duration_days, status, note,
+                           created_by, created_at, redeemed_by_user_id, redeemed_at,
+                           revoked_by, revoked_at
+                    FROM pro_activation_keys
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (lim,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_activation_key(self, key_id: str, *, actor: str) -> dict[str, Any]:
+        now = _iso(_utc_now()) or ""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            row = conn.execute(
+                "SELECT key_id, key_prefix, status FROM pro_activation_keys WHERE key_id = ?",
+                (key_id,),
+            ).fetchone()
+            if not row:
+                conn.execute("ROLLBACK;")
+                raise KeyError(f"Clé introuvable : {key_id}")
+            if row["status"] != "unused":
+                conn.execute("ROLLBACK;")
+                raise ValueError(f"Impossible de révoquer cette clé (statut actuel : {row['status']}).")
+            conn.execute(
+                """
+                UPDATE pro_activation_keys
+                SET status = 'revoked', revoked_by = ?, revoked_at = ?
+                WHERE key_id = ? AND status = 'unused'
+                """,
+                (actor, now, key_id),
+            )
+            conn.execute("COMMIT;")
+        return {"key_id": key_id, "key_prefix": row["key_prefix"], "status": "revoked", "revoked_by": actor, "revoked_at": now}
+
+    def redeem_activation_key(self, user_id: str, raw_key: str) -> dict[str, Any]:
+        """Active atomiquement une clé PRO unique pour le compte `user_id` (usage unique strict)."""
+        norm_key = self._normalize_activation_key(raw_key)
+        if len(norm_key) < 8 or len(norm_key) > 64:
+            raise ValueError("Format de clé d'activation invalide.")
+        key_hash = self._hash_activation_key(norm_key)
+        now_dt = _utc_now()
+        now_s = _iso(now_dt) or ""
+        audit_id = f"AUD-{uuid.uuid4().hex[:10].upper()}"
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            row = conn.execute(
+                """
+                SELECT key_id, key_prefix, plan_id, duration_days, status
+                FROM pro_activation_keys
+                WHERE key_hash = ?
+                """,
+                (key_hash,),
+            ).fetchone()
+            if not row:
+                conn.execute("ROLLBACK;")
+                raise KeyError("Clé d'activation PRO introuvable ou invalide.")
+            if row["status"] != "unused":
+                conn.execute("ROLLBACK;")
+                raise ValueError("Cette clé d'activation a déjà été utilisée ou révoquée.")
+            cur = conn.execute(
+                """
+                UPDATE pro_activation_keys
+                SET status = 'redeemed', redeemed_by_user_id = ?, redeemed_at = ?
+                WHERE key_id = ? AND status = 'unused'
+                """,
+                (user_id, now_s, row["key_id"]),
+            )
+            if (cur.rowcount or 0) != 1:
+                conn.execute("ROLLBACK;")
+                raise ValueError("Cette clé d'activation a déjà été utilisée.")
+
+            prev_row = conn.execute(
+                "SELECT plan_id, status, current_period_end FROM subscriptions WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            prev_plan = prev_row["plan_id"] if prev_row else "free"
+            base_end = now_dt
+            if prev_row and prev_row["plan_id"] == row["plan_id"] and prev_row["status"] == "active":
+                existing_end = _parse_iso(prev_row["current_period_end"])
+                if existing_end and existing_end > now_dt:
+                    base_end = existing_end
+            new_end = base_end + timedelta(days=int(row["duration_days"]))
+            grace_dt = new_end + timedelta(days=3)
+            conn.execute(
+                """
+                INSERT INTO subscriptions (user_id, plan_id, status, provider, current_period_start, current_period_end, grace_until, updated_at)
+                VALUES (?, ?, 'active', 'activation_key', ?, ?, ?, ?)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    plan_id = excluded.plan_id,
+                    status = 'active',
+                    provider = 'activation_key',
+                    current_period_start = excluded.current_period_start,
+                    current_period_end = excluded.current_period_end,
+                    grace_until = excluded.grace_until,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, row["plan_id"], now_s, _iso(new_end), _iso(grace_dt), now_s),
+            )
+            conn.execute(
+                """
+                INSERT INTO subscription_audit_logs (audit_id, actor, target_user_id, action, previous_plan, new_plan, reason, created_at)
+                VALUES (?, ?, ?, 'redeem_activation_key', ?, ?, ?, ?)
+                """,
+                (
+                    audit_id,
+                    user_id,
+                    user_id,
+                    prev_plan,
+                    row["plan_id"],
+                    f"Activation clé unique {row['key_id']} ({row['duration_days']} j)",
+                    now_s,
+                ),
+            )
+            conn.execute("COMMIT;")
+        sub = self.get_subscription(user_id)
+        return {
+            "redeemed": True,
+            "key_id": row["key_id"],
+            "key_prefix": row["key_prefix"],
+            "duration_days": int(row["duration_days"]),
+            "subscription": sub,
+            "is_pro": sub.get("effective_plan_id") in ("trial", "premium"),
+        }
 
 
 def simulate_unit_economics(

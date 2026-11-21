@@ -1344,7 +1344,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
                 if (_selectedDomain != 'auto' &&
-                    _selectedDomain != 'markets_and_prices') ...[
+                    _selectedDomain != 'markets_and_prices' &&
+                    _selectedDomain != 'agriculture') ...[
                   const SizedBox(height: 4),
                   const Align(
                     alignment: Alignment.centerLeft,

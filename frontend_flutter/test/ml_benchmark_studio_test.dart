@@ -182,6 +182,13 @@ void main() {
   testWidgets(
       'MLBenchmarkStudio runs 5-step CSV benchmark with bounded polling and renders results',
       (tester) async {
+    tester.view.physicalSize = const Size(1280, 960);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
     final api = _StudioFakeApiService();
     final csvBytes = Uint8List.fromList(
       utf8.encode('month,price\n2025-01,300\n2025-02,310\n2025-03,320\n'),

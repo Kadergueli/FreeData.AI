@@ -52,8 +52,8 @@ def test_e2e_csv_utf8_sig_invalid_private_and_feature_fingerprint_dedup(tmp_path
     reg = ModelRegistry(models_dir=str(tmp_path / "m"), db_path=str(tmp_path / "m.db"))
 
     # 1. Valid UTF-8-SIG CSV ingestion & dedup with same vs different feature_columns
-    spec_a = DatasetSpec(domain="finance", task_type="regression", target_column="y", feature_columns=["x1", "x2"])
-    spec_b = DatasetSpec(domain="finance", task_type="regression", target_column="y", feature_columns=["x1"])
+    spec_a = DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1", "x2"])
+    spec_b = DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1"])
     csv_bytes = _reg_csv()
 
     r1 = run_csv_benchmark(csv_bytes, spec_a, registry=reg)
@@ -69,7 +69,7 @@ def test_e2e_csv_utf8_sig_invalid_private_and_feature_fingerprint_dedup(tmp_path
     with pytest.raises(PermissionError):
         parse_and_validate_csv(
             csv_bytes,
-            DatasetSpec(domain="finance", task_type="regression", target_column="y", feature_columns=["x1"], dataset_scope="user_private"),
+            DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1"], dataset_scope="user_private"),
         )
     with pytest.raises(ValueError):
         parse_and_validate_csv(b"\xff\xfe\x00invalid", spec_a)
@@ -81,7 +81,7 @@ def test_e2e_artifact_reconstruction_across_all_task_types(tmp_path: Path):
     # Regression artifact -> reconstruct & predict
     reg_res = run_csv_benchmark(
         _reg_csv(),
-        DatasetSpec(domain="business_entrepreneurship", task_type="regression", target_column="y", feature_columns=["x1", "x2"]),
+        DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1", "x2"]),
         registry=reg,
     )
     ridge_c = next(c for c in reg_res["candidates"] if c["algorithm"] == "ridge_l2")
@@ -92,7 +92,7 @@ def test_e2e_artifact_reconstruction_across_all_task_types(tmp_path: Path):
     # Classification artifact -> reconstruct & predict
     clf_res = run_csv_benchmark(
         _clf_csv(),
-        DatasetSpec(domain="finance", task_type="classification", target_column="label", feature_columns=["cv", "dd"]),
+        DatasetSpec(domain="economy", task_type="classification", target_column="label", feature_columns=["cv", "dd"]),
         registry=reg,
     )
     log_c = next(c for c in clf_res["candidates"] if c["algorithm"] == "logistic_l2")
@@ -103,7 +103,7 @@ def test_e2e_artifact_reconstruction_across_all_task_types(tmp_path: Path):
     # Clustering artifact -> reconstruct & predict
     cl_res = run_csv_benchmark(
         _cluster_csv(),
-        DatasetSpec(domain="data_science", task_type="clustering", feature_columns=["p", "v"]),
+        DatasetSpec(domain="markets_and_prices", task_type="clustering", feature_columns=["p", "v"]),
         registry=reg,
     )
     km_c = next(c for c in cl_res["candidates"] if c["algorithm"] == "kmeans_k3")
@@ -123,7 +123,7 @@ def test_e2e_cooperative_timeout_stops_execution_early(tmp_path: Path):
     with pytest.raises(TimeoutError):
         run_csv_benchmark(
             _reg_csv(),
-            DatasetSpec(domain="finance", task_type="regression", target_column="y", feature_columns=["x1", "x2"]),
+            DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1", "x2"]),
             registry=reg,
             cancel_event=cancel_evt,
         )
@@ -144,7 +144,7 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
 
     # 1. Authorized admin launches CSV benchmark
     req = server.AdminBenchmarkRequest(
-        domain="finance",
+        domain="economy",
         task_type="regression",
         target_column="y",
         feature_columns=["x1", "x2"],
@@ -178,7 +178,7 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
 
     with pytest.raises(HTTPException) as e_dom:
         server.admin_ai_set_domain_status_endpoint(
-            "education",
+            "health",
             server.AdminDomainStatusRequest(active=False, reason="test"),
             actor_info=("amina", "read_only_analyst"),
             admin=admin,
@@ -217,7 +217,7 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
     ml_reg.register_model(
         model_id=ridge_id,
         model_name="v2 candidate",
-        domain="finance",
+        domain="economy",
         algorithm="ridge_l2",
         task_type="regression",
         version=2,
@@ -243,14 +243,14 @@ def test_e2e_full_lifecycle_approval_deploy_rollback_domain_monitoring_and_rbac(
     # 5. Domain toggle + restore & Admin Overview AI Monitoring consistency
     try:
         server.admin_ai_set_domain_status_endpoint(
-            "productivity",
+            "transport",
             server.AdminDomainStatusRequest(active=False, reason="maintenance"),
             actor_info=("kader", "super_admin"),
             admin=admin,
         )
-        assert DomainRegistry.is_domain_active("productivity") is False
+        assert DomainRegistry.is_domain_active("transport") is False
     finally:
-        DomainRegistry.set_domain_active("productivity", True)
+        DomainRegistry.set_domain_active("transport", True)
 
     state = {
         "mode": "gold_fast_read",

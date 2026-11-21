@@ -1,4 +1,8 @@
-"""Modular Multi-Domain Architecture and Unified Tool Routing for FreeData.AI."""
+"""Modular Multi-Domain Architecture (Chad Data Domains) and Unified Tool Routing for FreeData.AI.
+
+Single source of truth shared by ExploreScreen (/api/v1/metadata), ChatScreen, SettingsScreen,
+Admin AI Control Center, and the ML Benchmark Studio.
+"""
 from __future__ import annotations
 
 import re
@@ -17,11 +21,13 @@ def _norm(text: str) -> str:
 class DomainModule:
     domain_id: str
     label_fr: str
+    description: str
     instructions: str
     allowed_tools: tuple[str, ...]
     knowledge_sources: tuple[str, ...]
     supported_workflows: tuple[str, ...]
     output_formats: tuple[str, ...]
+    data_status: str = "in_preparation"  # "operational" | "in_preparation"
     required_tier: str = "free"
     ml_models: tuple[str, ...] = ()
     rag_collections: tuple[str, ...] = ()
@@ -31,152 +37,176 @@ class DomainModule:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def to_metadata_dict(self) -> dict[str, Any]:
+        return {
+            "slug": self.domain_id,
+            "label": self.label_fr,
+            "status": self.data_status,
+            "description": self.description,
+        }
+
 
 class DomainRegistry:
-    """Extensible registry of specialized domains sharing FreeData.AI's core LLM, RAG, ML, and Analytics engines."""
+    """Extensible registry of Chad data domains sharing FreeData.AI's core LLM, RAG, ML, and Analytics engines."""
 
     _lock = threading.Lock()
     _active_overrides: dict[str, bool] = {}
     _usage_counts: dict[str, int] = {}
 
     MODULES: dict[str, DomainModule] = {
-        "general_ai": DomainModule(
-            domain_id="general_ai",
-            label_fr="IA Générale",
-            instructions="Réponds clairement en français, de manière structurée et factuelle, sans inventer de statistiques.",
-            allowed_tools=("llm_reasoning", "rag_hybrid"),
-            knowledge_sources=("corpus_general", "documentation"),
-            supported_workflows=("qa", "brainstorming", "summarization"),
-            output_formats=("markdown",),
-            rag_collections=("platform_docs", "user_private_docs"),
-            analytical_operations=("synthesis",),
-            execution_pipeline="rag_llm",
-        ),
-        "education": DomainModule(
-            domain_id="education",
-            label_fr="Éducation & Révisions",
-            instructions="Explique pas à pas avec pédagogie, exemples concrets et exercices vérifiables.",
-            allowed_tools=("llm_reasoning", "rag_hybrid"),
-            knowledge_sources=("METHODOLOGY.md", "USER_GUIDE.md"),
-            supported_workflows=("tutoring", "concept_explanation", "quiz"),
-            output_formats=("markdown",),
-            rag_collections=("methodology_docs", "user_private_docs"),
-            analytical_operations=("pedagogical_breakdown",),
-            execution_pipeline="rag_llm",
-        ),
-        "academic_research": DomainModule(
-            domain_id="academic_research",
-            label_fr="Recherche Académique",
-            instructions="Cite explicitement les sources, distingue faits observés et hypothèses, et précise les limites méthodologiques.",
-            allowed_tools=("rag_hybrid", "analytics_query", "llm_reasoning"),
-            knowledge_sources=("METHODOLOGY.md", "DATA_CATALOG.md", "DATA_GOVERNANCE_POLICY.md"),
-            supported_workflows=("literature_synthesis", "methodology_review"),
+        "markets_and_prices": DomainModule(
+            domain_id="markets_and_prices",
+            label_fr="Marchés et prix des produits",
+            description="Catalogue en cours d'exploitation : marchés, produits, provinces et sources de données au Tchad.",
+            instructions=(
+                "Ancre chaque analyse sur les données vérifiées des marchés du Tchad (XAF/kg, provinces, "
+                "prévisions t+1, intervalle de confiance 80 %, alertes, saisonnalité et passeport crédit) sans inventer de chiffre."
+            ),
+            allowed_tools=("chad_market_agent", "business_engine", "analytics_query", "ml_forecast", "study_builder", "rag_hybrid"),
+            knowledge_sources=("table_ml_forecasts", "table_ml_credit_passport", "table_ml_seasonality_studies", "DATA_CATALOG.md"),
+            supported_workflows=("price_forecast", "arbitrage", "seasonality", "feasibility_study", "risk_scoring"),
             output_formats=("markdown", "pdf"),
-            rag_collections=("governance_docs", "methodology_docs", "user_private_docs"),
-            analytical_operations=("literature_review", "citation_grounding"),
-            execution_pipeline="rag_llm",
-        ),
-        "business_entrepreneurship": DomainModule(
-            domain_id="business_entrepreneurship",
-            label_fr="Business & Entrepreneuriat",
-            instructions="Utilise le moteur déterministe 80/8/12 (ou 88/0/12), ne force jamais la rentabilité et préserve StudyContext.",
-            allowed_tools=("business_engine", "study_builder", "qa_validator", "rag_hybrid"),
-            knowledge_sources=("table_ml_forecasts", "table_ml_credit_passport"),
-            supported_workflows=("feasibility_study", "business_plan", "swot_pestel"),
-            output_formats=("markdown", "pdf"),
-            ml_models=("ridge_price_regressor", "risk_grade_classifier"),
-            rag_collections=("market_knowledge", "user_private_docs"),
-            analytical_operations=("unit_economics", "margin_simulation", "sensitivity_analysis"),
-            execution_pipeline="chad_agent",
-        ),
-        "finance": DomainModule(
-            domain_id="finance",
-            label_fr="Finance & Risque",
-            instructions="Distingue bénéfice comptable et trésorerie, affiche point mort et sensibilité sans jamais simuler au-dessus du marché.",
-            allowed_tools=("business_engine", "analytics_query", "credit_passport"),
-            knowledge_sources=("table_ml_credit_passport", "METHODOLOGY.md"),
-            supported_workflows=("break_even", "cashflow_projection", "risk_scoring"),
-            output_formats=("markdown", "pdf"),
-            ml_models=("risk_grade_classifier",),
-            rag_collections=("financial_methodology", "user_private_docs"),
-            analytical_operations=("break_even", "cashflow_12m", "risk_grading"),
-            execution_pipeline="chad_agent",
-        ),
-        "data_science": DomainModule(
-            domain_id="data_science",
-            label_fr="Data Science & ML",
-            instructions="Privilégie les outils ML/statistiques réels (Ridge, K-Means, backtest chronologique) et rapporte MAE/RMSE/MAPE.",
-            allowed_tools=("ml_forecast", "ml_cluster", "ml_anomaly", "analytics_query"),
-            knowledge_sources=("table_ml_forecasts", "METHODOLOGY.md"),
-            supported_workflows=("benchmarking", "clustering", "anomaly_detection"),
-            output_formats=("markdown", "json"),
+            data_status="operational",
             ml_models=("ridge_price_regressor", "kmeans_market_clusterer", "risk_grade_classifier"),
-            rag_collections=("ml_methodology", "user_private_docs"),
-            analytical_operations=("chronological_backtest", "kmeans_segmentation", "anomaly_zscore"),
-            execution_pipeline="ml_orchestrator",
+            rag_collections=("chad_market_docs", "methodology_docs", "user_private_docs"),
+            analytical_operations=("price_forecast", "spatial_arbitrage", "seasonality_profile", "anomaly_detection", "unit_economics"),
+            execution_pipeline="chad_agent",
         ),
         "agriculture": DomainModule(
             domain_id="agriculture",
-            label_fr="Agriculture & Marchés",
-            instructions="Ancre chaque prix en XAF/kg sur les marchés suivis au Tchad avec période et intervalle de confiance 80 %.",
-            allowed_tools=("chad_market_agent", "analytics_query", "ml_forecast"),
-            knowledge_sources=("table_ml_forecasts", "table_ml_seasonality_studies"),
-            supported_workflows=("price_forecast", "arbitrage", "seasonality"),
+            label_fr="Agriculture",
+            description="Pré-diagnostic agro-climatique de zone (12 pôles : humidité des sols, rayonnement) et indicateurs agricoles nationaux du Tchad.",
+            instructions=(
+                "Reste strictement dans le contexte agricole du Tchad. Appuie-toi UNIQUEMENT sur les indicateurs disponibles : humidité de la zone "
+                "racinaire, humidité de surface et rayonnement photosynthétique (NASA POWER Agro, 12 pôles, mensuel 2020–2026), et les indicateurs "
+                "nationaux World Bank (rendement et production céréalière, indices de production, terres, engrais). Cite toujours la source, la période "
+                "et le niveau de confiance. Ces données sont régionales (pôle urbain/provincial), jamais une analyse de parcelle. "
+                "Tu ne disposes d'AUCUNE donnée de température ni de précipitations : ne les évoque pas et n'invente aucune statistique de production."
+            ),
+            allowed_tools=("chad_market_agent", "analytics_query", "ml_forecast", "rag_hybrid"),
+            knowledge_sources=("table_agro_indicators", "table_ml_forecasts", "table_ml_seasonality_studies", "METHODOLOGY.md"),
+            supported_workflows=("zone_prediagnostic", "water_deficit_watch", "price_forecast", "seasonality", "crop_analysis"),
             output_formats=("markdown", "pdf"),
-            ml_models=("ridge_price_regressor", "kmeans_market_clusterer"),
+            data_status="operational",
+            ml_models=("ridge_price_regressor",),
             rag_collections=("chad_market_docs", "user_private_docs"),
-            analytical_operations=("price_forecast", "spatial_arbitrage", "seasonality_profile"),
+            analytical_operations=("zone_prediagnostic", "soil_wetness_anomaly", "seasonality_profile", "price_forecast"),
             execution_pipeline="chad_agent",
         ),
-        "tech_programming": DomainModule(
-            domain_id="tech_programming",
-            label_fr="Tech & Programmation",
-            instructions="Fournis du code propre, testable et sécurisé (Python, Dart/Flutter, SQL) sans exposer de secrets.",
-            allowed_tools=("llm_reasoning", "rag_hybrid"),
-            knowledge_sources=("DEVELOPER_GUIDE.md", "API.md", "ARCHITECTURE.md"),
-            supported_workflows=("code_help", "debugging", "api_integration"),
-            output_formats=("markdown",),
-            rag_collections=("developer_docs", "user_private_docs"),
-            analytical_operations=("code_review", "architecture_guidance"),
-            execution_pipeline="rag_llm",
-        ),
-        "productivity": DomainModule(
-            domain_id="productivity",
-            label_fr="Productivité & Gestion",
-            instructions="Structure des plans d'action concrets, checklists et synthèses exploitables.",
-            allowed_tools=("llm_reasoning", "project_store"),
-            knowledge_sources=("USER_GUIDE.md",),
-            supported_workflows=("action_plan", "checklist", "meeting_summary"),
-            output_formats=("markdown",),
-            rag_collections=("user_guides", "user_private_docs"),
-            analytical_operations=("task_decomposition", "summarization"),
-            execution_pipeline="rag_llm",
-        ),
-        "chad_intelligence": DomainModule(
-            domain_id="chad_intelligence",
-            label_fr="Intelligence Tchad",
-            instructions="Valorise les données locales du Tchad (provinces, marchés, XAF/kg, contexte socio-économique) en français clair.",
-            allowed_tools=("chad_market_agent", "analytics_query", "rag_hybrid", "study_builder"),
-            knowledge_sources=("table_ml_forecasts", "table_ml_credit_passport", "DATA_CATALOG.md"),
-            supported_workflows=("regional_comparison", "market_study", "risk_analysis"),
+        "economy": DomainModule(
+            domain_id="economy",
+            label_fr="Économie",
+            description="Indicateurs et tendances économiques du Tchad.",
+            instructions=(
+                "Analyse dans le contexte économique du Tchad (XAF/FCFA, inflation alimentaire, risque crédit, rentabilité). "
+                "Ne cite aucun indicateur macroéconomique non sourcé ; appuie-toi sur les données disponibles et documents fournis."
+            ),
+            allowed_tools=("chad_market_agent", "business_engine", "analytics_query", "credit_passport", "rag_hybrid"),
+            knowledge_sources=("table_ml_credit_passport", "table_ml_forecasts", "DATA_CATALOG.md"),
+            supported_workflows=("risk_scoring", "cashflow_projection", "inflation_trends"),
             output_formats=("markdown", "pdf"),
-            ml_models=("ridge_price_regressor", "kmeans_market_clusterer", "risk_grade_classifier"),
-            rag_collections=("chad_market_docs", "governance_docs", "user_private_docs"),
-            analytical_operations=("regional_comparison", "price_forecast", "credit_passport"),
+            data_status="in_preparation",
+            ml_models=("risk_grade_classifier",),
+            rag_collections=("financial_methodology", "user_private_docs"),
+            analytical_operations=("risk_grading", "break_even", "regional_comparison"),
             execution_pipeline="chad_agent",
+        ),
+        "health": DomainModule(
+            domain_id="health",
+            label_fr="Santé",
+            description="Données de santé et de vulnérabilité au Tchad.",
+            instructions=(
+                "Reste dans le contexte sanitaire et de vulnérabilité du Tchad. Les données structurées Santé sont en préparation : "
+                "analyse prioritairement les documents fournis par l'utilisateur et n'invente aucune statistique sanitaire."
+            ),
+            allowed_tools=("rag_hybrid", "llm_reasoning"),
+            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("document_analysis", "vulnerability_synthesis"),
+            output_formats=("markdown",),
+            data_status="in_preparation",
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("document_synthesis",),
+            execution_pipeline="rag_llm",
+        ),
+        "population": DomainModule(
+            domain_id="population",
+            label_fr="Population",
+            description="Données démographiques et sociales du Tchad.",
+            instructions=(
+                "Reste dans le contexte démographique et social du Tchad (provinces, démographie, accès aux services). "
+                "Les données structurées Population sont en préparation : n'invente aucun chiffre démographique non sourcé."
+            ),
+            allowed_tools=("rag_hybrid", "llm_reasoning"),
+            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("document_analysis", "demographic_synthesis"),
+            output_formats=("markdown",),
+            data_status="in_preparation",
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("document_synthesis",),
+            execution_pipeline="rag_llm",
+        ),
+        "environment": DomainModule(
+            domain_id="environment",
+            label_fr="Environnement",
+            description="Conditions environnementales et risques au Tchad.",
+            instructions=(
+                "Reste dans le contexte environnemental et climatique du Tchad (sécheresse, pluviométrie, bassin du Lac Tchad, risques). "
+                "Les données structurées Environnement sont en préparation : appuie-toi sur les documents fournis sans inventer de mesures."
+            ),
+            allowed_tools=("rag_hybrid", "llm_reasoning"),
+            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("document_analysis", "environmental_risk_synthesis"),
+            output_formats=("markdown",),
+            data_status="in_preparation",
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("document_synthesis",),
+            execution_pipeline="rag_llm",
+        ),
+        "infrastructure": DomainModule(
+            domain_id="infrastructure",
+            label_fr="Infrastructures",
+            description="Transport, routes et services essentiels au Tchad.",
+            instructions=(
+                "Reste dans le contexte des infrastructures au Tchad (routes, énergie, eau, télécoms, services essentiels). "
+                "Les données structurées Infrastructures sont en préparation : analyse les documents fournis sans inventer de statistiques."
+            ),
+            allowed_tools=("rag_hybrid", "llm_reasoning"),
+            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("document_analysis", "infrastructure_synthesis"),
+            output_formats=("markdown",),
+            data_status="in_preparation",
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("document_synthesis",),
+            execution_pipeline="rag_llm",
+        ),
+        "transport": DomainModule(
+            domain_id="transport",
+            label_fr="Transport",
+            description="Flux et mobilité des biens et des personnes au Tchad.",
+            instructions=(
+                "Reste dans le contexte logistique et transport au Tchad (corridors, coûts de fret inter-provinces, mobilité). "
+                "Les données structurées Transport sont en préparation : utilise les paramètres de transport fournis sans inventer de tarifs."
+            ),
+            allowed_tools=("rag_hybrid", "llm_reasoning"),
+            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("document_analysis", "logistics_synthesis"),
+            output_formats=("markdown",),
+            data_status="in_preparation",
+            rag_collections=("platform_docs", "user_private_docs"),
+            analytical_operations=("document_synthesis",),
+            execution_pipeline="rag_llm",
         ),
     }
 
     _DOMAIN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-        ("tech_programming", re.compile(r"\b(?:python|flutter|dart|sql|fastapi|code|bug|api|script|regex|git|docker)\b")),
-        ("data_science", re.compile(r"\b(?:machine\s+learning|regression|ridge|k[-\s]?means|clustering|backtest|rmse|mae|mape|modele\s+ml)\b")),
-        ("education", re.compile(r"\b(?:cours|explique|reviser|exercice|etudiant|apprendre|definition|theoreme)\b")),
-        ("academic_research", re.compile(r"\b(?:these|memoire|article\s+scientifique|bibliographie|methodologie\s+de\s+recherche|revue\s+de\s+litterature)\b")),
-        ("productivity", re.compile(r"\b(?:planning|checklist|organiser|resume\s+de\s+reunion|tache|roadmap|productivite)\b")),
-        ("finance", re.compile(r"\b(?:tresorerie|bfr|capex|point\s+mort|roi|rentabilite|cashflow|credit\s+passport)\b")),
-        ("business_entrepreneurship", re.compile(r"\b(?:business\s*plan|etude\s+de\s+(?:prefaisabilite|marche)|entreprise|negoce|swot|pestel)\b")),
-        ("agriculture", re.compile(r"\b(?:mil|sorgho|mais|riz|arachide|niebe|recolte|agricole|marche|prix\s+du)\b")),
-        ("chad_intelligence", re.compile(r"\b(?:tchad|n'djamena|ndjamena|lac|batha|ouaddai|kanem|moundou|sarh|abeche|xaf|fcfa)\b")),
+        ("health", re.compile(r"\b(?:sante|hopital|maladie|epidemie|vaccination|nutrition|malnutrition|vulnerabilite\s+sanitaire|paludisme)\b")),
+        ("population", re.compile(r"\b(?:population|demograph\w*|recensement|natalite|mortalite|menages|urbanisation|jeunesse)\b")),
+        ("environment", re.compile(r"\b(?:environnement|climat|secheresse|inondation|pluviometrie|desertification|lac\s+tchad|ecologie)\b")),
+        ("infrastructure", re.compile(r"\b(?:infrastructure|electricite|eau\s+potable|forage|reseau\s+routier|pont|energie|service\s+essentiel)\b")),
+        ("transport", re.compile(r"\b(?:transport|fret|corridor|camion|mobilite|logistique|route\s+commerciale|acheminement)\b")),
+        ("economy", re.compile(r"\b(?:economie|economique|inflation|pib|tresorerie|bfr|capex|point\s+mort|roi|rentabilite|credit\s+passport|financement|banque|microfinance)\b")),
+        ("agriculture", re.compile(r"\b(?:agriculture|agricole|recolte|semence|rendement|campagne\s+agricole|cultivateur|eleveur|elevage|pluie)\b")),
+        ("markets_and_prices", re.compile(r"\b(?:marche|prix|mil|sorgho|mais|riz|arachide|niebe|sesame|xaf|fcfa|prevision|arbitrage|negoce|tchad|n'djamena|ndjamena|moundou|sarh|abeche|salamat|batha|ouaddai|kanem)\b")),
     ]
 
     @classmethod
@@ -187,7 +217,7 @@ class DomainRegistry:
         pattern: Optional[str] = None,
         active: bool = True,
     ) -> DomainModule:
-        """Dynamically registers a new domain (or updates an existing one) without modifying the Chat Engine."""
+        """Dynamically registers a new Chad data domain without modifying the Chat Engine."""
         with cls._lock:
             cls.MODULES[module.domain_id] = module
             cls._active_overrides[module.domain_id] = bool(active)
@@ -246,6 +276,13 @@ class DomainRegistry:
         return out
 
     @classmethod
+    def metadata_domains(cls) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Returns (active_domain, all_domains) in the exact schema expected by /api/v1/metadata & ExploreScreen."""
+        all_meta = [m.to_metadata_dict() for m in cls.MODULES.values()]
+        active = next((d for d in all_meta if d["status"] == "operational"), all_meta[0])
+        return active, all_meta
+
+    @classmethod
     def admin_summary(cls) -> dict[str, Any]:
         all_domains = cls.list_domains(include_inactive=True)
         active_count = sum(1 for d in all_domains if d["active"])
@@ -286,4 +323,4 @@ class DomainRegistry:
         for dom_id, pat in cls._DOMAIN_PATTERNS:
             if dom_id in cls.MODULES and cls.is_domain_active(dom_id) and pat.search(q_norm):
                 return cls.MODULES[dom_id]
-        return cls.MODULES["general_ai"]
+        return cls.MODULES["markets_and_prices"]

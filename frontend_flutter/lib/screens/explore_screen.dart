@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/fd_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
+import 'agriculture_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
   final ApiService apiService;
@@ -78,6 +79,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _error = 'Les métadonnées ne sont pas accessibles pour le moment.';
       });
     }
+  }
+
+  void _openAgriculture() {
+    final ask = widget.onSelectPrompt;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (routeContext) => AgricultureScreen(
+          apiService: widget.apiService,
+          onAskAssistant: ask == null
+              ? null
+              : (prompt) {
+                  Navigator.of(routeContext).pop();
+                  ask(prompt);
+                },
+        ),
+      ),
+    );
   }
 
   void _sendPromptOrNotice(String prompt, String fallbackLabel) {
@@ -182,11 +200,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _nextYearMonth(endPeriod);
 
     final futureDomains = [
-      {
-        'slug': 'agriculture',
-        'label': 'Agriculture',
-        'desc': 'Surfaces cultivées, rendements et intrants'
-      },
       {
         'slug': 'economy',
         'label': 'Économie',
@@ -448,6 +461,62 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Domaines actifs',
+                    style: TextStyle(
+                        fontSize: 18.5,
+                        fontWeight: FontWeight.w800,
+                        color: FDTheme.ink),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    key: const ValueKey('open-agriculture-domain'),
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: _openAgriculture,
+                    child: FDCard(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: FDTheme.blueSoft,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.eco_outlined,
+                                color: FDTheme.blue, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Agriculture',
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: FDTheme.ink),
+                                ),
+                                SizedBox(height: 3),
+                                Text(
+                                  'Pré-diagnostic agro-climatique de zone : humidité des sols et rayonnement sur 12 pôles, indicateurs agricoles nationaux.',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: FDTheme.muted,
+                                      height: 1.4),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded,
+                              color: FDTheme.muted),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),

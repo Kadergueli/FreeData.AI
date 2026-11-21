@@ -185,8 +185,9 @@ class AuthStore:
                 raise PermissionError("Compte suspendu ou désactivé. Contactez le support.")
             now = _utc_now_iso()
             conn.execute("UPDATE user_accounts SET last_login_at = ? WHERE user_id = ?", (now, row["user_id"]))
-            updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (row["user_id"],)).fetchone()
-        return self._public_user(updated)
+        user = self._public_user(row)
+        user["last_login_at"] = now
+        return user
 
     def get_user(self, user_id: str) -> Optional[dict[str, Any]]:
         clean = (user_id or "").strip().removeprefix("user:")
@@ -334,4 +335,37 @@ class AuthStore:
                 (digest,),
             ).fetchone()
         return row is not None
+
+    def get_auth_check_state(self, token: str, user_id: str) -> dict[str, Any]:
+        """Vérifie en une seule requête SQL : révocation, existence du compte, statut et `tokens_valid_after`."""
+        if not token:
+            return {"revoked": True, "exists": False, "status": None, "stale": False}
+        clean = (user_id or "").strip().removeprefix("user:")
+        digest = _token_digest(token)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    (SELECT 1 FROM revoked_tokens WHERE token_hash = ? LIMIT 1) AS is_revoked,
+                    u.user_id AS found_user_id,
+                    u.status AS user_status,
+                    u.tokens_valid_after AS tokens_valid_after
+                FROM (SELECT 1) AS _auth_probe
+                LEFT JOIN user_accounts u ON u.user_id = ?
+                """,
+                (digest, clean),
+            ).fetchone()
+        if not row:
+            return {"revoked": False, "exists": False, "status": None, "stale": False}
+        revoked = row["is_revoked"] is not None
+        exists = row["found_user_id"] is not None
+        status = row["user_status"]
+        valid_after = int(row["tokens_valid_after"] or 0) if exists else 0
+        stale = bool(valid_after > 0 and int(token_claims(token).get("iat") or 0) < valid_after)
+        return {
+            "revoked": revoked,
+            "exists": exists,
+            "status": status,
+            "stale": stale,
+        }
 

@@ -11,18 +11,17 @@ from src.entitlements import EntitlementManager
 from src.rag_engine import HybridRAGEngine
 
 
-def test_domain_classification_across_10_domains():
-    assert DomainRegistry.classify_domain("Debug ce script Python FastAPI").domain_id == "tech_programming"
-    assert DomainRegistry.classify_domain("Fais un clustering K-Means et backtest RMSE").domain_id == "data_science"
-    assert DomainRegistry.classify_domain("Explique-moi ce théorème avec un exercice").domain_id == "education"
-    assert DomainRegistry.classify_domain("Revue de littérature pour ma thèse").domain_id == "academic_research"
-    assert DomainRegistry.classify_domain("Organiser ma checklist et roadmap").domain_id == "productivity"
-    assert DomainRegistry.classify_domain("Calcule le BFR, CAPEX et point mort").domain_id == "finance"
-    assert DomainRegistry.classify_domain("Fais un business plan avec SWOT et PESTEL").domain_id == "business_entrepreneurship"
-    assert DomainRegistry.classify_domain("Prix du mil à Bol").domain_id == "agriculture"
-    assert DomainRegistry.classify_domain("Situation économique à N'Djamena en XAF").domain_id == "chad_intelligence"
-    assert DomainRegistry.classify_domain("Bonjour, comment vas-tu aujourd'hui ?").domain_id == "general_ai"
-    assert len(DomainRegistry.list_domains()) == 10
+def test_domain_classification_across_chad_domains():
+    assert DomainRegistry.classify_domain("Quels sont les indicateurs de santé et vaccination au Tchad ?").domain_id == "health"
+    assert DomainRegistry.classify_domain("Évolution de la population et recensement démographique").domain_id == "population"
+    assert DomainRegistry.classify_domain("Impact de la sécheresse et du climat autour du Lac Tchad").domain_id == "environment"
+    assert DomainRegistry.classify_domain("État des infrastructures et accès à l'eau potable").domain_id == "infrastructure"
+    assert DomainRegistry.classify_domain("Coût du transport et corridor de fret logistique").domain_id == "transport"
+    assert DomainRegistry.classify_domain("Calcule le BFR, CAPEX, point mort et risque crédit").domain_id == "economy"
+    assert DomainRegistry.classify_domain("Rendement et campagne agricole au Tchad").domain_id == "agriculture"
+    assert DomainRegistry.classify_domain("Prix du mil à Bol en XAF").domain_id == "markets_and_prices"
+    assert DomainRegistry.classify_domain("Bonjour, comment vas-tu aujourd'hui ?").domain_id == "markets_and_prices"
+    assert len(DomainRegistry.list_domains()) == 8
 
 
 def test_backend_entitlements_and_quotas():
@@ -61,9 +60,9 @@ def test_platform_chat_cross_domain_routing_and_quota(monkeypatch):
     rag.add_text_document("api", "FastAPI utilise Pydantic pour la validation.", title="API", source="API.md")
     ent = EntitlementManager()
 
-    # Tech domain on free tier
-    r_tech = server.platform_chat_endpoint(
-        server.PlatformChatRequest(message="Comment valider avec FastAPI ?", tier="free"),
+    # Health domain (in_preparation) on free tier -> grounded RAG fallback, zero invented stats
+    r_health = server.platform_chat_endpoint(
+        server.PlatformChatRequest(message="Quelles données de santé et vaccination sont disponibles ?", tier="free"),
         state=st,
         x_user_id="user:test1",
         x_premium_key=None,
@@ -71,12 +70,12 @@ def test_platform_chat_cross_domain_routing_and_quota(monkeypatch):
         svc=server.get_analytics_service(),
         ent=ent,
     )
-    assert r_tech["domain"] == "tech_programming"
-    assert "API.md" in r_tech["reply"]
+    assert r_health["domain"] == "health"
+    assert "préparation" in r_health["reply"].lower()
 
-    # Data science domain routes to IntelligenceOrchestrator
-    r_ds = server.platform_chat_endpoint(
-        server.PlatformChatRequest(message="Fais un clustering K-Means des marchés", tier="free"),
+    # Transport domain (in_preparation)
+    r_tr = server.platform_chat_endpoint(
+        server.PlatformChatRequest(message="Coût du fret et corridor de transport au Tchad", tier="free"),
         state=st,
         x_user_id="user:test1",
         x_premium_key=None,
@@ -84,11 +83,10 @@ def test_platform_chat_cross_domain_routing_and_quota(monkeypatch):
         svc=server.get_analytics_service(),
         ent=ent,
     )
-    assert r_ds["domain"] == "data_science"
-    assert r_ds["intent"] == "ml_cluster"
+    assert r_tr["domain"] == "transport"
 
-    # Agriculture / Chad domain routes to FreeDataAIAgent preserving StudyContext
-    r_ag = server.platform_chat_endpoint(
+    # Markets & Prices operational Chad domain routes to FreeDataAIAgent
+    r_mp = server.platform_chat_endpoint(
         server.PlatformChatRequest(message="Quel est le prix du mil à Lac ?", tier="free"),
         state=st,
         x_user_id="user:test1",
@@ -97,10 +95,10 @@ def test_platform_chat_cross_domain_routing_and_quota(monkeypatch):
         svc=server.get_analytics_service(),
         ent=ent,
     )
-    assert r_ag["domain"] == "agriculture"
-    assert "210" in r_ag["reply"]
+    assert r_mp["domain"] == "markets_and_prices"
+    assert "210" in r_mp["reply"]
 
     doms = server.list_domains_endpoint(x_user_id="user:test1", x_premium_key=None, ent=ent)
-    assert len(doms["domains"]) == 10
+    assert len(doms["domains"]) == 8
     assert doms["entitlements"]["used_today"] == 3
 

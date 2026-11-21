@@ -25,16 +25,14 @@ def test_multi_domain_registry_metadata_and_dynamic_extension():
     domains = DomainRegistry.list_domains(include_inactive=True)
     dom_ids = {d["domain_id"] for d in domains}
     expected = {
-        "general_ai",
-        "education",
-        "academic_research",
-        "business_entrepreneurship",
-        "finance",
-        "data_science",
+        "markets_and_prices",
         "agriculture",
-        "tech_programming",
-        "productivity",
-        "chad_intelligence",
+        "economy",
+        "health",
+        "population",
+        "environment",
+        "infrastructure",
+        "transport",
     }
     assert expected.issubset(dom_ids)
     for d in domains:
@@ -46,6 +44,7 @@ def test_multi_domain_registry_metadata_and_dynamic_extension():
     new_mod = DomainModule(
         domain_id="energy_climate_test",
         label_fr="Énergie & Climat",
+        description="Production solaire au Tchad.",
         instructions="Analyse la production solaire et l'efficience énergétique.",
         allowed_tools=("llm_reasoning", "rag_hybrid"),
         knowledge_sources=("DATA_CATALOG.md",),
@@ -77,13 +76,13 @@ def test_ml_model_registry_lifecycle_selection_traceability_and_telemetry(tmp_pa
 
     # Built-ins are REGISTERED (not falsely marked DEPLOYED when data_ready=False)
     with pytest.raises(LookupError):
-        reg.select_model(domain="agriculture", task_type="forecasting")
+        reg.select_model(domain="markets_and_prices", task_type="forecasting")
 
     # Register v2 with real evaluation metrics and dataset provenance
     reg.register_model(
         model_id="ridge_price_regressor",
         model_name="Ridge Price Forecaster v2",
-        domain="agriculture",
+        domain="markets_and_prices",
         algorithm="RidgeRegression_L2",
         task_type="forecasting",
         version=2,
@@ -95,18 +94,18 @@ def test_ml_model_registry_lifecycle_selection_traceability_and_telemetry(tmp_pa
     )
     # Still TRAINED -> not selectable for production
     with pytest.raises(LookupError):
-        reg.select_model(domain="agriculture", task_type="forecasting")
+        reg.select_model(domain="markets_and_prices", task_type="forecasting")
 
     # Transition v1 to DEPLOYED + active
     v1 = reg.transition_status("ridge_price_regressor", 1, "DEPLOYED", set_active=True)
     assert v1["lifecycle_status"] == "DEPLOYED"
     assert v1["is_active_production"] is True
-    assert reg.select_model(domain="agriculture", task_type="forecasting")["version"] == 1
+    assert reg.select_model(domain="markets_and_prices", task_type="forecasting")["version"] == 1
 
     # Promote v2 to DEPLOYED + active -> v1 automatically demoted from active_production
     v2 = reg.transition_status("ridge_price_regressor", 2, "DEPLOYED", set_active=True)
     assert v2["is_active_production"] is True
-    selected = reg.select_model(domain="agriculture", task_type="forecasting")
+    selected = reg.select_model(domain="markets_and_prices", task_type="forecasting")
     assert selected["version"] == 2
     assert selected["training_dataset_ref"] == "table_ml_forecasts_2026_10"
 
@@ -195,7 +194,7 @@ def test_admin_ai_control_center_endpoints_rbac_and_audit(monkeypatch, tmp_path:
         auth_store=auth_store,
         registry=registry,
     )
-    assert ov["domains_summary"]["total_domains"] >= 10
+    assert ov["domains_summary"]["total_domains"] >= 8
     assert ov["ml_registry_summary"]["total_registered_models"] == 3
     assert set(ov["ai_infrastructure"].keys()) >= {
         "ml_engine",
@@ -210,14 +209,14 @@ def test_admin_ai_control_center_endpoints_rbac_and_audit(monkeypatch, tmp_path:
 
     # read_only_analyst can read domains & models, but CANNOT mutate status (HTTP 403)
     dom_view = server.admin_ai_domains_endpoint(actor_info=("analyst", "read_only_analyst"), admin=admin)
-    assert dom_view["total_domains"] >= 10
+    assert dom_view["total_domains"] >= 8
 
     mod_view = server.admin_ai_models_endpoint(actor_info=("analyst", "read_only_analyst"), admin=admin)
     assert len(mod_view["models"]) == 3
 
     with pytest.raises(HTTPException) as exc_dom:
         server.admin_ai_set_domain_status_endpoint(
-            "education",
+            "health",
             server.AdminDomainStatusRequest(active=False, reason="test"),
             actor_info=("analyst", "read_only_analyst"),
             admin=admin,

@@ -258,7 +258,7 @@ def register_forecasting_evaluation_in_registry(
     entry = reg.register_model(
         model_id=model_id,
         model_name="Gold Ridge Price Forecaster (t+1, Causal Lags + Seasonality)",
-        domain="agriculture",
+        domain="markets_and_prices",
         algorithm="RidgeRegression_L2_Gold",
         task_type="forecasting",
         version=next_version,

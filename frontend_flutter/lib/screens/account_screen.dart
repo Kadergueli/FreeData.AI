@@ -198,7 +198,7 @@ class _AccountScreenState extends State<AccountScreen> {
         if (mounted) setState(() => _savingProfile = false);
       }
     } finally {
-      ctrl.dispose();
+      // Le contrôleur local est libéré après l'animation de fermeture du dialogue.
     }
   }
 
@@ -295,9 +295,7 @@ class _AccountScreenState extends State<AccountScreen> {
         if (mounted) setState(() => _changingPass = false);
       }
     } finally {
-      curCtrl.dispose();
-      nextCtrl.dispose();
-      confirmCtrl.dispose();
+      // Les contrôleurs locaux sont libérés après l'animation de fermeture du dialogue.
     }
   }
 
@@ -403,8 +401,6 @@ class _AccountScreenState extends State<AccountScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    } finally {
-      passCtrl.dispose();
     }
   }
 

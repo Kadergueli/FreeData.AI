@@ -72,7 +72,7 @@ def test_csv_and_dataset_spec_validation_rules():
 
     # 2. Target leakage rejected
     leak_spec = DatasetSpec(
-        domain="finance",
+        domain="economy",
         task_type="regression",
         target_column="y",
         feature_columns=["x1", "y"],
@@ -82,7 +82,7 @@ def test_csv_and_dataset_spec_validation_rules():
 
     # 3. Duplicate CSV headers rejected
     dup_csv = b"x1,x1,y\n1,2,3\n4,5,6\n"
-    ok_spec = DatasetSpec(domain="finance", task_type="regression", target_column="y", feature_columns=["x1"])
+    ok_spec = DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1"])
     with pytest.raises(ValueError, match="double"):
         parse_and_validate_csv(dup_csv, ok_spec)
 
@@ -128,14 +128,14 @@ def test_all_four_task_types_benchmark_metrics_artifacts_and_dedup(tmp_path: Pat
     assert pred.shape == (1,) and np.isfinite(pred[0])
 
     # 2. Regression
-    reg_spec = DatasetSpec(domain="business_entrepreneurship", task_type="regression", target_column="y", feature_columns=["x1", "x2"])
+    reg_spec = DatasetSpec(domain="economy", task_type="regression", target_column="y", feature_columns=["x1", "x2"])
     reg_res = run_csv_benchmark(_make_regression_csv(40), reg_spec, registry=reg)
     assert {c["algorithm"] for c in reg_res["candidates"]} == {"naive_mean", "linear_ols", "ridge_l2"}
     ols_cand = next(c for c in reg_res["candidates"] if c["algorithm"] == "linear_ols")
     assert ols_cand["metrics"]["r2"] > 0.90
 
     # 3. Classification (stratified holdout)
-    clf_spec = DatasetSpec(domain="finance", task_type="classification", target_column="high_risk", feature_columns=["cv", "drawdown"])
+    clf_spec = DatasetSpec(domain="economy", task_type="classification", target_column="high_risk", feature_columns=["cv", "drawdown"])
     clf_res = run_csv_benchmark(_make_classification_csv(40), clf_spec, registry=reg)
     clf_algos = {c["algorithm"] for c in clf_res["candidates"]}
     assert "majority_class" in clf_algos and "logistic_l2" in clf_algos
@@ -143,7 +143,7 @@ def test_all_four_task_types_benchmark_metrics_artifacts_and_dedup(tmp_path: Pat
     assert log_cand["metrics"]["f1_score"] >= 0.8
 
     # 4. Clustering (k=3,4,5 + inertia + silhouette)
-    cl_spec = DatasetSpec(domain="data_science", task_type="clustering", feature_columns=["price", "volatility"])
+    cl_spec = DatasetSpec(domain="markets_and_prices", task_type="clustering", feature_columns=["price", "volatility"])
     cl_res = run_csv_benchmark(_make_clustering_csv(24), cl_spec, registry=reg)
     assert {c["algorithm"] for c in cl_res["candidates"]} == {"kmeans_k3", "kmeans_k4", "kmeans_k5"}
     for c in cl_res["candidates"]:
@@ -176,7 +176,7 @@ def test_admin_benchmark_endpoint_rbac_concurrency_and_prod_preservation(monkeyp
 
     csv_b64 = base64.b64encode(_make_regression_csv(32)).decode("ascii")
     req = server.AdminBenchmarkRequest(
-        domain="finance",
+        domain="economy",
         task_type="regression",
         target_column="y",
         feature_columns=["x1", "x2"],

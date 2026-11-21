@@ -617,8 +617,8 @@ class UserDocumentStore:
         query: str,
         *,
         project_id: Optional[str] = None,
-        top_k: int = 3,
-        max_excerpt_chars: int = 440,
+        top_k: int = 5,
+        max_excerpt_chars: int = 700,
         min_score: float = 0.25,
     ) -> list[dict[str, Any]]:
         """Retrieves top-K chunks strictly belonging to `owner_id` (and scoped to `project_id` when provided),

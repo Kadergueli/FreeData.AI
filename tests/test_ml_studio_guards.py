@@ -21,7 +21,7 @@ def _csv(n: int) -> bytes:
 def _run(tmp_path, n, provenance):
     reg = ModelRegistry(models_dir=str(tmp_path / "models"), db_path=str(tmp_path / "reg.db"))
     spec = DatasetSpec(
-        domain="finance", task_type="regression", target_column="y", feature_columns=["x1", "x2"],
+        domain="economy", task_type="regression", target_column="y", feature_columns=["x1", "x2"],
         dataset_provenance=provenance,
     )
     res = run_csv_benchmark(_csv(n), spec, registry=reg)
@@ -30,7 +30,7 @@ def _run(tmp_path, n, provenance):
 
 def test_endpoint_requires_source_and_license():
     req = server.AdminBenchmarkRequest(
-        domain="finance", task_type="regression", target_column="y", feature_columns=["x1"],
+        domain="economy", task_type="regression", target_column="y", feature_columns=["x1"],
         csv_base64=base64.b64encode(_csv(50)).decode(), dataset_provenance={"description": "sans source"},
     )
     with pytest.raises(HTTPException) as exc:
@@ -41,18 +41,18 @@ def test_endpoint_requires_source_and_license():
 def test_large_dataset_better_than_baseline_is_eligible(tmp_path):
     reg, cands = _run(tmp_path, 300, {"source": "Jeu synthétique", "license": "CC0"})
     ridge = cands["ridge_l2"]
-    assert promotion_blockers(reg, "bench_finance_regression_ridge_l2", ridge["version"]) == []
+    assert promotion_blockers(reg, "bench_economy_regression_ridge_l2", ridge["version"]) == []
 
 
 def test_baseline_cannot_be_activated(tmp_path):
     reg, cands = _run(tmp_path, 300, {"source": "Jeu synthétique", "license": "CC0"})
-    b = promotion_blockers(reg, "bench_finance_regression_naive_mean", cands["naive_mean"]["version"])
+    b = promotion_blockers(reg, "bench_economy_regression_naive_mean", cands["naive_mean"]["version"])
     assert any("référence" in x for x in b)
 
 
 def test_small_sample_and_missing_provenance_are_blocked(tmp_path):
     reg, cands = _run(tmp_path, 40, {})
-    b = promotion_blockers(reg, "bench_finance_regression_ridge_l2", cands["ridge_l2"]["version"])
+    b = promotion_blockers(reg, "bench_economy_regression_ridge_l2", cands["ridge_l2"]["version"])
     assert any("Provenance" in x for x in b)
     assert any("trop petit" in x for x in b)
 
