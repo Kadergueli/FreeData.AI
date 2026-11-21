@@ -364,98 +364,95 @@ class _MarketProScreenState extends State<MarketProScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      if (widget.embedded)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: FDSecondaryButton(
-                              label: _exportingCsv
-                                  ? 'Export…'
-                                  : 'Export CSV institutionnel',
-                              icon: Icons.download_outlined,
-                              onPressed: _exportingCsv ? null : _exportCsv,
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text(
+                            'Prévisions Delta-Ridge ML (4 cultures validées)',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
                             ),
                           ),
-                        ),
-                      Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Prévisions Delta-Ridge ML (4 cultures validées)',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.ink,
-                                ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FDSecondaryButton(
+                                label: _exportingCsv
+                                    ? 'Export…'
+                                    : 'Export CSV institutionnel',
+                                icon: Icons.download_outlined,
+                                onPressed: _exportingCsv ? null : _exportCsv,
                               ),
-                            ),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                FDSecondaryButton(
-                                  label:
-                                      _exportingCsv ? 'Export…' : 'Export CSV',
-                                  icon: Icons.download_outlined,
-                                  onPressed: _exportingCsv ? null : _exportCsv,
-                                ),
-                                FDPrimaryButton(
-                                  label: 'Générer Credit Passport Agro',
-                                  icon: Icons.shield_outlined,
-                                  onPressed: _openCreditPassportAgroDialog,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: forecasts.map((f) {
-                            final mape = f['historical_mape_pct'];
-                            return SizedBox(
-                              width: 210,
-                              child: FDCard(
-                                padding: const EdgeInsets.all(14),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      f['label_fr']?.toString() ?? '',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.ink,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '${f['predicted_xaf_kg'] ?? '—'} XAF/kg',
-                                      style: const TextStyle(
-                                        fontSize: 19,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppColors.blue,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      mape != null
-                                          ? 'MAPE historique : $mape %'
-                                          : 'MAPE historique : N/D',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.muted,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              FDPrimaryButton(
+                                label: 'Générer Credit Passport Agro',
+                                icon: Icons.shield_outlined,
+                                onPressed: _openCreditPassportAgroDialog,
                               ),
-                            );
-                          }).toList(),
-                        ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final w = constraints.maxWidth;
+                          final cardW = w >= 760
+                              ? (w - 36) / 4
+                              : (w >= 340 ? (w - 12) / 2 : w);
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: forecasts.map((f) {
+                              final mape = f['historical_mape_pct'];
+                              return SizedBox(
+                                width: cardW,
+                                child: FDCard(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        f['label_fr']?.toString() ?? '',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.ink,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${f['predicted_xaf_kg'] ?? '—'} XAF/kg',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.blue,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        mape != null
+                                            ? 'MAPE historique : $mape %'
+                                            : 'MAPE historique : N/D',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.muted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
                         const SizedBox(height: 16),
                         const Text(
                           'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
