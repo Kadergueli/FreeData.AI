@@ -1494,7 +1494,7 @@ class AgroFieldAssessmentRequest(BaseModel):
     project_id: Optional[str] = Field(None, max_length=80)
     gps_lat: Optional[float] = Field(None, ge=-90.0, le=90.0)
     gps_lon: Optional[float] = Field(None, ge=-180.0, le=180.0)
-    area_hectares: Optional[float] = Field(None, gt=0.0, le=500000.0)
+    area_hectares: float = Field(..., gt=0.0, le=500000.0)
     custom_yield_kg_ha: Optional[float] = Field(None, gt=0.0, le=20000.0)
     lab_soil_inputs: dict[str, Any] = Field(default_factory=dict)
     agronomist_field_notes: str = Field("", max_length=4000)
@@ -1571,6 +1571,10 @@ def create_agro_field_assessment_endpoint(
         hist_df=STATE.get("hist_df"),
         track_record=STATE.get("track_record"),
     )
+    if not regional and not computed.get("point_satellite_data"):
+        climate = computed.get("idw_climate") or {}
+        if climate.get("rz_growing") is None and climate.get("surf_growing") is None:
+            raise HTTPException(status_code=503, detail="Aucune donnée climatique exploitable n'est disponible pour cette localisation : la source satellitaire ponctuelle et les données régionales sont indisponibles.")
     saved = assess_store.create_assessment(
         owner_id,
         province_hub=hub,
