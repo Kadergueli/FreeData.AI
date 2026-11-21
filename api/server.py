@@ -61,6 +61,11 @@ from src.security import filter_rag_hits_for_owner, validate_uploaded_document, 
 from src.admin import AdminService, ROLE_PERMISSIONS
 from src.backup import backup_all_databases
 from src.support_feedback import SupportFeedbackStore
+from src.agro.assessment import build_field_assessment
+from src.agro.indicators import HUBS as AGRO_HUBS, indicators_frame as agro_indicators_frame, load_nasa_csv as load_agro_nasa_csv, normalize_hub as agro_normalize_hub
+from src.agro.pdf import render_assessment_pdf as render_agro_pdf
+from src.agro.store import AgroAssessmentStore
+from src.agro.zone import build_zone_prediagnosis
 
 logger = logging.getLogger("freedata.api")
 
@@ -1106,6 +1111,204 @@ def get_anomalies(
     df = df.sort_values(["month", "score"], ascending=[False, False], key=lambda c: c.abs() if c.name == "score" else c)
     out = df.head(limit).astype(object).where(df.head(limit).notna(), None)
     return {"count": len(out), "items": out.to_dict(orient="records")}
+
+
+# ── Agriculture : indicateurs de zone (public) et évaluations de terrain (PRO) ──────────────────────
+_AGRO_CACHE: dict = {"ts": 0.0, "df": None}
+_AGRO_TTL_SECONDS = 3600
+_AGRO_STORE: Optional[AgroAssessmentStore] = None
+
+
+def get_agro_store() -> AgroAssessmentStore:
+    global _AGRO_STORE
+    if _AGRO_STORE is None:
+        _AGRO_STORE = AgroAssessmentStore()
+    return _AGRO_STORE
+
+
+def _agro_indicator_frame() -> pd.DataFrame:
+    """Indicateurs Gold (table_agro_indicators) ; repli sur AGRO_INDICATORS_CSV ; vide sinon (jamais de donnée inventée)."""
+    now = time.time()
+    if _AGRO_CACHE["df"] is not None and now - _AGRO_CACHE["ts"] < _AGRO_TTL_SECONDS:
+        return _AGRO_CACHE["df"]
+    df = pd.DataFrame()
+    if settings.data_backend == "supabase_rest":
+        try:
+            df = agro_indicators_frame(_fetch_gold_table("table_agro_indicators").to_dict(orient="records"))
+        except Exception:  # table absente (sql/16 non appliqué) ou réseau : on essaie le repli
+            logging.getLogger(__name__).warning("table_agro_indicators indisponible", exc_info=True)
+    if df.empty:
+        csv_path = os.getenv("AGRO_INDICATORS_CSV", "").strip()
+        if csv_path and os.path.exists(csv_path):
+            try:
+                df = agro_indicators_frame(load_agro_nasa_csv(csv_path)[0])
+            except Exception:
+                logging.getLogger(__name__).warning("AGRO_INDICATORS_CSV invalide", exc_info=True)
+    _AGRO_CACHE.update(ts=now, df=df)
+    return df
+
+
+class AgroSoilIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    ph: Optional[float] = None
+    organic_matter_pct: Optional[float] = None
+    texture: Optional[str] = Field(default=None, max_length=30)
+    sampling_date: Optional[str] = Field(default=None, max_length=10)
+    lab_name: Optional[str] = Field(default=None, max_length=80)
+
+
+class AgroBrandingIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    organization_name: Optional[str] = Field(default=None, max_length=80)
+    agronomist_name: Optional[str] = Field(default=None, max_length=80)
+    primary_color: Optional[str] = Field(default=None, max_length=7)
+
+
+class AgroFieldAssessmentIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    hub: str = Field(max_length=40)
+    crop: Optional[str] = Field(default=None, max_length=60)
+    soil: Optional[AgroSoilIn] = None
+    branding: Optional[AgroBrandingIn] = None
+
+
+def _agro_zone_or_http(hub: str, state: dict) -> dict:
+    try:
+        return build_zone_prediagnosis(_agro_indicator_frame(), hub, state.get("forecast_df"))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Hub inconnu. Voir /api/v1/agro/hubs.")
+    except LookupError:
+        raise HTTPException(status_code=503, detail="Indicateurs agro-climatiques indisponibles pour ce hub.")
+
+
+def _agro_build(body: AgroFieldAssessmentIn, state: dict) -> dict:
+    zone = _agro_zone_or_http(body.hub, state)
+    try:
+        return build_field_assessment(
+            zone, body.soil.model_dump() if body.soil else None,
+            body.branding.model_dump() if body.branding else None, crop=body.crop,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/agro/hubs", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_hubs():
+    return {"count": len(AGRO_HUBS), "items": [{"hub": h, "region": r} for h, r in AGRO_HUBS.items()]}
+
+
+@app.get("/api/v1/agro/indicators", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_indicators(
+    hub: Optional[str] = Query(None, max_length=40),
+    indicator: Optional[str] = Query(None, max_length=60),
+    limit: int = Query(200, ge=1, le=2000),
+):
+    """Indicateurs publics, chaque ligne avec source, licence, date, résolution spatiale et niveau de confiance."""
+    df = _agro_indicator_frame()
+    if hub:
+        name = agro_normalize_hub(hub)
+        if name is None:
+            raise HTTPException(status_code=404, detail="Hub inconnu. Voir /api/v1/agro/hubs.")
+        df = df[df["region"] == name]
+    if indicator:
+        df = df[df["indicator"] == indicator.strip()]
+    df = df.sort_values(["region", "indicator", "reference_date"], ascending=[True, True, False]).head(limit)
+    return {"count": len(df), "items": df.astype(object).where(df.notna(), None).to_dict(orient="records")}
+
+
+@app.get("/api/v1/agro/zone-prediagnosis", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_zone_prediagnosis(hub: str = Query(..., max_length=40), state: dict = Depends(get_state)):
+    """Grand Public : « Pré-diagnostic agro-climatique de zone » (jamais une analyse de parcelle)."""
+    return _agro_zone_or_http(hub, state)
+
+
+@app.post("/api/v1/agro/field-assessment/preview", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_field_assessment_preview(
+    body: AgroFieldAssessmentIn,
+    format: str = Query("json", pattern="^(json|pdf)$"),
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Aperçu en direct (PRO) : ne stocke rien. Le titre est décidé par le QA gate, pas par le client."""
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain agronome")
+    assessment = _agro_build(body, state)
+    if format == "pdf":
+        return Response(render_agro_pdf(assessment), media_type="application/pdf",
+                        headers={"Content-Disposition": 'inline; filename="diagnostic-terrain.pdf"'})
+    return assessment
+
+
+@app.post("/api/v1/agro/field-assessment", dependencies=[Depends(_data_rate_limit_dependency)], status_code=201)
+def agro_field_assessment_create(
+    body: AgroFieldAssessmentIn,
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    store: AgroAssessmentStore = Depends(get_agro_store),
+):
+    """Enregistre l'évaluation dans l'espace PRIVÉ du compte (isolation par owner_id)."""
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain agronome")
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Connexion requise pour enregistrer une évaluation.")
+    return store.create(owner_id, _agro_build(body, state))
+
+
+def _agro_owner_pro(x_premium_key, x_user_id, authorization, sub_store) -> str:
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain agronome")
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Connexion requise.")
+    return owner_id
+
+
+@app.get("/api/v1/agro/field-assessments", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_field_assessments_list(
+    x_premium_key: Optional[str] = Header(default=None), x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    store: AgroAssessmentStore = Depends(get_agro_store),
+):
+    owner_id = _agro_owner_pro(x_premium_key, x_user_id, authorization, sub_store)
+    items = store.list(owner_id)
+    return {"count": len(items), "items": items}
+
+
+@app.get("/api/v1/agro/field-assessments/{assessment_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_field_assessment_get(
+    assessment_id: str, format: str = Query("json", pattern="^(json|pdf)$"),
+    x_premium_key: Optional[str] = Header(default=None), x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    store: AgroAssessmentStore = Depends(get_agro_store),
+):
+    owner_id = _agro_owner_pro(x_premium_key, x_user_id, authorization, sub_store)
+    rec = store.get(owner_id, assessment_id) if re.fullmatch(r"[0-9a-f]{32}", assessment_id) else None
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Évaluation introuvable.")
+    if format == "pdf":
+        return Response(render_agro_pdf(rec), media_type="application/pdf")
+    return rec
+
+
+@app.delete("/api/v1/agro/field-assessments/{assessment_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_field_assessment_delete(
+    assessment_id: str,
+    x_premium_key: Optional[str] = Header(default=None), x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    store: AgroAssessmentStore = Depends(get_agro_store),
+):
+    owner_id = _agro_owner_pro(x_premium_key, x_user_id, authorization, sub_store)
+    if not (re.fullmatch(r"[0-9a-f]{32}", assessment_id) and store.delete(owner_id, assessment_id)):
+        raise HTTPException(status_code=404, detail="Évaluation introuvable.")
+    return {"deleted": True}
 
 
 @app.get("/api/v1/credit-passport", dependencies=[Depends(_data_rate_limit_dependency)])

@@ -412,6 +412,78 @@ class ApiService {
         resp.statusCode, 'Erreur chargement alertes (${resp.statusCode})');
   }
 
+  // ── Agriculture : pré-diagnostic de zone (public) et évaluation de terrain (PRO) ──
+  Future<List<dynamic>> getAgroHubs() async {
+    final resp = await _getWithRetry(Uri.parse('$baseUrl/api/v1/agro/hubs'));
+    if (resp.statusCode == 200) {
+      final data =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      return data['items'] as List<dynamic>;
+    }
+    throw ApiHttpException(
+        resp.statusCode, 'Erreur chargement des hubs (${resp.statusCode})');
+  }
+
+  Future<Map<String, dynamic>> getAgroZonePrediagnosis(String hub) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/zone-prediagnosis')
+        .replace(queryParameters: {'hub': hub});
+    final resp = await _getWithRetry(uri);
+    if (resp.statusCode == 200) {
+      return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw ApiHttpException(resp.statusCode,
+        'Pré-diagnostic indisponible pour ce hub (${resp.statusCode})');
+  }
+
+  String _agroError(http.Response resp) {
+    try {
+      final d = jsonDecode(utf8.decode(resp.bodyBytes));
+      if (d is Map && d['detail'] is String) return d['detail'] as String;
+    } catch (_) {}
+    return 'Erreur ${resp.statusCode}';
+  }
+
+  /// Aperçu en direct (PRO) : ne stocke rien. [pdf] = true renvoie les octets du PDF certifié.
+  Future<Map<String, dynamic>> previewAgroAssessment(
+      Map<String, dynamic> body) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/field-assessment/preview');
+    final resp = await _client
+        .post(uri,
+            headers: _projectHeaders(includeJson: true), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 25));
+    _notifyIfSessionExpired(resp.statusCode);
+    if (resp.statusCode == 200) {
+      return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw ApiHttpException(resp.statusCode, _agroError(resp));
+  }
+
+  Future<Uint8List> previewAgroAssessmentPdf(Map<String, dynamic> body) async {
+    final uri = Uri.parse(
+        '$baseUrl/api/v1/agro/field-assessment/preview?format=pdf');
+    final resp = await _client
+        .post(uri,
+            headers: _projectHeaders(includeJson: true), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 40));
+    _notifyIfSessionExpired(resp.statusCode);
+    if (resp.statusCode == 200) return resp.bodyBytes;
+    throw ApiHttpException(resp.statusCode, _agroError(resp));
+  }
+
+  Future<Map<String, dynamic>> saveAgroAssessment(
+      Map<String, dynamic> body) async {
+    final uri = Uri.parse('$baseUrl/api/v1/agro/field-assessment');
+    final resp = await _client
+        .post(uri,
+            headers: _projectHeaders(includeJson: true), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 25));
+    _notifyIfSessionExpired(resp.statusCode);
+    if (resp.statusCode == 201) {
+      return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw ApiHttpException(resp.statusCode, _agroError(resp));
+  }
+
   Future<List<dynamic>> getAnomalies({
     String? province,
     String? commodity,

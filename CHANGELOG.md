@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - Agriculture : pré-diagnostic de zone et diagnostic de terrain PRO
+### Added
+- `src/agro/` : indicateurs NASA POWER par hub (12 hubs) et Banque mondiale (national, liste blanche), chacun avec source, licence, date, résolution spatiale et niveau de confiance ; aucune température ni précipitation en V1 ; Open-Meteo Agro-Climate et FAOSTAT exclus.
+- `sql/16_gold_agro_indicators.sql` (Gold public, lecture seule) et `sql/17_agro_field_assessments_private.sql` (privé, RLS, isolé par compte).
+- `scripts/load_agro_indicators.py` : validation (sans `--apply`) puis chargement du CSV NASA large et du CSV Banque mondiale long.
+- API : `GET /api/v1/agro/hubs`, `/agro/indicators`, `/agro/zone-prediagnosis` (publics) ; `POST /agro/field-assessment[/preview]`, `GET/DELETE /agro/field-assessments[/{id}]` (PRO). Le titre du document est décidé par le QA gate : « Diagnostic de terrain (pré-achat) » seulement avec mesures de sol complètes, sinon « Pré-diagnostic Zonal Uniquement ».
+- Flutter : écran `AgroScreen` (espace Grand public, espace Agronome PRO avec aperçu en direct, PDF co-brandé, vue intégration).
+
 ## [1.2.0] - 2026-11-18
 ### Added
 - Persistent `StudyContext` (`src/study_context.py`) preserving instructions beyond 8 chat turns with contradiction detection.

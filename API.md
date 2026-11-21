@@ -36,3 +36,19 @@ Base URL (production): `https://freedata-ai.onrender.com`
 - `GET /api/v1/metrics` — Aggregate request counts, 4xx/5xx errors, QA blocks, and average latency.
 - `POST /api/v1/refresh` — Reload Gold tables in memory.
 
+
+
+## Agriculture (hubs régionaux)
+
+| Route | Accès | Rôle |
+|---|---|---|
+| `GET /api/v1/agro/hubs` | public | Les 12 hubs et leur province |
+| `GET /api/v1/agro/indicators?hub=&indicator=` | public | Lignes avec `source`, `license`, `reference_date`, `spatial_resolution`, `confidence_level` |
+| `GET /api/v1/agro/zone-prediagnosis?hub=` | public | « Pré-diagnostic agro-climatique de zone » + prévisions de prix validées (erreur historique mesurée) |
+| `POST /api/v1/agro/field-assessment/preview[?format=pdf]` | PRO | Aperçu sans stockage |
+| `POST /api/v1/agro/field-assessment` | PRO + compte | Enregistre dans l'espace privé (isolé par `owner_id`) |
+| `GET/DELETE /api/v1/agro/field-assessments[/{id}[?format=pdf]]` | PRO + compte | Liste, lecture, suppression |
+
+Corps de `POST /agro/field-assessment` : `{"hub": "Abeche", "crop": "Mil", "soil": {"ph": 6.4, "organic_matter_pct": 1.8, "texture": "limon", "sampling_date": "2026-07-01", "lab_name": "…"}, "branding": {"organization_name": "…", "agronomist_name": "…", "primary_color": "#1B5E20"}}`.
+Champs inconnus refusés (422). Titre « Diagnostic de terrain (pré-achat) » seulement si pH + date de prélèvement + (matière organique ou texture) sont fournis ; sinon « Pré-diagnostic Zonal Uniquement ».
+Les indicateurs sont lus dans `table_agro_indicators` (repli : fichier `AGRO_INDICATORS_CSV`).

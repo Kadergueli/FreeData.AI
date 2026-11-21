@@ -12,6 +12,7 @@ import 'screens/analytics_screen.dart';
 import 'screens/docs_screen.dart';
 import 'screens/forecast_screen.dart';
 import 'screens/passport_screen.dart';
+import 'screens/agro_screen.dart';
 import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -508,6 +509,8 @@ class _MainShellState extends State<MainShell> {
         return 'Projets PRO';
       case 7:
         return 'Abonnement & Quotas';
+      case 8:
+        return 'Agriculture';
       default:
         return 'FreeData.AI';
     }
@@ -842,9 +845,13 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
+      if (_visitedTabs.contains(8))
+        AgroScreen(apiService: _apiService)
+      else
+        const SizedBox.shrink(),
     ];
 
-    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5)
+    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5 && _selectedIndex <= 7)
         ? 0
         : _selectedIndex;
 
@@ -1558,6 +1565,7 @@ class _SidebarContentState extends State<_SidebarContent> {
               _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
               _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
               _navItem(4, Icons.shield_outlined, 'Credit Passport'),
+              _navItem(8, Icons.agriculture_outlined, 'Agriculture'),
               if (widget.hasPremiumKey) ...[
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
