@@ -205,7 +205,7 @@ def _data_rate_limit_dependency(request: Request):
 
 
 def _admin_rate_limit_dependency(request: Request):
-    check_rate_limit(request, 10, "admin")
+    check_rate_limit(request, 60, "admin")
 
 
 def _fetch_gold_table(table_name: str, privileged: bool = False) -> pd.DataFrame:
@@ -3032,16 +3032,27 @@ def _handle_agriculture_chat(
         rz_last = rz_pts[-1] if rz_pts else {}
         sf_last = sf_pts[-1] if sf_pts else {}
         alerts = profile.get("alerts") or []
+        _lvl_fr = {"moderate": "modérée", "severe": "sévère"}
         alert_text = (
-            ", ".join(f"{a.get('indicator')} ({a.get('level')})" for a in alerts)
+            ", ".join(
+                f"{a.get('label') or a.get('indicator_label') or a.get('indicator_key') or 'Déficit hydrique'} "
+                f"({_lvl_fr.get(str(a.get('level') or '').lower(), a.get('level') or 'alerte')})"
+                for a in alerts
+            )
             if alerts
             else "normale"
         )
         risks = profile.get("hydric_risk_signals") or {}
         prov = profile.get("provenance") or {}
+        sp_res = prov.get("spatial_resolution", "regional_city_hub")
+        if isinstance(sp_res, (list, tuple)):
+            sp_res = ", ".join(str(x) for x in sp_res) or "regional_city_hub"
+        conf_lvl = prov.get("confidence_level", "Satellite_Modeled_Regional")
+        if isinstance(conf_lvl, (list, tuple)):
+            conf_lvl = ", ".join(str(x) for x in conf_lvl) or "Satellite_Modeled_Regional"
         lines = [
             f"### Pré-diagnostic agro-climatique de zone — {matched_hub}",
-            f"- **Résolution géographique** : Pôle régional (`{prov.get('spatial_resolution', 'regional_city_hub')}`, niveau `{prov.get('confidence_level', 'Satellite_Modeled_Regional')}`). Ce n'est pas une analyse de parcelle.",
+            f"- **Résolution géographique** : Pôle régional (`{sp_res}`, niveau `{conf_lvl}`). Ce n'est pas une analyse de parcelle.",
         ]
         if rz_last:
             lines.append(
@@ -3110,18 +3121,72 @@ def _handle_agriculture_chat(
                 bd = ws.get("breakdown") or {}
                 gps = cs.get("gps_logistics") or {}
                 econ = cs.get("verified_economics") or {}
-                rx = ((cs.get("bulletin") or {}).get("prescriptions") or [])[:3]
-                agro_facts += (
-                    f"\n\n**Bulletin Agronome PRO de l'utilisateur ({matched_assess.get('report_verification_code')}) :**\n"
-                    f"- Pôle : `{matched_assess.get('province_hub')}`, Surface : `{matched_assess.get('area_hectares') or '1.0'} ha`, "
-                    f"Score unifié : `{ws.get('total_score', '—')}/100` "
-                    f"(Eau `{bd.get('hydric_security', {}).get('score', '—')}/50` + "
-                    f"Sol `{bd.get('soil_quality', {}).get('score', '—')}/30` + "
-                    f"Marché `{bd.get('market_logistics', {}).get('score', '—')}/20`).\n"
-                    f"- Logistique GPS : distance `{gps.get('distance_hub_km', '—')} km`, décote bord-champ `-{gps.get('farmgate_discount_pct', 8)}%`.\n"
-                    f"- Formule économique : `{econ.get('formula_text', '—')}`.\n"
-                    f"- Prescriptions : {' | '.join(rx) if rx else '—'}"
+                bulletin = cs.get("bulletin") or {}
+                lab_params = bulletin.get("lab_parameters") or []
+                crops = cs.get("crop_assessments") or []
+                rx = bulletin.get("prescriptions") or []
+                idw_hubs = [
+                    f"{h.get('hub')} ({h.get('road_distance_km', '—')} km, {h.get('weight_pct', 0)}%)"
+                    for h in (gps.get("idw_hubs") or [])
+                    if (h.get("weight_pct") or 0) > 0
+                ]
+                gps_txt = (
+                    f"{gps.get('gps_lat')}, {gps.get('gps_lon')}"
+                    if gps.get("gps_provided")
+                    else "Non fournies"
                 )
+
+                b_lines = [
+                    f"### Analyse détaillée du bulletin {matched_assess.get('report_verification_code')}",
+                    f"**1. Identification & Logistique IDW :** Pôle `{matched_assess.get('province_hub')}`, "
+                    f"Surface `{matched_assess.get('area_hectares') or '1.0'} ha`, GPS `{gps_txt}`, "
+                    f"Distance pôle `{gps.get('distance_hub_km', '—')} km`, Distance N'Djamena `{gps.get('distance_ndjamena_km', '—')} km`, "
+                    f"Décote bord-champ `-{gps.get('farmgate_discount_pct', 8)}%`.",
+                    f"- **Score global** : `{ws.get('total_score', '—')}/100` ({ws.get('verdict', '—')}) — "
+                    f"Eau `{bd.get('hydric_security', {}).get('score', '—')}/50` + "
+                    f"Sol `{bd.get('soil_quality', {}).get('score', '—')}/30` + "
+                    f"Marché `{bd.get('market_logistics', {}).get('score', '—')}/20` · Confiance : `{cs.get('confidence_level', '—')}`.",
+                ]
+                if idw_hubs:
+                    b_lines.append(f"- **Interpolation IDW (k=3)** : {' · '.join(idw_hubs)}.")
+
+                if lab_params:
+                    b_lines.append("\n**2. Paramètres Pédologiques & Agro-Climatiques :**")
+                    for p in lab_params:
+                        b_lines.append(
+                            f"- **{p.get('parameter')}** : `{p.get('value')}` (norme `{p.get('optimal')}`, statut : `{p.get('status')}`, source : {p.get('source')})"
+                        )
+
+                if crops:
+                    b_lines.append("\n**3. Matrice des 4 cultures & Rentabilité :**")
+                    for c in crops:
+                        ce = c.get("verified_economics") or {}
+                        b_lines.append(
+                            f"- **{c.get('label_fr')}** : `{c.get('suitability_score')}/100` ({c.get('suitability_label')}) "
+                            f"[Eau `{c.get('water_score', '—')}/50` + Sol `{c.get('soil_score', '—')}/30` + Marché `{c.get('market_score', '—')}/20`] · "
+                            f"Prix bord-champ `{ce.get('farmgate_price_central_xaf_kg', 'N/A')} FCFA/kg` · "
+                            f"CA brut estimé `{c.get('indicative_gross_revenue_xaf', '—')} FCFA`"
+                        )
+                if econ.get("formula_text"):
+                    b_lines.append(
+                        f"- **Formule vérifiable** : `{econ['formula_text']}` "
+                        f"(Plancher stress 2024–2026 : `{econ.get('ca_stress_xaf', '—')} FCFA`, incertitude `±{econ.get('mape_pct', '—')}%`)."
+                    )
+                if econ.get("arbitrage_bonus"):
+                    ab = econ["arbitrage_bonus"]
+                    b_lines.append(
+                        f"- **Opportunité d'expédition directe** : `{ab.get('target_province')}` à `{ab.get('target_price_xaf_kg')} FCFA/kg` "
+                        f"(+{ab.get('spread_xaf_kg')} FCFA/kg, soit +{ab.get('potential_gross_gain_xaf')} FCFA brut)."
+                    )
+
+                if rx or matched_assess.get("agronomist_field_notes"):
+                    b_lines.append("\n**4. Prescriptions Techniques & Aide à la Décision :**")
+                    for r in rx:
+                        b_lines.append(f"- {r}")
+                    if matched_assess.get("agronomist_field_notes"):
+                        b_lines.append(f"- *Observations terrain* : {matched_assess['agronomist_field_notes']}")
+
+                agro_facts += "\n\n" + "\n".join(b_lines)
         except Exception:
             pass
 
@@ -3152,12 +3217,9 @@ def _handle_agriculture_chat(
 
     reply = agro_facts
     if eff_tier == "premium" and settings.llm_api_key:
-        system_guided_context = (
-            f"[Directives domaine Agriculture] {domain_mod.instructions}\n\n{agro_facts}"
-        )
         llm_reply = agent._synthesize_with_llm(
             payload.message,
-            system_guided_context,
+            agro_facts,
             list(private_chunks) + rag_hits,
             history=payload.history,
         )
