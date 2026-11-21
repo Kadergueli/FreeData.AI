@@ -143,11 +143,26 @@ def render_agro_assessment_pdf(
         else "Satellite IDW Uniquement — En attente d'analyse physique"
     )
     qa_badge = "DONNÉES LABORATOIRE FOURNIES — VALIDATION REQUISE" if has_lab else "ESTIMATION RÉGIONALE — SANS MESURE LABORATOIRE"
+    gps_provided = bool(gps.get("gps_provided") or assessment.get("gps_lat") is not None and assessment.get("gps_lon") is not None)
     resolution_title = (
         "PRÉ-DIAGNOSTIC AGRONOMIQUE — DONNÉES LABORATOIRE FOURNIES"
         if has_lab
-        else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
+        else (
+            "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (ESTIMATION SATELLITAIRE GÉORÉFÉRENCÉE)"
+            if gps_provided
+            else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE RÉGIONALE — GPS NON FOURNI)"
+        )
     )
+    soil_basis = scores.get("soil_basis")
+    soil_cap = 22 if soil_basis == "soilgrids_zonal" else 15 if soil_basis == "satellite_proxy" else None
+    soil_method = (
+        "SoilGrids zonal"
+        if soil_basis == "soilgrids_zonal"
+        else "proxy satellitaire"
+        if soil_basis == "satellite_proxy"
+        else "estimation pédologique"
+    )
+    soil_cap_text = f" (plafond modèle : {soil_cap}/30 pts)" if soil_cap is not None else ""
 
     story: list[Any] = []
 
@@ -193,8 +208,8 @@ def render_agro_assessment_pdf(
         warn_tbl = Table(
             [[Paragraph(
                 _clean_pdf_text(
-                    "<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
-                    "la composante sol (plafonnée à 22/30 pts dans le modèle) est une estimation régionale et doit être confirmée par une analyse physique."
+                    f"<b>AVERTISSEMENT SATELLITAIRE :</b> Mesures de sol laboratoire non fournies — "
+                    f"la composante sol repose sur {soil_method}{soil_cap_text} ; cette estimation ne remplace pas une analyse physique."
                 ),
                 body_style,
             )]],
@@ -376,10 +391,56 @@ def render_agro_assessment_pdf(
         story.append(Paragraph(_clean_pdf_text(f"<b>Signature Agronome PRO :</b> {firm}"), body_style))
 
     story.append(Spacer(1, 0.12 * cm))
+    # --- 5. PROVENANCE, LICENCES & LIMITES DES DONNÉES ---
+    story.append(Paragraph("5. Provenance, Licences & Limites des Données", h2_style))
+    prov_blocks = [
+        ("Indicateurs régionaux", scores.get("provenance") or {}),
+        ("Indicateurs nationaux", scores.get("national_provenance") or {}),
+    ]
+    site = scores.get("site_profile") or {}
+    if site.get("soil", {}).get("provenance"):
+        sp = site["soil"]["provenance"]
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"Sol — {sp.get('source', 'Source non précisée')} | Licence : {sp.get('license', 'non précisée')} | "
+                f"Résolution : {sp.get('spatial_resolution', 'non précisée')} | {sp.get('note', '')}"
+            ), body_style
+        ))
+    if site.get("climate", {}).get("provenance"):
+        cp = site["climate"]["provenance"]
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"Climat — {cp.get('source', 'Source non précisée')} | Licence : {cp.get('license', 'non précisée')} | "
+                f"Résolution : {cp.get('spatial_resolution', 'non précisée')} | {cp.get('note', '')}"
+            ), body_style
+        ))
+    for label, prov in prov_blocks:
+        sources = prov.get("sources") or []
+        licenses = prov.get("licenses") or []
+        period = prov.get("reference_period") or {}
+        resolutions = prov.get("spatial_resolution") or []
+        confidence = prov.get("confidence_level") or []
+        if not (sources or licenses or period or resolutions or confidence):
+            continue
+        period_text = (
+            f"{period.get('first', '—')} à {period.get('last', '—')}"
+            if isinstance(period, dict) else str(period)
+        )
+        story.append(Paragraph(
+            _clean_pdf_text(
+                f"{label} — Sources : {', '.join(map(str, sources)) or 'non renseignées'} | "
+                f"Licences déclarées : {', '.join(map(str, licenses)) or 'non renseignées'} | "
+                f"Période : {period_text} | Maille : {', '.join(map(str, resolutions)) or 'non renseignée'} | "
+                f"Confiance : {', '.join(map(str, confidence)) or 'non précisée'}"
+            ), body_style
+        ))
+    story.append(Spacer(1, 0.08 * cm))
     story.append(
         Paragraph(
             _clean_pdf_text(
-                "Sources, licences et limites : les jeux de données et produits dérivés doivent être accompagnés de leurs métadonnées, dates de collecte, résolutions spatiales et conditions de réutilisation propres à chaque fournisseur. Les valeurs régionales ou satellitaires constituent des estimations et ne remplacent pas des mesures effectuées sur la parcelle."
+                "Limites : les valeurs régionales, zonales ou satellitaires sont des estimations et ne constituent pas des mesures de la parcelle. "
+                "Les rendements de référence, prix prédits, décotes logistiques et chiffres d'affaires sont des hypothèses de modèle, non des garanties de production ou de vente. "
+                "Vérifier les licences, dates et conditions de réutilisation auprès de chaque fournisseur avant toute redistribution."
             ),
             body_style,
         )
