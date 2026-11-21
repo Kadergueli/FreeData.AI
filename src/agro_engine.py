@@ -1425,6 +1425,25 @@ def evaluate_field_assessment(
         },
     ]
 
+    # Expose the individual SoilGrids values available for the selected regional hub.
+    # They remain explicitly regional estimates, not parcel laboratory measurements.
+    soil_profile_data = (site_profile(resolved_region) or {}).get("soil") or {}
+    soil_rows = [
+        ("Argile", soil_profile_data.get("clay_pct"), "%"),
+        ("Sable", soil_profile_data.get("sand_pct"), "%"),
+        ("Carbone organique", soil_profile_data.get("organic_carbon_g_kg"), "g/kg"),
+    ]
+    for label, value, unit in soil_rows:
+        if isinstance(value, (int, float)):
+            lab_parameters.append({
+                "parameter": label,
+                "value": round(float(value), 2),
+                "unit": unit,
+                "optimal": "Selon texture et culture",
+                "status": "Estimation régionale",
+                "source": "SoilGrids 2.0 — pôle régional, pas mesure parcellaire",
+            })
+
     prescriptions: list[str] = []
     primary_label = (primary_crop or {}).get("label_fr") or "Culture principale"
     rz_str = f"{float(rz_parcel):.3f}" if isinstance(rz_parcel, (int, float)) else "N/A"
