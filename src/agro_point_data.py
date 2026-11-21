@@ -39,7 +39,7 @@ def fetch_nasa_power_point(
                 "latitude": lat,
                 "format": "JSON",
             },
-            headers={"User-Agent": "FreeData.AI/1.0 (agricultural decision support; contact: support@freedata.td)"},
+            headers={"User-Agent": "FreeData.AI/1.0 (agricultural decision support; https://github.com/Kadergueli/FreeData.AI)"},
             timeout=timeout,
         )
         response.raise_for_status()
