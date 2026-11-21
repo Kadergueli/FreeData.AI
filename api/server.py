@@ -43,6 +43,7 @@ from src.orchestrator_ml_rag import IntelligenceOrchestrator
 from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
+from src.agro_site import site_profile
 from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
 from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_engine import (
@@ -806,6 +807,7 @@ def agro_zone_profile_endpoint(
     if not regional:
         raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
     profile = build_zone_profile(hub, regional, store.national_rows())
+    profile["site_profile"] = site_profile(hub)  # sol SoilGrids + climat NASA POWER, avec provenance
     fc_df = STATE.get("forecast_df")
     if fc_df is not None and not getattr(fc_df, "empty", True):
         profile["validated_crop_prices"] = build_validated_forecasts_overview(
