@@ -1,5 +1,8 @@
 """Tests Étape 3 (P2) — Espace Agronome PRO : diagnostic de terrain, porte QA et PDF co-brandé."""
+from io import BytesIO
 from pathlib import Path
+
+from pypdf import PdfReader
 
 import pandas as pd
 import pytest
@@ -120,6 +123,10 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     )
     assert pdf_sat.media_type == "application/pdf"
     assert pdf_sat.body.startswith(b"%PDF")
+    pdf_sat_text = "\\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_sat.body)).pages)
+    assert "Références bibliographiques" in pdf_sat_text
+    assert "NASA POWER" in pdf_sat_text
+    assert "World Bank" in pdf_sat_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
