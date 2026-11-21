@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 import threading
 import unicodedata
-from dataclasses import asdict, dataclass, replace as _dc_replace
+from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 
@@ -299,26 +299,10 @@ class DomainRegistry:
             raise KeyError(f"Domaine inconnu : {domain_id}")
         return cls.MODULES[domain_id]
 
-    # Thématiques du sélecteur de l'application : elles s'appuient sur un domaine existant (même moteur, mêmes
-    # outils) et ajoutent une consigne de cadrage. Elles ne sont pas des domaines administrables à part.
-    TOPIC_FOCUS: dict[str, tuple[str, str]] = {
-        "markets_and_prices": ("agriculture", "Cadre la réponse sur les marchés et les prix (XAF/kg, évolution, écarts entre marchés)."),
-        "economy": ("chad_intelligence", "Cadre la réponse sur l'économie du Tchad (activité, échanges, inflation, revenus)."),
-        "health": ("chad_intelligence", "Cadre la réponse sur la santé au Tchad (accès aux soins, indicateurs sanitaires, nutrition)."),
-        "population": ("chad_intelligence", "Cadre la réponse sur la population du Tchad (démographie, régions, urbanisation)."),
-        "environment": ("chad_intelligence", "Cadre la réponse sur l'environnement du Tchad (climat, pluviométrie, ressources naturelles)."),
-        "infrastructure": ("chad_intelligence", "Cadre la réponse sur les infrastructures du Tchad (routes, énergie, eau, télécoms)."),
-        "transport": ("chad_intelligence", "Cadre la réponse sur le transport et la logistique au Tchad (routes, coûts, délais, corridors)."),
-    }
-
     @classmethod
     def classify_domain(cls, query: str, explicit_domain: Optional[str] = None) -> DomainModule:
         if explicit_domain and explicit_domain in cls.MODULES:
             return cls.MODULES[explicit_domain]
-        focus = cls.TOPIC_FOCUS.get(explicit_domain or "")
-        if focus and focus[0] in cls.MODULES and cls.is_domain_active(focus[0]):
-            base = cls.MODULES[focus[0]]
-            return _dc_replace(base, instructions=f"{base.instructions} {focus[1]}")
         q_norm = _norm(query)
         for dom_id, pat in cls._DOMAIN_PATTERNS:
             if dom_id in cls.MODULES and cls.is_domain_active(dom_id) and pat.search(q_norm):
