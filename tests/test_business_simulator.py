@@ -269,27 +269,28 @@ def test_simulate_trade_pnl_profitable_case():
         loss_rate_pct=5.0,
     )
     assert pnl["status"] == "ok"
-    assert pnl["buy_price"] == 250.0
+    # Achat au dernier prix constaté (240), vente au prix prévu t+1 (400)
+    assert pnl["buy_price"] == 240.0
     assert pnl["sell_price"] == 400.0
-    assert pnl["unit_landed_cost"] == 275.0
-    assert pnl["purchasable_kg"] == 1818
-    assert pnl["purchasable_bags_100kg"] == 18.18
-    assert pnl["actual_invested_xaf"] == 499950.0
-    assert pnl["sellable_kg"] == 1727.1
-    assert pnl["break_even_price_per_kg"] == 289.5
-    assert pnl["gross_revenue_xaf"] == 690840.0
-    assert pnl["net_profit_xaf"] == 190890.0
-    assert pnl["net_margin_pct"] == 38.2
+    assert pnl["unit_landed_cost"] == 265.0
+    assert pnl["purchasable_kg"] == 1886
+    assert pnl["purchasable_bags_100kg"] == 18.86
+    assert pnl["actual_invested_xaf"] == 499790.0
+    assert pnl["sellable_kg"] == 1791.7
+    assert pnl["break_even_price_per_kg"] == 278.9
+    assert pnl["gross_revenue_xaf"] == 716680.0
+    assert pnl["net_profit_xaf"] == 216890.0
+    assert pnl["net_margin_pct"] == 43.4
     assert pnl["is_profitable"] is True
 
     # Repli sur last_price lorsque predicted_price est NaN (Riz local à Tandjile = 340.0)
-    # Destination N'Djamena pour Mil (360) vs seuil 289.5 ou scénario déficitaire avec fret élevé
+    # Destination N'Djamena pour Mil (360) vs seuil 278.9 ou scénario déficitaire avec fret élevé
     unprofitable = provider.simulate_trade_pnl(
         commodity="Millet",
         origin_province="Tandjile",
         dest_province="N'Djamena",
         capital_xaf=500000.0,
-        transport_cost_per_kg=100.0,
+        transport_cost_per_kg=110.0,
         loss_rate_pct=5.0,
     )
     assert unprofitable["status"] == "ok"
@@ -315,11 +316,11 @@ def test_simulate_trade_pnl_missing_destination():
     assert res["commodity"] == "Beans (niebe)"
     assert res["origin_province"] == "Tandjile"
     assert res["dest_province"] == "Borkou"
-    assert res["buy_price"] == 250.0
+    assert res["buy_price"] == 245.0
     assert res["sell_price"] is None
-    assert res["unit_landed_cost"] == 275.0
-    assert res["purchasable_kg"] == 1818
-    assert res["break_even_price_per_kg"] == 289.5
+    assert res["unit_landed_cost"] == 270.0
+    assert res["purchasable_kg"] == 1851
+    assert res["break_even_price_per_kg"] == 284.2
 
     # Vérifie aussi le repli last_price quand predicted_price est NaN à l'origine
     missing_rice_dest = provider.simulate_trade_pnl(
@@ -360,7 +361,7 @@ def test_get_beginner_market_guide():
         "Maize (white)",
     ]
     assert all(t["unit_price_xaf"] <= 450.0 for t in tremplins)
-    assert tremplins[0]["full_bags_100kg"] == 22  # 500 000 // (220 * 100) = 22 sacs
+    assert tremplins[0]["full_bags_100kg"] == 23  # 500 000 // (215 * 100) = 23 sacs (prix constaté)
     assert tremplins[1]["full_bags_100kg"] == 20  # 500 000 // (250 * 100) = 20 sacs
 
     # 3 pièges à éviter (volatilité / drawdown max)
@@ -405,8 +406,8 @@ def test_agent_business_intent_end_to_end(monkeypatch):
     reply_route = res_route["reply"]
     assert "Diagnostic de l'opération" in reply_route
     assert "Compte d'Exploitation Estimé" in reply_route
-    assert "+190 890 XAF" in reply_route
-    assert "289.5 XAF/kg" in reply_route
+    assert "+216 890 XAF" in reply_route
+    assert "278.9 XAF/kg" in reply_route
     assert "Hypothèse transport utilisée : 25 XAF/kg, pertes techniques estimées : 5 %" in reply_route
     assert "Références documentaires associées" in reply_route
     assert "FEWS NET" in reply_route
@@ -419,7 +420,7 @@ def test_agent_business_intent_end_to_end(monkeypatch):
         tier="free",
     )
     assert res_missing["intent"] == "business_simulator"
-    assert "Pour ne pas perdre d'argent, vous devez revendre au minimum à 289.5 XAF/kg" in res_missing["reply"]
+    assert "Pour ne pas perdre d'argent, vous devez revendre au minimum à 284.2 XAF/kg" in res_missing["reply"]
 
     # 3. Guide débutant avec capital
     res_guide = agent.answer(
@@ -443,5 +444,5 @@ def test_agent_business_intent_end_to_end(monkeypatch):
         tier="premium",
     )
     assert res_prem_fallback["intent"] == "business_simulator"
-    assert "+190 890 XAF" in res_prem_fallback["reply"]
+    assert "+216 890 XAF" in res_prem_fallback["reply"]
 
