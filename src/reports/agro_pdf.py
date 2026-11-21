@@ -150,6 +150,16 @@ def render_agro_assessment_pdf(
     for lim in scores.get("limitations") or []:
         story.append(Paragraph(_clean_pdf_text(f"- {lim}"), body_style))
 
-    doc.build(story)
+    def _draw_footer(canvas, pdf_doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 8.0)
+        canvas.setFillColor(colors.HexColor("#475569"))
+        footer_text = _clean_pdf_text(
+            f"Propulse par FreeData.td  |  Verification : {code}  |  Page {pdf_doc.page}"
+        )
+        canvas.drawString(1.8 * cm, 1.0 * cm, footer_text)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     return buf.getvalue()
 

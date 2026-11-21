@@ -161,7 +161,9 @@ class _ChatScreenState extends State<ChatScreen> {
       return 'Envoi trop long (réseau lent). Réessayez avec une meilleure connexion ou un fichier plus léger.';
     }
     final msg = e.toString().replaceFirst('Exception: ', '');
-    if (msg.contains('SocketException') || msg.contains('ClientException') || msg.contains('Failed to fetch')) {
+    if (msg.contains('SocketException') ||
+        msg.contains('ClientException') ||
+        msg.contains('Failed to fetch')) {
       return 'Connexion perdue pendant l\'envoi. Vérifiez votre réseau puis réessayez.';
     }
     return msg;
@@ -180,7 +182,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
         ..showSnackBar(const SnackBar(
-          content: Text('Connecté. Touchez de nouveau le trombone pour choisir votre fichier.'),
+          content: Text(
+              'Connecté. Touchez de nouveau le trombone pour choisir votre fichier.'),
         ));
       return;
     }

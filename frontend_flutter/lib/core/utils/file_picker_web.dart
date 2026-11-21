@@ -78,8 +78,10 @@ Future<PickedDocumentFile?> pickUserDocumentFile() async {
     reader.readAsArrayBuffer(file);
   });
 
-  return completer.future.timeout(
-    const Duration(minutes: 3),
-    onTimeout: () => null,
-  ).whenComplete(cleanup);
+  return completer.future
+      .timeout(
+        const Duration(minutes: 3),
+        onTimeout: () => null,
+      )
+      .whenComplete(cleanup);
 }

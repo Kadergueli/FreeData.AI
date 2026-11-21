@@ -148,6 +148,14 @@ class MarketWatchlistStore:
             )
         return (cur.rowcount or 0) > 0
 
+    def purge_owner(self, owner_id: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM market_watchlists WHERE owner_id = ?",
+                (owner_id,),
+            )
+        return int(cur.rowcount or 0)
+
 
 def evaluate_watchlists(watches: list[dict[str, Any]], forecast_df: Any) -> list[dict[str, Any]]:
     """Évalue chaque alerte de seuil par rapport aux prix observés/prévus actuels."""
@@ -308,4 +316,227 @@ def export_validated_forecasts_csv(
                 "ML_Backtested_70_30",
             ])
     return buf.getvalue()
+
+
+def compute_spatial_arbitrage_detailed(
+    forecast_df: Any,
+    track_record: Optional[dict[str, Any]],
+    *,
+    crop_id: str,
+    transport_cost_xaf_kg: Optional[float] = None,
+    tonnage: Optional[float] = None,
+    limit: int = 12,
+) -> dict[str, Any]:
+    """Arbitrage spatial détaillé entre provinces/pôles avec marge nette, ROI et MAPE hors-temps."""
+    cid = _normalize_crop_id(crop_id)
+    meta = SUPPORTED_AGRO_CROPS[cid]
+    comm = meta["commodity_std"]
+    rec = (track_record or {}).get(comm) or {}
+    mape = rec.get("mape_pct") if rec.get("mape_pct") is not None else rec.get("MAPE_pct")
+    mape_val = round(float(mape), 2) if isinstance(mape, (int, float)) else None
+
+    if forecast_df is None or getattr(forecast_df, "empty", True) or "province" not in forecast_df.columns:
+        return {
+            "crop_id": cid,
+            "commodity_std": comm,
+            "label_fr": meta["label_fr"],
+            "historical_mape_pct": mape_val,
+            "routes": [],
+            "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
+            "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
+        }
+
+    sub = forecast_df[forecast_df["commodity_std"] == comm]
+    if sub.empty:
+        return {
+            "crop_id": cid,
+            "commodity_std": comm,
+            "label_fr": meta["label_fr"],
+            "historical_mape_pct": mape_val,
+            "routes": [],
+            "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
+            "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
+        }
+
+    by_prov = sub.groupby("province")["predicted_price"].mean().dropna().sort_values()
+    fc_month = (
+        str(sub["forecast_month"].dropna().iloc[0])
+        if "forecast_month" in sub.columns and not sub["forecast_month"].dropna().empty
+        else None
+    )
+    provs = list(by_prov.items())
+    routes: list[dict[str, Any]] = []
+    for i, (orig_prov, orig_px) in enumerate(provs):
+        for dest_prov, dest_px in reversed(provs[i + 1 :]):
+            spread = float(dest_px) - float(orig_px)
+            if spread <= 0 or orig_px <= 0:
+                continue
+            net_kg = (spread - float(transport_cost_xaf_kg)) if transport_cost_xaf_kg is not None else None
+            denom = float(orig_px) + (float(transport_cost_xaf_kg) if transport_cost_xaf_kg is not None else 0.0)
+            roi_pct = round(((net_kg if net_kg is not None else spread) / denom) * 100.0, 1) if denom > 0 else None
+            total_net_xaf = (
+                round((net_kg if net_kg is not None else spread) * float(tonnage) * 1000.0, 0)
+                if tonnage is not None
+                else None
+            )
+            routes.append({
+                "origin_province": str(orig_prov),
+                "dest_province": str(dest_prov),
+                "origin_predicted_xaf_kg": round(float(orig_px), 1),
+                "dest_predicted_xaf_kg": round(float(dest_px), 1),
+                "spread_xaf_kg": round(spread, 1),
+                "transport_cost_xaf_kg": round(float(transport_cost_xaf_kg), 1) if transport_cost_xaf_kg is not None else None,
+                "net_margin_xaf_kg": round(net_kg, 1) if net_kg is not None else None,
+                "tonnage": tonnage,
+                "estimated_net_margin_xaf": total_net_xaf,
+                "roi_pct": roi_pct,
+                "forecast_month": fc_month,
+            })
+
+    routes.sort(
+        key=lambda r: r["net_margin_xaf_kg"] if r["net_margin_xaf_kg"] is not None else r["spread_xaf_kg"],
+        reverse=True,
+    )
+    return {
+        "crop_id": cid,
+        "commodity_std": comm,
+        "label_fr": meta["label_fr"],
+        "historical_mape_pct": mape_val,
+        "backtest_verdict": rec.get("verdict"),
+        "forecast_month": fc_month,
+        "routes": routes[:limit],
+        "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
+        "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
+        "spatial_resolution": "regional_city_hub / market_province",
+        "confidence_level": "ML_Backtested_70_30",
+    }
+
+
+def compute_agro_credit_passport(
+    *,
+    province: str,
+    crop_id: str,
+    area_hectares: float,
+    loan_amount_xaf: float,
+    hist_df: Any,
+    forecast_df: Any,
+    passport_df: Any,
+    regional_agro_rows: list[dict[str, Any]],
+    national_agro_rows: list[dict[str, Any]],
+    disclaimer: str,
+) -> dict[str, Any]:
+    """Profil Credit Passport Agro : rendement World Bank 2020-2024, DSCR sous 3 scénarios et fréquence années sèches."""
+    from src.agro_engine import build_zone_profile
+    from src.agro_indicators import HUB_PROVINCE, canonical_region, national_indicator_key
+
+    cid = _normalize_crop_id(crop_id)
+    meta = SUPPORTED_AGRO_CROPS[cid]
+    comm = meta["commodity_std"]
+
+    # Résolution province <-> pôle NASA POWER
+    hub = canonical_region(province)
+    if hub and hub != "national":
+        prov_name = HUB_PROVINCE.get(hub, province)
+    else:
+        prov_name = province.strip()
+        hub = next((h for h, p in HUB_PROVINCE.items() if p.lower() == prov_name.lower()), None)
+
+    # 1. Rendement céréalier national World Bank (moyenne 2020-2024)
+    yield_vals = [
+        float(r["value"])
+        for r in national_agro_rows
+        if national_indicator_key(r["indicator"]) == "cereal_yield" and 2020 <= int(r["reference_date"][:4]) <= 2024
+    ]
+    yield_mean_kg_ha = round(sum(yield_vals) / len(yield_vals), 1) if yield_vals else None
+    est_prod_kg = round(float(area_hectares) * yield_mean_kg_ha, 1) if yield_mean_kg_ha is not None else None
+
+    # 2. Fréquence des années sèches NASA POWER Agro (< 0.45 en juillet-août)
+    dry_info = {"critical_july_aug_years": None, "observed_july_aug_years": 0, "dry_year_frequency_pct": None}
+    if hub and regional_agro_rows:
+        zp = build_zone_profile(hub, regional_agro_rows, national_agro_rows)
+        sig = zp.get("hydric_risk_signals") or {}
+        crit = sig.get("critical_july_aug_years")
+        obs_y = sig.get("observed_july_aug_years") or 0
+        dry_info = {
+            "hub": hub,
+            "critical_july_aug_years": crit,
+            "observed_july_aug_years": obs_y,
+            "dry_year_frequency_pct": round(crit / obs_y * 100.0, 1) if (crit is not None and obs_y > 0) else None,
+        }
+
+    # 3. Prix pour les 3 scénarios vérifiables
+    stress_px: Optional[float] = None
+    central_px: Optional[float] = None
+    storage_px: Optional[float] = None
+    if hist_df is not None and not getattr(hist_df, "empty", True):
+        h_comm = hist_df[hist_df["commodity_std"] == comm]
+        h_prov = h_comm[h_comm["province"].astype(str).str.lower() == prov_name.lower()]
+        h_scope = h_prov if not h_prov.empty else h_comm
+        if not h_scope.empty and "value" in h_scope.columns:
+            storage_px = round(float(h_scope["value"].dropna().median()), 1) if not h_scope["value"].dropna().empty else None
+            if "year_month" in h_scope.columns:
+                recent = h_scope[h_scope["year_month"].astype(str) >= "2024-01"]
+                if not recent.empty and not recent["value"].dropna().empty:
+                    stress_px = round(float(recent["value"].dropna().min()), 1)
+            if stress_px is None and not h_scope["value"].dropna().empty:
+                stress_px = round(float(h_scope["value"].dropna().min()), 1)
+
+    if forecast_df is not None and not getattr(forecast_df, "empty", True):
+        f_comm = forecast_df[forecast_df["commodity_std"] == comm]
+        f_prov = f_comm[f_comm["province"].astype(str).str.lower() == prov_name.lower()]
+        f_scope = f_prov if not f_prov.empty else f_comm
+        if not f_scope.empty and "predicted_price" in f_scope.columns and not f_scope["predicted_price"].dropna().empty:
+            central_px = round(float(f_scope["predicted_price"].dropna().mean()), 1)
+
+    def _scenario(name: str, desc: str, px: Optional[float]) -> dict[str, Any]:
+        rev = round(est_prod_kg * px, 0) if (est_prod_kg is not None and px is not None) else None
+        dscr = round(rev / float(loan_amount_xaf), 2) if (rev is not None and loan_amount_xaf > 0) else None
+        return {
+            "scenario": name,
+            "description": desc,
+            "price_xaf_kg": px,
+            "estimated_revenue_xaf": rev,
+            "dscr": dscr,
+        }
+
+    scenarios = [
+        _scenario("stress_floor", "Plancher de stress (prix min observé 2024–2026)", stress_px),
+        _scenario("central_ml", "Scénario central (prévision ML t+1)", central_px),
+        _scenario("storage_90d", "Arbitrage stockage 90 jours (médiane historique)", storage_px),
+    ]
+
+    # 4. Score Credit Passport existant si disponible
+    cp_match = None
+    if passport_df is not None and not getattr(passport_df, "empty", True):
+        p_sub = passport_df[
+            (passport_df["commodity_std"] == comm)
+            & (passport_df["province"].astype(str).str.lower() == prov_name.lower())
+        ]
+        if not p_sub.empty:
+            r0 = p_sub.iloc[0]
+            cp_match = {
+                "credit_score": float(r0["credit_score"]) if "credit_score" in r0 else None,
+                "risk_grade": str(r0["risk_grade"]) if "risk_grade" in r0 else None,
+                "ltv_ratio": float(r0["ltv_ratio"]) if "ltv_ratio" in r0 else None,
+            }
+
+    return {
+        "profile": "agro",
+        "province": prov_name,
+        "crop_id": cid,
+        "commodity_std": comm,
+        "label_fr": meta["label_fr"],
+        "area_hectares": float(area_hectares),
+        "loan_amount_xaf": float(loan_amount_xaf),
+        "cereal_yield_mean_2020_2024_kg_ha": yield_mean_kg_ha,
+        "estimated_production_kg": est_prod_kg,
+        "dry_years_risk": dry_info,
+        "market_credit_passport": cp_match,
+        "scenarios": scenarios,
+        "sources": ["WFP", "FEWS NET", "NASA POWER Agro", "World Bank"],
+        "licenses": ["CC BY-IGO 3.0", "Attribution Required", "Public Domain (NASA)", "CC BY 4.0"],
+        "spatial_resolution": "province / regional_city_hub",
+        "confidence_level": "Composite_Historical_ML_Satellite",
+        "disclaimer": disclaimer,
+    }
 

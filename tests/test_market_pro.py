@@ -77,3 +77,53 @@ def test_market_pro_overview_watchlists_arbitrage_and_csv(tmp_path):
     assert "Attribution Required" in body
     assert "Millet" in body
 
+
+def test_spatial_arbitrage_and_agro_credit_passport(tmp_path):
+    from pathlib import Path
+    from src.agro_indicators import AgroIndicatorStore
+
+    sub_store = SubscriptionStore(str(tmp_path / "billing.db"))
+    pro_owner = "user:u_mkt_agro_1234567890abcdef12345"
+    sub_store.admin_update_subscription(
+        actor="admin", target_user_id=pro_owner, plan_id="premium", status="active", period_days=30,
+    )
+    state = _sample_state()
+    state["hist_df"] = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Logone Occidental", "year_month": "2024-05", "value": 180.0},
+        {"commodity_std": "Millet", "province": "Logone Occidental", "year_month": "2025-05", "value": 240.0},
+        {"commodity_std": "Millet", "province": "Logone Occidental", "year_month": "2026-05", "value": 260.0},
+    ])
+    state["passport_df"] = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Logone Occidental", "credit_score": 74.0, "risk_grade": "B", "ltv_ratio": 0.65},
+    ])
+
+    arb = server.markets_spatial_arbitrage_endpoint(
+        crop_id="millet", transport_cost_xaf_kg=35.0, tonnage=10.0,
+        state=state, owner_id=pro_owner, x_premium_key=None, sub_store=sub_store,
+    )
+    assert arb["historical_mape_pct"] == 8.4
+    assert arb["routes"][0]["origin_province"] == "Salamat"
+    assert arb["routes"][0]["net_margin_xaf_kg"] == 80.0
+    assert arb["routes"][0]["estimated_net_margin_xaf"] == 800000.0
+    assert "NASA POWER Agro" in arb["sources"]
+
+    agro_store = AgroIndicatorStore(str(tmp_path / "agro.db"))
+    real_csv = Path(__file__).resolve().parent.parent / "freedatatd-agriculture-commercial-clean.csv"
+    if real_csv.exists():
+        agro_store.ingest_csv(str(real_csv))
+    cp = server.credit_passport_agro_endpoint(
+        server.AgroCreditPassportRequest(
+            province="Logone Occidental", crop_id="millet", area_hectares=5.0, loan_amount_xaf=500000.0,
+        ),
+        state=state, owner_id=pro_owner, x_premium_key=None, agro_store=agro_store, sub_store=sub_store,
+    )
+    assert cp["profile"] == "agro"
+    assert len(cp["scenarios"]) == 3
+    assert cp["scenarios"][0]["scenario"] == "stress_floor"
+    assert cp["scenarios"][0]["price_xaf_kg"] == 180.0
+    assert cp["market_credit_passport"]["risk_grade"] == "B"
+    if real_csv.exists():
+        assert cp["cereal_yield_mean_2020_2024_kg_ha"] is not None
+        assert cp["dry_years_risk"]["observed_july_aug_years"] >= 1
+        assert cp["scenarios"][0]["dscr"] > 0
+

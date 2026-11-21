@@ -183,3 +183,11 @@ class AgroFieldAssessmentStore:
                 ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
+    def purge_owner(self, owner_id: str) -> int:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM table_agro_field_assessments WHERE owner_id = ?",
+                (owner_id,),
+            )
+        return int(cur.rowcount or 0)
+

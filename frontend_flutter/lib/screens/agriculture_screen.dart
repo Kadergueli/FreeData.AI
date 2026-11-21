@@ -410,6 +410,14 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
         .whereType<Map>()
         .map((a) => Map<String, dynamic>.from(a))
         .toList();
+    final signals = profile['hydric_risk_signals'] is Map
+        ? Map<String, dynamic>.from(profile['hydric_risk_signals'] as Map)
+        : const <String, dynamic>{};
+    final falseSowing = signals['false_sowing_start'] == true;
+    final cropPrices = ((profile['validated_crop_prices'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((c) => Map<String, dynamic>.from(c))
+        .toList();
     final selectedKey = keys.contains(_selectedIndicator)
         ? _selectedIndicator
         : (keys.isNotEmpty ? keys.first : null);
@@ -427,6 +435,15 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
           child: _notice(
             Icons.schedule_rounded,
             'Les derniers relevés de cette zone datent de plus de 3 mois : interprétez les valeurs avec prudence.',
+            AppColors.warning,
+          ),
+        ),
+      if (falseSowing)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _notice(
+            Icons.warning_amber_rounded,
+            'Alerte fenêtre de semis : l’humidité de surface est en hausse alors que l’humidité racinaire reste sous la normale (risque de faux démarrage).',
             AppColors.warning,
           ),
         ),
@@ -543,6 +560,47 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
         ),
       ),
       const SizedBox(height: 14),
+      if (cropPrices.isNotEmpty) ...[
+        FDCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Prévisions de prix — 4 cultures validées',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink),
+              ),
+              const SizedBox(height: 8),
+              ...cropPrices.map((cp) {
+                final mape = cp['historical_mape_pct'];
+                return ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    cp['label_fr']?.toString() ??
+                        cp['commodity_std']?.toString() ??
+                        '',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    'Prévu (${cp['forecast_month'] ?? 't+1'}) : ${cp['predicted_xaf_kg'] ?? '—'} XAF/kg',
+                    style:
+                        const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                  ),
+                  trailing: FDBadge(
+                    label: mape != null ? 'MAPE $mape %' : 'MAPE N/D',
+                    color: AppColors.blue,
+                    backgroundColor: AppColors.blueSoft,
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
       ..._buildNational(profile),
       const SizedBox(height: 14),
       _buildProvenance(profile),

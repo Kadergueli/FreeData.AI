@@ -89,6 +89,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     _hub = (widget.initialHub != null && hubs.contains(widget.initialHub))
         ? widget.initialHub!
         : (hubs.contains("N'Djamena") ? "N'Djamena" : hubs.first);
+    _firmCtrl.text =
+        widget.apiService.authUser?['display_name']?.toString().trim() ?? '';
     if (_hasAccess) {
       _loadHistory();
     }
@@ -198,6 +200,54 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     }
   }
 
+  void _openCompareParcelsDialog() {
+    final items = _history.take(3).toList();
+    if (items.length < 2) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Comparaison des parcelles (côte à côte)'),
+        content: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Code')),
+              DataColumn(label: Text('Pôle')),
+              DataColumn(label: Text('Surface (ha)')),
+              DataColumn(label: Text('Confiance')),
+              DataColumn(label: Text('Meilleure culture')),
+            ],
+            rows: items.map((item) {
+              final scores = item['computed_scores'] is Map
+                  ? item['computed_scores'] as Map
+                  : const {};
+              final crops = (scores['crop_assessments'] as List?) ?? const [];
+              final topCrop = crops.isNotEmpty && crops.first is Map
+                  ? '${(crops.first as Map)['label_fr']} (${(crops.first as Map)['suitability_score']}/100)'
+                  : '—';
+              return DataRow(cells: [
+                DataCell(
+                    Text(item['report_verification_code']?.toString() ?? '—')),
+                DataCell(Text(item['province_hub']?.toString() ?? '—')),
+                DataCell(Text('${item['area_hectares'] ?? 'N/A'}')),
+                DataCell(Text(scores['confidence']?.toString() ??
+                    scores['confidence_level']?.toString() ??
+                    '—')),
+                DataCell(Text(topCrop)),
+              ]);
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final assessment = _result?['assessment'] is Map
@@ -256,12 +306,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           label: 'Se connecter',
                           icon: Icons.login_rounded,
                           onPressed: () async {
-                            await showDialog<bool>(
+                            final ok = await showDialog<bool>(
                               context: context,
                               builder: (_) =>
                                   AuthDialog(apiService: widget.apiService),
                             );
-                            if (mounted) setState(() {});
+                            if (ok == true && mounted) {
+                              if (_firmCtrl.text.trim().isEmpty) {
+                                _firmCtrl.text = widget.apiService
+                                        .authUser?['display_name']
+                                        ?.toString()
+                                        .trim() ??
+                                    '';
+                              }
+                              setState(() {});
+                              if (_hasAccess) await _loadHistory();
+                            }
                           },
                         )
                       else
@@ -309,6 +369,14 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         },
                       ),
                       const SizedBox(height: 10),
+                      const Text(
+                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.blue),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
@@ -349,6 +417,14 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      const Text(
+                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.blue),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
@@ -396,6 +472,14 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      const Text(
+                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.blue),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
@@ -459,7 +543,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
+                      const Text(
+                        '3. Inspection terrain & Co-branding cabinet',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.blue),
+                      ),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _firmCtrl,
                         decoration: const InputDecoration(
@@ -667,14 +759,26 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             ),
             const SizedBox(height: 10),
           ],
-          FDPrimaryButton(
-            label: _downloadingPdf
-                ? 'Génération PDF…'
-                : 'Télécharger le rapport PDF co-brandé',
-            icon: Icons.picture_as_pdf_outlined,
-            onPressed: (!canPdf || _downloadingPdf)
-                ? null
-                : () => _downloadPdf(assessment['id'].toString(), code),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              FDPrimaryButton(
+                label: _downloadingPdf
+                    ? 'Génération PDF…'
+                    : 'Télécharger le rapport PDF co-brandé',
+                icon: Icons.picture_as_pdf_outlined,
+                onPressed: (!canPdf || _downloadingPdf)
+                    ? null
+                    : () => _downloadPdf(assessment['id'].toString(), code),
+              ),
+              if (_history.length >= 2)
+                FDSecondaryButton(
+                  label: 'Comparer avec une autre parcelle',
+                  icon: Icons.compare_arrows_rounded,
+                  onPressed: _openCompareParcelsDialog,
+                ),
+            ],
           ),
         ],
       ),

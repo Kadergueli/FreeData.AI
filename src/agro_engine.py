@@ -165,6 +165,35 @@ def build_zone_profile(
         }
     last_dates = [v["reference_date"] for v in latest.values()]
     stale = bool(last_dates) and _months_between(max(last_dates), today) > STALE_AFTER_MONTHS
+
+    # Détection de faux démarrage de semis : humidité de surface au-dessus de la normale alors que la zone racinaire reste déficitaire.
+    surf_pts = series.get("surface_wetness") or []
+    root_pts = series.get("root_zone_wetness") or []
+    false_sowing_start = False
+    if surf_pts and root_pts:
+        s_anom = surf_pts[-1].get("anomaly_pct")
+        r_anom = root_pts[-1].get("anomaly_pct")
+        if isinstance(s_anom, (int, float)) and isinstance(r_anom, (int, float)):
+            false_sowing_start = bool(s_anom > 5.0 and r_anom < -5.0)
+
+    # Nombre d'années critiques (humidité racinaire < 0.45 en juillet-août).
+    critical_by_year: dict[int, list[float]] = {}
+    for p in root_pts:
+        y, m = _year_month(p["reference_date"])
+        if m in (7, 8):
+            critical_by_year.setdefault(y, []).append(float(p["value"]))
+    critical_july_aug_years = sum(
+        1 for vals in critical_by_year.values() if vals and (sum(vals) / len(vals)) < 0.45
+    )
+
+    nat_block = _national_block(national_rows)
+    yield_2020_2024 = [
+        float(r["value"])
+        for r in national_rows
+        if national_indicator_key(r["indicator"]) == "cereal_yield" and 2020 <= int(r["reference_date"][:4]) <= 2024
+    ]
+    cereal_yield_mean = round(sum(yield_2020_2024) / len(yield_2020_2024), 1) if yield_2020_2024 else None
+
     return {
         "title": ZONE_TITLE,
         "region": region,
@@ -174,9 +203,15 @@ def build_zone_profile(
         "latest": latest,
         "baseline": {"years": list(BASELINE_YEARS), "min_years_required": MIN_BASELINE_YEARS},
         "alerts": water_deficit_alerts(region, anomalies, today),
+        "hydric_risk_signals": {
+            "false_sowing_start": false_sowing_start,
+            "critical_july_aug_years": critical_july_aug_years,
+            "observed_july_aug_years": len(critical_by_year),
+            "cereal_yield_mean_2020_2024_kg_ha": cereal_yield_mean,
+        },
         "stale": stale,
         "provenance": build_provenance(regional_rows),
-        "national": _national_block(national_rows),
+        "national": nat_block,
         "limitations": list(LIMITATIONS),
     }
 
@@ -269,11 +304,13 @@ def has_lab_soil_measurements(lab_soil_inputs: Optional[dict[str, Any]]) -> bool
 def _extract_crop_market_signals(
     forecast_df: Any,
     province: Optional[str],
+    track_record: Optional[dict[str, Any]] = None,
 ) -> dict[str, dict[str, Any]]:
-    """Extrait les prévisions de prix t+1 (XAF/kg) pour les 4 cultures validées."""
+    """Extrait les prévisions de prix t+1 (XAF/kg) et le MAPE hors-temps pour les 4 cultures validées."""
     signals: dict[str, dict[str, Any]] = {}
     if forecast_df is None or getattr(forecast_df, "empty", True):
         return signals
+    tr = track_record or {}
     for crop_id, meta in SUPPORTED_AGRO_CROPS.items():
         comm = meta["commodity_std"]
         sub = forecast_df[forecast_df["commodity_std"] == comm]
@@ -288,6 +325,8 @@ def _extract_crop_market_signals(
         obs_val = float(scope_df[obs_col].dropna().mean()) if obs_col and not scope_df[obs_col].dropna().empty else None
         fc_month = str(scope_df["forecast_month"].dropna().iloc[0]) if "forecast_month" in scope_df.columns and not scope_df["forecast_month"].dropna().empty else None
         change_pct = round((pred_val - obs_val) / obs_val * 100.0, 1) if (pred_val and obs_val and obs_val > 0) else None
+        rec = tr.get(comm) or {}
+        mape = rec.get("mape_pct") if rec.get("mape_pct") is not None else rec.get("MAPE_pct")
         signals[crop_id] = {
             "commodity_std": comm,
             "scope": scope_label,
@@ -295,6 +334,7 @@ def _extract_crop_market_signals(
             "predicted_xaf_kg": round(pred_val, 1) if pred_val is not None else None,
             "change_pct": change_pct,
             "forecast_month": fc_month,
+            "historical_mape_pct": round(float(mape), 2) if isinstance(mape, (int, float)) else None,
             "source": "FreeData.td / PAM-WFP (Delta-Ridge ML)",
         }
     return signals
@@ -317,6 +357,7 @@ def evaluate_field_assessment(
     target_crops: Optional[list[str]] = None,
     area_hectares: Optional[float] = None,
     forecast_df: Any = None,
+    track_record: Optional[dict[str, Any]] = None,
     today: Optional[date] = None,
 ) -> dict[str, Any]:
     """Calcule un diagnostic agronomique explicable croisant mesures labo (si fournies), humidité NASA POWER et prix."""
@@ -324,6 +365,8 @@ def evaluate_field_assessment(
     province = zone.get("province")
     lab = dict(lab_soil_inputs or {})
     has_lab = has_lab_soil_measurements(lab)
+    resolution_label = "Diagnostic de terrain (pré-achat)" if has_lab else "Pré-diagnostic de zone (indicatif)"
+    confidence_short = "Terrain + Régional" if has_lab else "Régional uniquement"
     confidence_label = (
         "Terrain + Régional (Mesures labo fournies)"
         if has_lab
@@ -335,7 +378,7 @@ def evaluate_field_assessment(
         requested = list(SUPPORTED_AGRO_CROPS)
 
     root_wet = (zone.get("latest", {}).get("root_zone_wetness") or {}).get("value")
-    market_signals = _extract_crop_market_signals(forecast_df, province)
+    market_signals = _extract_crop_market_signals(forecast_df, province, track_record=track_record)
     cereal_yield = _latest_national_cereal_yield(national_rows)
 
     ph_val: Optional[float] = None
@@ -421,11 +464,14 @@ def evaluate_field_assessment(
 
     crop_results.sort(key=lambda c: c["suitability_score"], reverse=True)
     return {
-        "title": "Diagnostic de terrain (pré-achat)" if has_lab else ZONE_TITLE,
+        "title": resolution_label,
+        "resolution_label": resolution_label,
+        "confidence": confidence_short,
         "region": zone["region"],
         "province": province,
         "has_lab_measurements": has_lab,
         "confidence_level": confidence_label,
+        "hydric_risk_signals": zone.get("hydric_risk_signals"),
         "zone_alerts": zone["alerts"],
         "zone_latest": zone["latest"],
         "crop_assessments": crop_results,

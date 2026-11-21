@@ -55,7 +55,9 @@ from src.reports.agro_pdf import render_agro_assessment_pdf
 from src.market_pro import (
     MarketWatchlistStore,
     build_validated_forecasts_overview,
+    compute_agro_credit_passport,
     compute_inter_province_arbitrage,
+    compute_spatial_arbitrage_detailed,
     evaluate_watchlists,
     export_validated_forecasts_csv,
 )
@@ -797,7 +799,13 @@ def agro_zone_profile_endpoint(
     regional = store.regional_rows(hub)
     if not regional:
         raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
-    return build_zone_profile(hub, regional, store.national_rows())
+    profile = build_zone_profile(hub, regional, store.national_rows())
+    fc_df = STATE.get("forecast_df")
+    if fc_df is not None and not getattr(fc_df, "empty", True):
+        profile["validated_crop_prices"] = build_validated_forecasts_overview(
+            fc_df, STATE.get("track_record") or {}
+        )
+    return profile
 
 
 _AGRO_ASSESSMENT_STORE: Optional[AgroFieldAssessmentStore] = None
@@ -1439,6 +1447,7 @@ def create_agro_field_assessment_endpoint(
         target_crops=payload.target_crops,
         area_hectares=payload.area_hectares,
         forecast_df=fc_df,
+        track_record=STATE.get("track_record"),
     )
     saved = assess_store.create_assessment(
         owner_id,
@@ -1609,6 +1618,70 @@ def market_pro_export_csv_endpoint(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="freedata_market_pro.csv"'},
     )
+
+
+@app.get("/api/v1/markets/spatial-arbitrage", dependencies=[Depends(_data_rate_limit_dependency)])
+def markets_spatial_arbitrage_endpoint(
+    crop_id: str = Query(..., min_length=2, max_length=40),
+    transport_cost_xaf_kg: Optional[float] = Query(None, ge=0.0, le=50000.0),
+    tonnage: Optional[float] = Query(None, gt=0.0, le=100000.0),
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Arbitrage spatial entre pôles provinciaux avec marge nette, ROI et MAPE hors-temps (PRO)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Arbitrage spatial Marché PRO")
+    try:
+        return compute_spatial_arbitrage_detailed(
+            state.get("forecast_df"),
+            state.get("track_record"),
+            crop_id=crop_id,
+            transport_cost_xaf_kg=transport_cost_xaf_kg,
+            tonnage=tonnage,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class AgroCreditPassportRequest(BaseModel):
+    province: str = Field(..., min_length=2, max_length=80)
+    crop_id: str = Field("millet", min_length=2, max_length=40)
+    area_hectares: float = Field(..., gt=0.0, le=500000.0)
+    loan_amount_xaf: float = Field(..., gt=0.0, le=100_000_000_000.0)
+
+
+@app.post("/api/v1/markets/credit-passport/agro", dependencies=[Depends(_data_rate_limit_dependency)])
+def credit_passport_agro_endpoint(
+    payload: AgroCreditPassportRequest,
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    agro_store: AgroIndicatorStore = Depends(get_agro_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Profil Credit Passport Agro : rendement World Bank 2020-2024, DSCR sous 3 scénarios et années sèches."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Credit Passport Agro PRO")
+    hub = canonical_region(payload.province)
+    if not hub or hub == AGRO_NATIONAL:
+        from src.agro_indicators import HUB_PROVINCE
+        hub = next((h for h, p in HUB_PROVINCE.items() if p.lower() == payload.province.strip().lower()), None)
+    regional_rows = agro_store.regional_rows(hub) if hub else []
+    try:
+        return compute_agro_credit_passport(
+            province=payload.province,
+            crop_id=payload.crop_id,
+            area_hectares=payload.area_hectares,
+            loan_amount_xaf=payload.loan_amount_xaf,
+            hist_df=state.get("hist_df"),
+            forecast_df=state.get("forecast_df"),
+            passport_df=state.get("passport_df"),
+            regional_agro_rows=regional_rows,
+            national_agro_rows=agro_store.national_rows(),
+            disclaimer=CREDIT_PASSPORT_DISCLAIMER,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 class ProjectCreateRequest(BaseModel):
@@ -2057,6 +2130,16 @@ def export_my_privacy_data_endpoint(
     conversations = conv_store.list_conversations(owner_id, include_deleted=True) if isinstance(conv_store, ConversationStore) else []
     documents = doc_store.list_documents(owner_id) if isinstance(doc_store, UserDocumentStore) else []
     billing = sub_store.get_usage_summary(owner_id) if isinstance(sub_store, SubscriptionStore) else {}
+    agro_assessments = []
+    market_watchlists = []
+    try:
+        agro_assessments = get_agro_assessment_store().list_assessments(owner_id, limit=100)
+    except Exception:
+        pass
+    try:
+        market_watchlists = get_market_watch_store().list_watches(owner_id)
+    except Exception:
+        pass
     return {
         "owner_id": owner_id,
         "exported_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -2065,6 +2148,8 @@ def export_my_privacy_data_endpoint(
         "projects": projects,
         "conversations": conversations,
         "documents": documents,
+        "agro_assessments": agro_assessments,
+        "market_watchlists": market_watchlists,
     }
 
 
@@ -2083,6 +2168,14 @@ def delete_my_data_endpoint(
     out = PrivacyController.delete_user_data(store, owner_id)
     out["deleted_conversations"] = deleted_convs
     out["deleted_documents"] = deleted_docs
+    try:
+        out["deleted_agro_assessments"] = get_agro_assessment_store().purge_owner(owner_id)
+    except Exception:
+        out["deleted_agro_assessments"] = 0
+    try:
+        out["deleted_market_watchlists"] = get_market_watch_store().purge_owner(owner_id)
+    except Exception:
+        out["deleted_market_watchlists"] = 0
     return out
 
 
@@ -2805,8 +2898,13 @@ def auth_delete_account_endpoint(
         conv_store.purge_owner(owner_id)
     if isinstance(doc_store, UserDocumentStore):
         doc_store.purge_owner(owner_id)
-    # Effacement complet (RGPD) : abonnement, usages, demandes de paiement, tickets et avis.
-    for purge in (lambda: sub_store.purge_user(owner_id), lambda: get_support_store().purge_owner(owner_id)):
+    # Effacement complet (RGPD) : abonnement, usages, demandes de paiement, tickets, avis, diagnostics agro et watchlists.
+    for purge in (
+        lambda: sub_store.purge_user(owner_id),
+        lambda: get_support_store().purge_owner(owner_id),
+        lambda: get_agro_assessment_store().purge_owner(owner_id),
+        lambda: get_market_watch_store().purge_owner(owner_id),
+    ):
         try:
             purge()
         except Exception as exc:

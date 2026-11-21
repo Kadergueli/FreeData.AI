@@ -35,6 +35,12 @@ class _MarketProScreenState extends State<MarketProScreen> {
   final _thresholdCtrl = TextEditingController();
   final _provinceCtrl = TextEditingController();
 
+  String _arbCrop = 'millet';
+  final _arbTransportCtrl = TextEditingController(text: '35');
+  final _arbTonnageCtrl = TextEditingController(text: '10');
+  Map<String, dynamic>? _arbResult;
+  bool _loadingArb = false;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +51,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
   void dispose() {
     _thresholdCtrl.dispose();
     _provinceCtrl.dispose();
+    _arbTransportCtrl.dispose();
+    _arbTonnageCtrl.dispose();
     super.dispose();
   }
 
@@ -126,6 +134,158 @@ class _MarketProScreenState extends State<MarketProScreen> {
     }
   }
 
+  Future<void> _runArbitrageSim() async {
+    if (_loadingArb) return;
+    setState(() => _loadingArb = true);
+    try {
+      final transport =
+          double.tryParse(_arbTransportCtrl.text.trim().replaceAll(',', '.'));
+      final tonnage =
+          double.tryParse(_arbTonnageCtrl.text.trim().replaceAll(',', '.'));
+      final res = await widget.apiService.getSpatialArbitrage(
+        cropId: _arbCrop,
+        transportCostXafKg: transport,
+        tonnage: tonnage,
+      );
+      if (mounted) setState(() => _arbResult = res);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingArb = false);
+    }
+  }
+
+  Future<void> _openCreditPassportAgroDialog() async {
+    final provCtrl = TextEditingController(text: 'Logone Occidental');
+    final areaCtrl = TextEditingController(text: '5');
+    final loanCtrl = TextEditingController(text: '500000');
+    String cropId = 'millet';
+    Map<String, dynamic>? result;
+    bool loading = false;
+    String? err;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Credit Passport Agro (3 scénarios DSCR)'),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: provCtrl,
+                    decoration: const InputDecoration(labelText: 'Province'),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: cropId,
+                    decoration: const InputDecoration(labelText: 'Culture'),
+                    items: _cropLabels.entries
+                        .map((e) => DropdownMenuItem(
+                            value: e.key, child: Text(e.value)))
+                        .toList(),
+                    onChanged: (v) =>
+                        setDialogState(() => cropId = v ?? 'millet'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: areaCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration:
+                        const InputDecoration(labelText: 'Superficie (ha)'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: loanCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Montant du prêt demandé (XAF)'),
+                  ),
+                  if (err != null) ...[
+                    const SizedBox(height: 8),
+                    Text(err!, style: const TextStyle(color: AppColors.danger)),
+                  ],
+                  if (result != null) ...[
+                    const Divider(height: 20),
+                    Text(
+                      'Rendement réf. World Bank : ${result!['cereal_yield_mean_2020_2024_kg_ha'] ?? '—'} kg/ha',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...(((result!['scenarios'] as List?) ?? const [])
+                        .whereType<Map>()
+                        .map((s) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                '• ${s['description']} : ${s['price_xaf_kg'] ?? '—'} XAF/kg · DSCR ${s['dscr'] ?? '—'}',
+                                style: const TextStyle(fontSize: 12.5),
+                              ),
+                            ))),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Fermer'),
+            ),
+            ElevatedButton(
+              onPressed: loading
+                  ? null
+                  : () async {
+                      final area = double.tryParse(
+                          areaCtrl.text.trim().replaceAll(',', '.'));
+                      final loan = double.tryParse(
+                          loanCtrl.text.trim().replaceAll(',', '.'));
+                      if (area == null ||
+                          area <= 0 ||
+                          loan == null ||
+                          loan <= 0) {
+                        setDialogState(() =>
+                            err = 'Superficie et montant valides requis.');
+                        return;
+                      }
+                      setDialogState(() {
+                        loading = true;
+                        err = null;
+                      });
+                      try {
+                        final res =
+                            await widget.apiService.computeAgroCreditPassport(
+                          province: provCtrl.text,
+                          cropId: cropId,
+                          areaHectares: area,
+                          loanAmountXaf: loan,
+                        );
+                        setDialogState(() {
+                          result = res;
+                          loading = false;
+                        });
+                      } catch (e) {
+                        setDialogState(() {
+                          err = '$e';
+                          loading = false;
+                        });
+                      }
+                    },
+              child: Text(loading ? 'Calcul…' : 'Calculer DSCR'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final forecasts = ((_overview?['validated_forecasts'] as List?) ?? const [])
@@ -187,10 +347,22 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 ),
                               ),
                             ),
-                            FDSecondaryButton(
-                              label: _exportingCsv ? 'Export…' : 'Export CSV',
-                              icon: Icons.download_outlined,
-                              onPressed: _exportingCsv ? null : _exportCsv,
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                FDSecondaryButton(
+                                  label:
+                                      _exportingCsv ? 'Export…' : 'Export CSV',
+                                  icon: Icons.download_outlined,
+                                  onPressed: _exportingCsv ? null : _exportCsv,
+                                ),
+                                FDPrimaryButton(
+                                  label: 'Générer Credit Passport Agro',
+                                  icon: Icons.shield_outlined,
+                                  onPressed: _openCreditPassportAgroDialog,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -239,6 +411,101 @@ class _MarketProScreenState extends State<MarketProScreen> {
                               ),
                             );
                           }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        FDCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: [
+                                  SizedBox(
+                                    width: 180,
+                                    child: DropdownButtonFormField<String>(
+                                      key: ValueKey(_arbCrop),
+                                      initialValue: _arbCrop,
+                                      decoration: const InputDecoration(
+                                          labelText: 'Culture'),
+                                      items: _cropLabels.entries
+                                          .map((e) => DropdownMenuItem(
+                                              value: e.key,
+                                              child: Text(e.value)))
+                                          .toList(),
+                                      onChanged: (v) => setState(
+                                          () => _arbCrop = v ?? 'millet'),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 170,
+                                    child: TextField(
+                                      controller: _arbTransportCtrl,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
+                                      decoration: const InputDecoration(
+                                          labelText: 'Transport (XAF/kg)'),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 150,
+                                    child: TextField(
+                                      controller: _arbTonnageCtrl,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
+                                      decoration: const InputDecoration(
+                                          labelText: 'Tonnage (t)'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              FDPrimaryButton(
+                                label: _loadingArb
+                                    ? 'Calcul…'
+                                    : 'Simuler marge & ROI',
+                                icon: Icons.calculate_outlined,
+                                onPressed:
+                                    _loadingArb ? null : _runArbitrageSim,
+                              ),
+                              if (_arbResult != null) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  'MAPE historique modèle : ${_arbResult!['historical_mape_pct'] ?? 'N/D'} %',
+                                  style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.muted),
+                                ),
+                                const SizedBox(height: 6),
+                                ...(((_arbResult!['routes'] as List?) ??
+                                        const [])
+                                    .take(3)
+                                    .whereType<Map>()
+                                    .map((r) => Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            '• ${r['origin_province']} → ${r['dest_province']} : marge nette ${r['net_margin_xaf_kg'] ?? r['spread_xaf_kg']} XAF/kg · Total ${r['estimated_net_margin_xaf'] ?? '—'} XAF · ROI ${r['roi_pct'] ?? '—'} %',
+                                            style: const TextStyle(
+                                                fontSize: 12.5,
+                                                color: AppColors.ink),
+                                          ),
+                                        ))),
+                              ],
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 16),
                         const Text(
@@ -420,6 +687,18 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 }),
                               ],
                             ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const FDCard(
+                          padding: EdgeInsets.all(14),
+                          child: Text(
+                            'Sources & Licences : WFP (CC BY-IGO 3.0) · FEWS NET (Attribution Required) · NASA POWER Agro (Public Domain) · World Bank (CC BY 4.0)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.muted,
+                              height: 1.4,
+                            ),
                           ),
                         ),
                       ],

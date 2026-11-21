@@ -580,6 +580,55 @@ class ApiService {
         _extractErrorDetail(resp, 'Export CSV Marché PRO impossible'));
   }
 
+  Future<Map<String, dynamic>> getSpatialArbitrage({
+    required String cropId,
+    double? transportCostXafKg,
+    double? tonnage,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/markets/spatial-arbitrage').replace(
+      queryParameters: {
+        'crop_id': cropId,
+        if (transportCostXafKg != null)
+          'transport_cost_xaf_kg': transportCostXafKg.toString(),
+        if (tonnage != null) 'tonnage': tonnage.toString(),
+      },
+    );
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Calcul d’arbitrage spatial impossible'));
+  }
+
+  Future<Map<String, dynamic>> computeAgroCreditPassport({
+    required String province,
+    required String cropId,
+    required double areaHectares,
+    required double loanAmountXaf,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/markets/credit-passport/agro');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'province': province.trim(),
+            'crop_id': cropId,
+            'area_hectares': areaHectares,
+            'loan_amount_xaf': loanAmountXaf,
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Calcul Credit Passport Agro impossible'));
+  }
+
   Future<List<dynamic>> getForecasts(
       {String? province, String? commodity}) async {
     final params = <String, String>{};
