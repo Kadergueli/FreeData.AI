@@ -1552,14 +1552,15 @@ def create_agro_field_assessment_endpoint(
         raise HTTPException(status_code=422, detail=f"Pôle régional invalide ou coordonnées GPS manquantes. Pôles couverts : {', '.join(AGRO_HUBS)}.")
     verified_pid = _assert_project_owned(owner_id, payload.project_id, project_store)
     regional = store.regional_rows(hub)
-    if not regional:
-        raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
+    all_regional = store.rows()
+    if not regional and (payload.gps_lat is None or payload.gps_lon is None):
+        raise HTTPException(status_code=503, detail="Aucune donnée régionale disponible pour cette zone. Fournissez les coordonnées GPS pour tenter une extraction satellitaire ponctuelle.")
     fc_df = STATE.get("forecast_df")
     computed = evaluate_field_assessment(
         region=hub,
         regional_rows=regional,
         national_rows=store.national_rows(),
-        all_regional_rows=store.rows(),
+        all_regional_rows=all_regional,
         lab_soil_inputs=payload.lab_soil_inputs,
         target_crops=payload.target_crops,
         area_hectares=payload.area_hectares,
