@@ -100,6 +100,14 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert any("22/30 pts" in warning for warning in res_no_lab["qa"]["warnings"])
     # Vérifier la formule unifiée 50/30/20 entre bandeau et meilleure culture + bulletin 6 paramètres
     cs = res_no_lab["assessment"]["computed_scores"]
+    site_ctx = cs["site_context"]
+    assert site_ctx["area_hectares"] == 5.0
+    assert site_ctx["area_m2"] == 50000.0
+    assert site_ctx["area_basis"] == "user_declared"
+    assert site_ctx["coordinates"]["provided"] is True
+    assert len(site_ctx["climate_hubs"]) == 3
+    assert site_ctx["soil_method"] == "SoilGrids 2.0 regional estimate"
+    assert "field boundary polygon" in site_ctx["area_usage"]
     ws = cs["weighted_score"]
     assert ws["breakdown"]["hydric_security"]["max"] == 50
     assert ws["breakdown"]["soil_quality"]["max"] == 30
@@ -127,6 +135,10 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "Références bibliographiques" in pdf_sat_text
     assert "NASA POWER" in pdf_sat_text
     assert "World Bank" in pdf_sat_text
+    assert "Localisation, superficie et données spatiales utilisées" in pdf_sat_text
+    assert "5 ha (50 000 m²)" in pdf_sat_text
+    assert "Pôles contributeurs et poids" in pdf_sat_text
+    assert "Humidité zone racinaire" in pdf_sat_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
