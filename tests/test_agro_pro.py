@@ -261,4 +261,27 @@ def test_gps_logistics_verified_economics_and_compare_assessments(tmp_path):
     assert len(radar["hubs"]) == radar["summary"]["hubs_count"]
     assert "NASA POWER Agro (Public Domain)" in radar["sources"]
 
+@pytest.mark.parametrize("area_hectares", [1.0, 5.0, 10.0, 20.0])
+def test_verified_economics_scales_linearly_with_declared_area(area_hectares):
+    from src.agro_engine import compute_verified_economics
 
+    result = compute_verified_economics(
+        crop_id="sorghum_red",
+        area_hectares=area_hectares,
+        yield_kg_ha=834.6,
+        yield_source="World Bank reference yield (model assumption)",
+        predicted_xaf_kg=300.0,
+        mape_pct=10.0,
+        stress_min_xaf_kg=200.0,
+        farmgate_discount_pct=15.0,
+    )
+
+    expected_production = round(area_hectares * 834.6, 1)
+    expected_farmgate_price = round(300.0 * (1.0 - 0.15), 1)
+    expected_revenue = round(expected_production * expected_farmgate_price)
+
+    assert result["area_hectares"] == area_hectares
+    assert result["area_assumed_1ha"] is False
+    assert result["production_kg"] == expected_production
+    assert result["farmgate_price_central_xaf_kg"] == expected_farmgate_price
+    assert result["ca_central_xaf"] == expected_revenue
