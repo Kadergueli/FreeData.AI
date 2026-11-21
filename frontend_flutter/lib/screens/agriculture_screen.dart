@@ -12,11 +12,13 @@ import 'agronomist_pro_screen.dart';
 class AgricultureScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onAskAssistant;
+  final bool embedded;
 
   const AgricultureScreen({
     super.key,
     required this.apiService,
     this.onAskAssistant,
+    this.embedded = false,
   });
 
   @override
@@ -203,6 +205,12 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Container(
+        color: AppColors.canvas,
+        child: _buildBody(),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(

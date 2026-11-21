@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
@@ -9,8 +10,13 @@ import '../services/api_service.dart';
 /// Watchlists & Alertes de prix, et Export CSV institutionnel.
 class MarketProScreen extends StatefulWidget {
   final ApiService apiService;
+  final bool embedded;
 
-  const MarketProScreen({super.key, required this.apiService});
+  const MarketProScreen({
+    super.key,
+    required this.apiService,
+    this.embedded = false,
+  });
 
   @override
   State<MarketProScreen> createState() => _MarketProScreenState();
@@ -219,6 +225,15 @@ class _MarketProScreenState extends State<MarketProScreen> {
                       'Rendement réf. World Bank : ${result!['cereal_yield_mean_2020_2024_kg_ha'] ?? '—'} kg/ha',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
+                    if (result!['dry_years_count'] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Années sèches historiques : ${result!['dry_years_count']} (${result!['dry_years_frequency'] ?? '—'})',
+                          style: const TextStyle(
+                              fontSize: 12.5, color: AppColors.muted),
+                        ),
+                      ),
                     const SizedBox(height: 6),
                     ...(((result!['scenarios'] as List?) ?? const [])
                         .whereType<Map>()
@@ -229,12 +244,42 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 style: const TextStyle(fontSize: 12.5),
                               ),
                             ))),
+                    if ((result!['disclaimer']?.toString() ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        result!['disclaimer'].toString(),
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.muted),
+                      ),
+                    ],
                   ],
                 ],
               ),
             ),
           ),
           actions: [
+            if (result != null)
+              TextButton.icon(
+                icon: const Icon(Icons.copy_rounded, size: 17),
+                label: const Text('Copier le résumé'),
+                onPressed: () {
+                  final scenarios = ((result!['scenarios'] as List?) ?? const [])
+                      .whereType<Map>()
+                      .map((s) =>
+                          '- ${s['description']} : ${s['price_xaf_kg'] ?? '—'} XAF/kg · DSCR ${s['dscr'] ?? '—'}')
+                      .join('\n');
+                  final summary =
+                      'Credit Passport Agro — ${provCtrl.text.trim()} ($cropId, ${areaCtrl.text.trim()} ha, prêt ${loanCtrl.text.trim()} XAF)\n'
+                      'Rendement réf. World Bank : ${result!['cereal_yield_mean_2020_2024_kg_ha'] ?? '—'} kg/ha\n'
+                      '$scenarios\n'
+                      '${result!['disclaimer'] ?? ''}';
+                  Clipboard.setData(ClipboardData(text: summary));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Résumé Credit Passport Agro copié.')),
+                  );
+                },
+              ),
             TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Fermer'),
@@ -301,40 +346,39 @@ class _MarketProScreenState extends State<MarketProScreen> {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
 
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text(
-          'Marché PRO — Watchlists & Arbitrage',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Export CSV institutionnel',
-            icon: const Icon(Icons.download_outlined),
-            onPressed: _exportingCsv ? null : _exportCsv,
-          ),
-        ],
-      ),
-      body: _loading
-          ? const FDLoadingState(message: 'Chargement de l’espace Marché PRO…')
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 440),
-                      child: FDErrorState(message: _error!, onRetry: _load),
-                    ),
-                  ),
-                )
-              : Center(
+    final body = _loading
+        ? const FDLoadingState(message: 'Chargement de l’espace Marché PRO…')
+        : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 920),
-                    child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        Row(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: FDErrorState(message: _error!, onRetry: _load),
+                  ),
+                ),
+              )
+            : Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 920),
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (widget.embedded)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: FDSecondaryButton(
+                              label: _exportingCsv
+                                  ? 'Export…'
+                                  : 'Export CSV institutionnel',
+                              icon: Icons.download_outlined,
+                              onPressed: _exportingCsv ? null : _exportCsv,
+                            ),
+                          ),
+                        ),
+                      Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Expanded(
@@ -704,7 +748,26 @@ class _MarketProScreenState extends State<MarketProScreen> {
                       ],
                     ),
                   ),
-                ),
+                );
+    if (widget.embedded) {
+      return Container(color: AppColors.canvas, child: body);
+    }
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(
+        title: const Text(
+          'Marché PRO — Watchlists & Arbitrage',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Export CSV institutionnel',
+            icon: const Icon(Icons.download_outlined),
+            onPressed: _exportingCsv ? null : _exportCsv,
+          ),
+        ],
+      ),
+      body: body,
     );
   }
 }

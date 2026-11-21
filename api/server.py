@@ -2600,6 +2600,15 @@ def platform_chat_endpoint(
     agent: FreeDataAIAgent = state["agent"]
 
     if domain_mod.execution_pipeline == "chad_agent":
+        if domain_mod.domain_id == "agriculture":
+            return _handle_agriculture_chat(
+                payload=payload,
+                agent=agent,
+                eff_tier=eff_tier,
+                private_chunks=private_chunks,
+                quota_info=quota_info,
+                domain_mod=domain_mod,
+            )
         res = agent.answer(
             payload.message,
             history=payload.history,
@@ -2665,6 +2674,147 @@ def platform_chat_endpoint(
         "reply": reply,
         "intent": f"domain_{domain_mod.domain_id}",
         "entities": {},
+        "sources": sources,
+        "domain": domain_mod.domain_id,
+        "domain_label": domain_mod.label_fr,
+        "quota": quota_info,
+    }
+
+
+def _match_agro_hub_in_query(query: str) -> Optional[str]:
+    """Détecte si la question mentionne l'un des 12 pôles agro-climatiques couverts."""
+    q_low = (query or "").lower().replace("’", "'")
+    for hub in AGRO_HUBS:
+        if hub.lower() in q_low:
+            return hub
+        cand = canonical_region(hub)
+        if cand and cand.lower() in q_low:
+            return cand
+    # Support des variantes sans accent (ex: Abeche -> Abéché, N'Djamena -> Ndjamena)
+    import unicodedata
+    q_ascii = "".join(
+        ch for ch in unicodedata.normalize("NFKD", q_low) if not unicodedata.combining(ch)
+    )
+    for hub in AGRO_HUBS:
+        h_ascii = "".join(
+            ch for ch in unicodedata.normalize("NFKD", hub.lower()) if not unicodedata.combining(ch)
+        )
+        if h_ascii in q_ascii or h_ascii.replace("'", "") in q_ascii.replace("'", ""):
+            return hub
+    return None
+
+
+def _handle_agriculture_chat(
+    *,
+    payload: PlatformChatRequest,
+    agent: FreeDataAIAgent,
+    eff_tier: Literal["free", "premium"],
+    private_chunks: list[dict],
+    quota_info: dict,
+    domain_mod: Any,
+) -> dict[str, Any]:
+    """Ancre les réponses Chat du domaine `agriculture` sur les vraies séries NASA POWER Agro & World Bank."""
+    try:
+        agro_store = get_agro_store()
+        all_rows = agro_store.rows()
+    except Exception as exc:
+        logger.warning("AgroIndicatorStore indisponible dans le chat (%s) — repli agent standard", exc)
+        all_rows = []
+
+    if not all_rows:
+        res = agent.answer(
+            payload.message,
+            history=payload.history,
+            tier=eff_tier,
+            study_context=payload.study_context,
+            private_chunks=private_chunks,
+        )
+        return {**res, "domain": domain_mod.domain_id, "domain_label": domain_mod.label_fr, "quota": quota_info}
+
+    matched_hub = _match_agro_hub_in_query(payload.message)
+    national_rows = [r for r in all_rows if r.get("region") == AGRO_NATIONAL]
+    sources: list[dict[str, Any]] = [
+        {"title": "NASA POWER Agro (12 pôles Tchad, 2020–2026)", "source": "NASA POWER Agro · Public Domain"},
+        {"title": "World Bank — Indicateurs agricoles nationaux Tchad (2000–2025)", "source": "World Bank · CC BY 4.0"},
+    ] + [
+        {"title": c.get("titre") or c.get("title", "Document privé"), "source": c.get("source", "Document privé"), "score": c.get("similarity")}
+        for c in private_chunks
+    ]
+
+    if matched_hub:
+        regional = [r for r in all_rows if r.get("region") == matched_hub]
+        profile = build_zone_profile(matched_hub, regional, national_rows)
+        series = profile.get("series") or {}
+        rz_pts = series.get("root_zone_wetness") or []
+        sf_pts = series.get("surface_wetness") or []
+        rz_last = rz_pts[-1] if rz_pts else {}
+        sf_last = sf_pts[-1] if sf_pts else {}
+        alerts = profile.get("alerts") or []
+        alert_text = (
+            ", ".join(f"{a.get('indicator')} ({a.get('level')})" for a in alerts)
+            if alerts
+            else "normale"
+        )
+        risks = profile.get("hydric_risk_signals") or {}
+        prov = profile.get("provenance") or {}
+        lines = [
+            f"### Pré-diagnostic agro-climatique de zone — {matched_hub}",
+            f"- **Résolution géographique** : Pôle régional (`{prov.get('spatial_resolution', 'regional_city_hub')}`, niveau `{prov.get('confidence_level', 'Satellite_Modeled_Regional')}`). Ce n'est pas une analyse de parcelle.",
+        ]
+        if rz_last:
+            lines.append(
+                f"- **Humidité zone racinaire** ({rz_last.get('reference_date', '—')}) : `{rz_last.get('value', '—')}` "
+                f"(écart vs normale 2020–2023 : `{rz_last.get('anomaly_pct', '—')} %`, alerte : `{alert_text}`)."
+            )
+        if sf_last:
+            lines.append(
+                f"- **Humidité de surface** ({sf_last.get('reference_date', '—')}) : `{sf_last.get('value', '—')}` "
+                f"(écart vs normale 2020–2023 : `{sf_last.get('anomaly_pct', '—')} %`)."
+            )
+        if risks:
+            lines.append(
+                f"- **Signaux hydriques** : faux démarrage de semis = `{'OUI — alerte' if risks.get('false_sowing_start') else 'Non'}`, "
+                f"années critiques (< 0,45 en juil.–août) = `{risks.get('critical_july_aug_years', 0)}`, "
+                f"rendement céréalier moyen national (World Bank 2020–2024) = `{risks.get('cereal_yield_mean_2020_2024_kg_ha', '—')} kg/ha`."
+            )
+        lines.append(
+            "- **Limites strictes** : aucune donnée de température, de précipitations ou de pH automatique n'est présente dans ce jeu de données."
+        )
+        agro_facts = "\n".join(lines)
+    else:
+        overview = build_zones_overview(all_rows)
+        zones_list = overview.get("zones") or []
+        latest_dates = [z.get("last_reference_date") for z in zones_list if z.get("last_reference_date")]
+        latest_period = max(latest_dates) if latest_dates else "—"
+        lines = [
+            "### Synthèse agro-climatique du Tchad (12 pôles NASA POWER Agro + World Bank)",
+            f"- **Pôles couverts ({len(zones_list)})** : {', '.join(z.get('region', '') for z in zones_list)}.",
+            f"- **Dernière période observée** : `{latest_period}`.",
+            "- **Limites strictes** : données modélisées au niveau pôle régional (`NASA POWER Agro`) et macro national (`World Bank CC BY 4.0`). Aucune température ni pluviométrie disponible.",
+        ]
+        agro_facts = "\n".join(lines)
+
+    if private_chunks:
+        agro_facts += "\n\n**Extraits des documents privés :**\n" + "\n".join(
+            f"- **{c.get('titre') or c.get('title', 'Document')}** : {c.get('content', '')[:320]}"
+            for c in private_chunks[:3]
+        )
+
+    reply = agro_facts
+    if eff_tier == "premium" and settings.llm_api_key:
+        llm_reply = agent._synthesize_with_llm(
+            payload.message,
+            agro_facts,
+            private_chunks,
+            history=payload.history,
+        )
+        if llm_reply and llm_reply.strip():
+            reply = llm_reply
+
+    return {
+        "reply": reply,
+        "intent": "agro_zone_prediagnostic",
+        "entities": {"region": matched_hub} if matched_hub else {},
         "sources": sources,
         "domain": domain_mod.domain_id,
         "domain_label": domain_mod.label_fr,

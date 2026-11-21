@@ -149,3 +149,45 @@ def test_endpoints_handle_unknown_zone_and_empty_database(tmp_path):
         server.agro_zone_profile_endpoint("Sarh", store)
     assert empty.value.status_code == 503
 
+
+def test_agriculture_chat_grounds_hub_and_overview(monkeypatch):
+    sample_rows = [
+        _nasa_row(i, region="Abeche", ref=f"{y}-03-01", value=0.50)
+        for i, y in enumerate((2020, 2021, 2022, 2023))
+    ] + [_nasa_row(99, region="Abeche", ref="2026-03-01", value=0.35)]
+
+    class _FakeAgroStore:
+        def rows(self):
+            return sample_rows
+
+    monkeypatch.setattr(server, "get_agro_store", lambda: _FakeAgroStore())
+    from src.domains import DomainRegistry
+
+    agro_mod = DomainRegistry.MODULES["agriculture"]
+    req_hub = server.PlatformChatRequest(message="Quel est le statut hydrique à Abéché ?")
+    res_hub = server._handle_agriculture_chat(
+        payload=req_hub,
+        agent=None,
+        eff_tier="free",
+        private_chunks=[],
+        quota_info={"remaining": 10},
+        domain_mod=agro_mod,
+    )
+    assert "Abeche" in res_hub["reply"]
+    assert "0.35" in res_hub["reply"]
+    assert "-30.0 %" in res_hub["reply"]
+    assert any("NASA POWER Agro" in s["source"] for s in res_hub["sources"])
+
+    req_all = server.PlatformChatRequest(message="Donne-moi un aperçu agricole du Tchad")
+    res_all = server._handle_agriculture_chat(
+        payload=req_all,
+        agent=None,
+        eff_tier="free",
+        private_chunks=[],
+        quota_info={"remaining": 10},
+        domain_mod=agro_mod,
+    )
+    assert "Pôles couverts (1)" in res_all["reply"]
+    assert "2026-03-01" in res_all["reply"]
+
+

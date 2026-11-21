@@ -12,6 +12,7 @@ class AgronomistProScreen extends StatefulWidget {
   final ApiService apiService;
   final List<String> availableHubs;
   final String? initialHub;
+  final bool embedded;
 
   const AgronomistProScreen({
     super.key,
@@ -31,6 +32,7 @@ class AgronomistProScreen extends StatefulWidget {
       'Sarh',
     ],
     this.initialHub,
+    this.embedded = false,
   });
 
   @override
@@ -257,20 +259,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         ? Map<String, dynamic>.from(_result!['qa'] as Map)
         : null;
 
-    return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: AppBar(
-        title: const Text(
-          'Agronome PRO — Diagnostic de terrain',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 880),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
+    final content = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 880),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
               if (!widget.apiService.isAuthenticated ||
                   !widget.apiService.hasPremiumKey) ...[
                 FDCard(
@@ -313,8 +307,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             );
                             if (ok == true && mounted) {
                               if (_firmCtrl.text.trim().isEmpty) {
-                                _firmCtrl.text = widget.apiService
-                                        .authUser?['display_name']
+                                _firmCtrl.text = widget
+                                        .apiService.authUser?['display_name']
                                         ?.toString()
                                         .trim() ??
                                     '';
@@ -480,41 +474,51 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             color: AppColors.blue),
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _nCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                  labelText: 'Azote N (opt.)'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _pCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                  labelText: 'Phosphore P (opt.)'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _kCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                  labelText: 'Potassium K (opt.)'),
-                            ),
-                          ),
-                        ],
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final fieldWidth = constraints.maxWidth >= 560
+                              ? (constraints.maxWidth - 20) / 3
+                              : constraints.maxWidth;
+                          return Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              SizedBox(
+                                width: fieldWidth,
+                                child: TextField(
+                                  controller: _nCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  decoration: const InputDecoration(
+                                      labelText: 'Azote N (opt.)'),
+                                ),
+                              ),
+                              SizedBox(
+                                width: fieldWidth,
+                                child: TextField(
+                                  controller: _pCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  decoration: const InputDecoration(
+                                      labelText: 'Phosphore P (opt.)'),
+                                ),
+                              ),
+                              SizedBox(
+                                width: fieldWidth,
+                                child: TextField(
+                                  controller: _kCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  decoration: const InputDecoration(
+                                      labelText: 'Potassium K (opt.)'),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       const Text(
@@ -629,7 +633,19 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             ],
           ),
         ),
+      );
+    if (widget.embedded) {
+      return Container(color: AppColors.canvas, child: content);
+    }
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      appBar: AppBar(
+        title: const Text(
+          'Agronome PRO — Diagnostic de terrain',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
       ),
+      body: content,
     );
   }
 

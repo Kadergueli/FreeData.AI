@@ -8,6 +8,8 @@ import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/account_screen.dart';
 import 'screens/admin_screen.dart';
+import 'screens/agriculture_screen.dart';
+import 'screens/agro_pro_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/docs_screen.dart';
 import 'screens/forecast_screen.dart';
@@ -503,10 +505,14 @@ class _MainShellState extends State<MainShell> {
       case 4:
         return 'Credit Passport';
       case 5:
-        return 'Analytics PRO';
+        return 'Agriculture';
       case 6:
-        return 'Projets PRO';
+        return 'Analytics PRO';
       case 7:
+        return 'Agro PRO';
+      case 8:
+        return 'Projets PRO';
+      case 9:
         return 'Abonnement & Quotas';
       default:
         return 'FreeData.AI';
@@ -773,7 +779,7 @@ class _MainShellState extends State<MainShell> {
         apiService: _apiService,
         conversationId: _activeConversationId,
         activeProject: _activeProject,
-        onOpenProjects: _apiService.hasPremiumKey ? () => _selectTab(6) : null,
+        onOpenProjects: _apiService.hasPremiumKey ? () => _selectTab(8) : null,
         onConversationUpdated: _reloadConversations,
         initialPrompt: _pendingPrompt,
         onRequireAuth: widget.requireAuthOnChat ? _ensureAuthenticated : null,
@@ -818,11 +824,25 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(5))
-        AnalyticsScreen(apiService: _apiService)
+      if (_visitedTabs.contains(5))
+        AgricultureScreen(
+          apiService: _apiService,
+          onAskAssistant: _openPromptInChat,
+        )
       else
         const SizedBox.shrink(),
       if (_apiService.hasPremiumKey && _visitedTabs.contains(6))
+        AnalyticsScreen(apiService: _apiService)
+      else
+        const SizedBox.shrink(),
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(7))
+        AgroProScreen(
+          apiService: _apiService,
+          onAskAssistant: _openPromptInChat,
+        )
+      else
+        const SizedBox.shrink(),
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(8))
         ProjectsScreen(
           apiService: _apiService,
           refreshToken: _projectsRefreshToken,
@@ -832,7 +852,7 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(7))
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(9))
         SubscriptionScreen(
           apiService: _apiService,
           onConfigureKey: _configurePremiumKey,
@@ -844,7 +864,7 @@ class _MainShellState extends State<MainShell> {
         const SizedBox.shrink(),
     ];
 
-    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 5)
+    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 6)
         ? 0
         : _selectedIndex;
 
@@ -1558,6 +1578,7 @@ class _SidebarContentState extends State<_SidebarContent> {
               _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
               _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
               _navItem(4, Icons.shield_outlined, 'Credit Passport'),
+              _navItem(5, Icons.agriculture_outlined, 'Agriculture'),
               if (widget.hasPremiumKey) ...[
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
@@ -1571,10 +1592,11 @@ class _SidebarContentState extends State<_SidebarContent> {
                     ),
                   ),
                 ),
-                _navItem(5, Icons.analytics_outlined, 'Analytics PRO'),
-                _navItem(6, Icons.folder_special_outlined, 'Projets PRO'),
+                _navItem(6, Icons.analytics_outlined, 'Analytics PRO'),
+                _navItem(7, Icons.eco_outlined, 'Agro PRO'),
+                _navItem(8, Icons.folder_special_outlined, 'Projets PRO'),
                 _navItem(
-                    7, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
+                    9, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
               ],
               const Divider(
                   height: 18, thickness: 1, color: FDTheme.canvasSoft),
