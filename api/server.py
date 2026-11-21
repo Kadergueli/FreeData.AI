@@ -3087,15 +3087,29 @@ def _handle_agriculture_chat(
         ]
         agro_facts = "\n".join(lines)
 
-    # 1. Couplage prix ML validés (4 cultures : Mil, Sorgho rouge, Maïs blanc, Arachide)
+    # 1. Couplage prix ML validés (toutes les cultures agricoles et produits disponibles dans forecast_df)
     fc_df = STATE.get("forecast_df")
     if fc_df is not None and not getattr(fc_df, "empty", True):
         try:
             fc_overview = build_validated_forecasts_overview(fc_df, STATE.get("track_record") or {})
-            if fc_overview:
-                agro_facts += "\n\n**Prévisions de prix validées (WFP/FEWS NET · Delta-Ridge ML) :**\n" + "\n".join(
-                    f"- **{f['label_fr']}** : `{f.get('predicted_xaf_kg', '—')} XAF/kg` (MAPE historique : `{f.get('historical_mape_pct', 'N/D')} %`)"
-                    for f in fc_overview
+            seen_comms = {f.get("commodity_std") for f in fc_overview if f.get("commodity_std")}
+            extra_lines: list[str] = []
+            if "commodity_std" in fc_df.columns and "predicted_price" in fc_df.columns:
+                tr = STATE.get("track_record") or {}
+                for comm, grp in fc_df.groupby("commodity_std"):
+                    if comm in seen_comms:
+                        continue
+                    pred_mean = grp["predicted_price"].dropna().mean()
+                    if pd.notna(pred_mean):
+                        mape = (tr.get(comm) or {}).get("mape_pct")
+                        mape_txt = f"{round(float(mape), 2)} %" if isinstance(mape, (int, float)) else "N/D"
+                        extra_lines.append(f"- **{comm}** : `{round(float(pred_mean), 1)} XAF/kg` (MAPE : `{mape_txt}`)")
+            if fc_overview or extra_lines:
+                agro_facts += "\n\n**Prévisions de prix disponibles sur la plateforme (WFP/FEWS NET · Delta-Ridge ML) :**\n" + "\n".join(
+                    [
+                        f"- **{f['label_fr']}** : `{f.get('predicted_xaf_kg', '—')} XAF/kg` (MAPE historique : `{f.get('historical_mape_pct', 'N/D')} %`)"
+                        for f in fc_overview
+                    ] + extra_lines
                 )
         except Exception:
             pass

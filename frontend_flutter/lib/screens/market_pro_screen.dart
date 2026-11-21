@@ -28,6 +28,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
     'sorghum': 'Sorgho rouge',
     'maize': 'Maïs blanc',
     'groundnut_raw': 'Arachide',
+    'rice_local': 'Riz local',
+    'sesame': 'Sésame',
+    'cowpeas': 'Niébé (Haricot)',
   };
 
   Map<String, dynamic>? _overview;

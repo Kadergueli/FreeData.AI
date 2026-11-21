@@ -49,6 +49,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     'sorghum': 'Sorgho rouge',
     'maize': 'Maïs blanc',
     'groundnut_raw': 'Arachide',
+    'rice_local': 'Riz local',
+    'sesame': 'Sésame',
+    'cowpeas': 'Niébé (Haricot)',
   };
 
   static const List<Map<String, String>> _textures = [

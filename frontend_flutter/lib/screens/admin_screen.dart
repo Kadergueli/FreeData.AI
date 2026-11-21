@@ -70,7 +70,7 @@ class _AdminScreenState extends State<AdminScreen> {
               .catchError((_) => const <Map<String, dynamic>>[]),
           widget.apiService
               .getAdminAgroProfiles(_token)
-              .catchError((_) => const <Map<String, dynamic>>[]),
+              .catchError((_) => _agroProfiles),
         ]);
         payReqs = billingRes[0];
         proKeys = billingRes[1];
