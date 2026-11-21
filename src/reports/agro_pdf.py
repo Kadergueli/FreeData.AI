@@ -398,16 +398,16 @@ def render_agro_assessment_pdf(
         ("Indicateurs nationaux", scores.get("national_provenance") or {}),
     ]
     site = scores.get("site_profile") or {}
-    if site.get("soil", {}).get("provenance"):
-        sp = site["soil"]["provenance"]
+    if (site.get("soil") or {}).get("provenance"):
+        sp = (site.get("soil") or {})["provenance"]
         story.append(Paragraph(
             _clean_pdf_text(
                 f"Sol — {sp.get('source', 'Source non précisée')} | Licence : {sp.get('license', 'non précisée')} | "
                 f"Résolution : {sp.get('spatial_resolution', 'non précisée')} | {sp.get('note', '')}"
             ), body_style
         ))
-    if site.get("climate", {}).get("provenance"):
-        cp = site["climate"]["provenance"]
+    if (site.get("climate") or {}).get("provenance"):
+        cp = (site.get("climate") or {})["provenance"]
         story.append(Paragraph(
             _clean_pdf_text(
                 f"Climat — {cp.get('source', 'Source non précisée')} | Licence : {cp.get('license', 'non précisée')} | "
