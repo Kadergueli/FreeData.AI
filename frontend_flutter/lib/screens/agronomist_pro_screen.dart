@@ -210,6 +210,21 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       );
       return;
     }
+    final area = _parseOpt(_areaCtrl);
+    if (area == null || area <= 0 || area > 500000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saisissez la superficie réelle de la parcelle en hectares (valeur supérieure à 0).')),
+      );
+      return;
+    }
+    final latitude = _parseOpt(_latCtrl);
+    final longitude = _parseOpt(_lonCtrl);
+    if ((latitude == null) != (longitude == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+      );
+      return;
+    }
 
     final lab = <String, dynamic>{};
     final ph = _parseOpt(_phCtrl);
@@ -844,7 +859,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true),
                               decoration: const InputDecoration(
-                                labelText: 'Superficie (ha)',
+                                labelText: 'Superficie exacte (ha) *',
+                                helperText: 'Obligatoire — utilisée pour dimensionner production et revenus',
                               ),
                             ),
                           ),
