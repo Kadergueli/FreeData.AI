@@ -284,6 +284,41 @@ def render_agro_assessment_pdf(
     ]
     story.append(_make_table(ident_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm], has_header=False))
 
+    # --- 1 BIS. LOCALISATION, SUPERFICIE ET PROVENANCE SPATIALE ---
+    site_ctx = scores.get("site_context") or {}
+    coords = site_ctx.get("coordinates") or {}
+    area_ha = site_ctx.get("area_hectares")
+    area_m2 = site_ctx.get("area_m2")
+    climate_hubs = site_ctx.get("climate_hubs") or []
+    hub_weights = ", ".join(
+        f"{h.get('hub')} : {h.get('distance_km')} km / {h.get('weight_pct')} %"
+        for h in climate_hubs if (h.get("weight_pct") or 0) > 0
+    ) or "Aucun point IDW disponible"
+    sat_values = site_ctx.get("satellite_values") or {}
+    soil_values = site_ctx.get("soil_values") or {}
+    location_rows = [
+        ["Élément", "Valeur utilisée dans cette étude"],
+        ["Superficie déclarée", f"{area_ha:g} ha ({area_m2:,.0f} m²)".replace(",", " ") if isinstance(area_ha, (int, float)) and isinstance(area_m2, (int, float)) else "Non renseignée — aucun calcul surfacique fiable possible"],
+        ["Coordonnées du site", f"Latitude {coords.get('latitude')} ; longitude {coords.get('longitude')}" if coords.get("provided") else "Non fournies — rattachement au pôle régional"],
+        ["Méthode climat / eau", str(site_ctx.get("climate_method") or "Non documentée")],
+        ["Pôles contributeurs et poids", hub_weights],
+        ["Humidité zone racinaire", _fmt_num(sat_values.get("root_zone_wetness"))],
+        ["Humidité surface", _fmt_num(sat_values.get("surface_wetness"))],
+        ["Rayonnement PAR", _fmt_num(sat_values.get("par_mean"))],
+        ["Méthode sol", str(site_ctx.get("soil_method") or "Non documentée")],
+        ["Valeurs pédologiques disponibles", "; ".join(f"{k} : {v}" for k, v in soil_values.items() if v is not None) or "Aucune valeur pédologique exploitable"],
+    ]
+    story.append(Paragraph("1 bis. Localisation, superficie et données spatiales utilisées", h2_style))
+    story.append(_make_table(location_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm]))
+    story.append(Spacer(1, 0.12 * cm))
+    story.append(Paragraph(
+        _clean_pdf_text(
+            "Interprétation de la superficie : " + str(site_ctx.get("area_usage") or
+            "La superficie est une donnée déclarée ; aucune statistique zonale parcellaire ne peut être calculée sans contour géographique du champ.")
+        ),
+        body_style,
+    ))
+
     # --- 2. BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
     story.append(Paragraph("2. Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))
     lab_params = bulletin.get("lab_parameters") or []
