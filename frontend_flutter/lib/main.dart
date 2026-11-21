@@ -8,12 +8,9 @@ import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/account_screen.dart';
 import 'screens/admin_screen.dart';
-import 'screens/agriculture_screen.dart';
 import 'screens/agro_pro_screen.dart';
-import 'screens/analytics_screen.dart';
 import 'screens/docs_screen.dart';
-import 'screens/forecast_screen.dart';
-import 'screens/passport_screen.dart';
+import 'screens/markets_hub_screen.dart';
 import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/subscription_screen.dart';
@@ -497,23 +494,17 @@ class _MainShellState extends State<MainShell> {
   String _getTitle(int index) {
     switch (index) {
       case 1:
-        return 'Explore';
+        return 'Explorer';
       case 2:
-        return 'Library';
+        return 'Bibliothèque';
       case 3:
-        return 'Prévisions';
-      case 4:
-        return 'Credit Passport';
-      case 5:
-        return 'Agriculture';
-      case 6:
-        return 'Analytics PRO';
-      case 7:
-        return 'Agro PRO';
-      case 8:
         return 'Projets PRO';
-      case 9:
-        return 'Abonnement & Quotas';
+      case 4:
+        return 'Marchés & Crédit';
+      case 5:
+        return _apiService.hasPremiumKey
+            ? 'Agriculture · Agro PRO'
+            : 'Agriculture';
       default:
         return 'FreeData.AI';
     }
@@ -779,7 +770,7 @@ class _MainShellState extends State<MainShell> {
         apiService: _apiService,
         conversationId: _activeConversationId,
         activeProject: _activeProject,
-        onOpenProjects: _apiService.hasPremiumKey ? () => _selectTab(8) : null,
+        onOpenProjects: _apiService.hasPremiumKey ? () => _selectTab(3) : null,
         onConversationUpdated: _reloadConversations,
         initialPrompt: _pendingPrompt,
         onRequireAuth: widget.requireAuthOnChat ? _ensureAuthenticated : null,
@@ -810,39 +801,7 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
-      if (_visitedTabs.contains(3))
-        ForecastScreen(
-          apiService: _apiService,
-          onSelectPrompt: _openPromptInChat,
-        )
-      else
-        const SizedBox.shrink(),
-      if (_visitedTabs.contains(4))
-        PassportScreen(
-          apiService: _apiService,
-          onSelectPrompt: _openPromptInChat,
-        )
-      else
-        const SizedBox.shrink(),
-      if (_visitedTabs.contains(5))
-        AgricultureScreen(
-          apiService: _apiService,
-          onAskAssistant: _openPromptInChat,
-        )
-      else
-        const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(6))
-        AnalyticsScreen(apiService: _apiService)
-      else
-        const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(7))
-        AgroProScreen(
-          apiService: _apiService,
-          onAskAssistant: _openPromptInChat,
-        )
-      else
-        const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(8))
+      if (_apiService.hasPremiumKey && _visitedTabs.contains(3))
         ProjectsScreen(
           apiService: _apiService,
           refreshToken: _projectsRefreshToken,
@@ -852,19 +811,25 @@ class _MainShellState extends State<MainShell> {
         )
       else
         const SizedBox.shrink(),
-      if (_apiService.hasPremiumKey && _visitedTabs.contains(9))
-        SubscriptionScreen(
+      if (_visitedTabs.contains(4))
+        MarketsHubScreen(
           apiService: _apiService,
-          onConfigureKey: _configurePremiumKey,
-          onSessionChanged: () {
-            if (mounted) setState(() {});
-          },
+          onSelectPrompt: _openPromptInChat,
+          onRequestPro: _openSubscriptionScreen,
+        )
+      else
+        const SizedBox.shrink(),
+      if (_visitedTabs.contains(5))
+        AgroProScreen(
+          apiService: _apiService,
+          onAskAssistant: _openPromptInChat,
+          onRequestPro: _openSubscriptionScreen,
         )
       else
         const SizedBox.shrink(),
     ];
 
-    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex >= 6)
+    final effectiveIndex = (!_apiService.hasPremiumKey && _selectedIndex == 3)
         ? 0
         : _selectedIndex;
 
@@ -1564,9 +1529,9 @@ class _SidebarContentState extends State<_SidebarContent> {
               const Padding(
                 padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
                 child: Text(
-                  'ESPACE DE TRAVAIL',
+                  'IA & SAVOIR',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11.5,
                     color: FDTheme.subtle,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
@@ -1574,30 +1539,30 @@ class _SidebarContentState extends State<_SidebarContent> {
                 ),
               ),
               _navItem(0, Icons.chat_bubble_outline_rounded, 'Assistant IA'),
-              _navItem(1, Icons.explore_outlined, 'Explore'),
-              _navItem(2, Icons.bookmark_outline_rounded, 'Library'),
-              _navItem(3, Icons.show_chart_rounded, 'Prévisions'),
-              _navItem(4, Icons.shield_outlined, 'Credit Passport'),
-              _navItem(5, Icons.agriculture_outlined, 'Agriculture'),
-              if (widget.hasPremiumKey) ...[
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
-                  child: Text(
-                    'ESPACE PRO',
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: FDTheme.greenDark,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
+              _navItem(1, Icons.explore_outlined, 'Explorer'),
+              _navItem(2, Icons.bookmark_outline_rounded, 'Bibliothèque'),
+              if (widget.hasPremiumKey)
+                _navItem(3, Icons.folder_special_outlined, 'Projets PRO'),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 14, 20, 6),
+                child: Text(
+                  'INTELLIGENCE SECTORIELLE',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: FDTheme.subtle,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
                   ),
                 ),
-                _navItem(6, Icons.analytics_outlined, 'Analytics PRO'),
-                _navItem(7, Icons.eco_outlined, 'Agro PRO'),
-                _navItem(8, Icons.folder_special_outlined, 'Projets PRO'),
-                _navItem(
-                    9, Icons.workspace_premium_outlined, 'Abonnement & Quotas'),
-              ],
+              ),
+              _navItem(4, Icons.show_chart_rounded, 'Marchés & Crédit'),
+              _navItem(
+                5,
+                Icons.eco_outlined,
+                widget.hasPremiumKey
+                    ? 'Agriculture · Agro PRO'
+                    : 'Agriculture',
+              ),
               const Divider(
                   height: 18, thickness: 1, color: FDTheme.canvasSoft),
               Padding(
