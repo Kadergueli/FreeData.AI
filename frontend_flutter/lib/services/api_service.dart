@@ -275,6 +275,78 @@ class ApiService {
         resp.statusCode, 'Erreur API Plateforme (${resp.statusCode})');
   }
 
+  Stream<Map<String, dynamic>> streamChatMessage(
+    String message, {
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+    Map<String, dynamic>? studyContext,
+    String? projectId,
+  }) async* {
+    final uri = Uri.parse('$baseUrl/api/v1/chat/stream');
+    final req = http.Request('POST', uri);
+    req.headers.addAll(_projectHeaders(includeJson: true));
+    req.headers['Accept'] = 'text/event-stream';
+    req.body = jsonEncode({
+      'message': message,
+      if (history.isNotEmpty) 'history': history,
+      'tier': tier,
+      if (studyContext != null) 'study_context': studyContext,
+      if (projectId != null && projectId.trim().isNotEmpty)
+        'project_id': projectId.trim(),
+    });
+
+    final streamed =
+        await _client.send(req).timeout(const Duration(seconds: 45));
+    if (streamed.statusCode == 404 || streamed.statusCode == 405) {
+      final fallback = await sendChatMessage(
+        message,
+        history: history,
+        tier: tier,
+        studyContext: studyContext,
+        projectId: projectId,
+      );
+      yield {'event': 'done', 'data': fallback};
+      return;
+    }
+    if (streamed.statusCode == 429) {
+      throw const ApiHttpException(
+        429,
+        'Trop de requêtes envoyées (429). Réessayez dans une minute.',
+      );
+    }
+    if (streamed.statusCode != 200) {
+      throw ApiHttpException(
+        streamed.statusCode,
+        'Erreur API Chat (${streamed.statusCode})',
+      );
+    }
+
+    var currentEvent = 'message';
+    final dataBuffer = StringBuffer();
+    await for (final line in streamed.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())) {
+      if (line.isEmpty) {
+        if (dataBuffer.isNotEmpty) {
+          final rawData = dataBuffer.toString().trim();
+          dataBuffer.clear();
+          try {
+            final parsed = jsonDecode(rawData);
+            if (parsed is Map<String, dynamic>) {
+              yield {'event': currentEvent, 'data': parsed};
+            }
+          } catch (_) {}
+        }
+        currentEvent = 'message';
+      } else if (line.startsWith('event:')) {
+        currentEvent = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        if (dataBuffer.isNotEmpty) dataBuffer.write('\n');
+        dataBuffer.write(line.substring(5).trimLeft());
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> sendChatMessage(
     String message, {
     List<Map<String, String>> history = const [],

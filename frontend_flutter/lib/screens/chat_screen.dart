@@ -590,22 +590,57 @@ class _ChatScreenState extends State<ChatScreen> {
           .toList();
 
       final activePid = _activeProjectId();
-      final response = _selectedDomain == 'auto'
-          ? await widget.apiService.sendChatMessage(
-              trimmed,
-              history: recentHistory,
-              tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
-              studyContext: _latestStudyContext(),
-              projectId: activePid,
-            )
-          : await widget.apiService.sendPlatformChatMessage(
-              trimmed,
-              domain: _selectedDomain,
-              history: recentHistory,
-              tier: widget.apiService.hasPremiumKey ? 'premium' : 'free',
-              studyContext: _latestStudyContext(),
-              projectId: activePid,
+      final tierVal = widget.apiService.hasPremiumKey ? 'premium' : 'free';
+      Map<String, dynamic> response = const {};
+      if (_selectedDomain == 'auto') {
+        final streamedBuffer = StringBuffer();
+        await for (final evt in widget.apiService.streamChatMessage(
+          trimmed,
+          history: recentHistory,
+          tier: tierVal,
+          studyContext: _latestStudyContext(),
+          projectId: activePid,
+        )) {
+          if (!mounted) return;
+          final evtName = evt['event']?.toString() ?? '';
+          final evtData = evt['data'];
+          if (evtName == 'delta' && evtData is Map && evtData['text'] != null) {
+            streamedBuffer.write(evtData['text'].toString());
+            final partialMsg = ChatMessage.assistant(
+              text: streamedBuffer.toString(),
+              sources: const [],
+              metadata: const {'streaming': true, 'error': false},
             );
+            setState(() {
+              _thread = updatedThread.copyWith(
+                updatedAt: DateTime.now(),
+                messages: [...updatedMessages, partialMsg],
+              );
+            });
+            _scrollToBottom();
+          } else if (evtName == 'done' && evtData is Map) {
+            response = Map<String, dynamic>.from(evtData);
+          }
+        }
+        if (response.isEmpty) {
+          response = await widget.apiService.sendChatMessage(
+            trimmed,
+            history: recentHistory,
+            tier: tierVal,
+            studyContext: _latestStudyContext(),
+            projectId: activePid,
+          );
+        }
+      } else {
+        response = await widget.apiService.sendPlatformChatMessage(
+          trimmed,
+          domain: _selectedDomain,
+          history: recentHistory,
+          tier: tierVal,
+          studyContext: _latestStudyContext(),
+          projectId: activePid,
+        );
+      }
 
       final raw = Map<String, dynamic>.from(response);
       final reply = raw['reply']?.toString() ??

@@ -17,7 +17,7 @@ import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -1063,6 +1063,36 @@ def _consume_user_quota(
         raise HTTPException(status_code=429, detail=limit_message) from exc
 
 
+def _prepare_chat_context(
+    payload: ChatRequest,
+    *,
+    x_premium_key: Optional[str],
+    x_user_id: Optional[str],
+    authorization: Optional[str],
+    sub_store: SubscriptionStore,
+    doc_store: UserDocumentStore,
+    project_store: ProjectStore,
+) -> tuple[str, list[dict]]:
+    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
+    verified_project_id = _assert_project_owned(owner_id, payload.project_id, project_store)
+    tier = payload.tier
+    if tier == "premium" and not _has_pro_access(owner_id, x_premium_key, sub_store):
+        tier = "free"
+    _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
+    private_chunks: list[dict] = []
+    if owner_id and isinstance(doc_store, UserDocumentStore):
+        try:
+            private_chunks = doc_store.retrieve_for_owner(
+                owner_id,
+                payload.message,
+                project_id=verified_project_id,
+                top_k=5,
+            )
+        except Exception:
+            private_chunks = []
+    return tier, private_chunks
+
+
 @app.post(
     "/api/v1/chat",
     response_model=ChatResponse,
@@ -1079,24 +1109,15 @@ def chat_endpoint(
     project_store: ProjectStore = Depends(get_project_store),
 ):
     agent: FreeDataAIAgent = state["agent"]
-    owner_id = _resolve_owner_id_optional(x_user_id=x_user_id, x_premium_key=x_premium_key, authorization=authorization)
-    verified_project_id = _assert_project_owned(owner_id, payload.project_id, project_store)
-    tier = payload.tier
-    # Le niveau « premium » (LLM payant) exige une clé valide ou un abonnement PRO actif : sinon repli sur le gratuit.
-    if tier == "premium" and not _has_pro_access(owner_id, x_premium_key, sub_store):
-        tier = "free"
-    _consume_user_quota(owner_id, x_premium_key, "daily_chat", sub_store, "Quota journalier de messages atteint.")
-    private_chunks: list[dict] = []
-    if owner_id and isinstance(doc_store, UserDocumentStore):
-        try:
-            private_chunks = doc_store.retrieve_for_owner(
-                owner_id,
-                payload.message,
-                project_id=verified_project_id,
-                top_k=5,
-            )
-        except Exception:
-            private_chunks = []
+    tier, private_chunks = _prepare_chat_context(
+        payload,
+        x_premium_key=x_premium_key,
+        x_user_id=x_user_id,
+        authorization=authorization,
+        sub_store=sub_store,
+        doc_store=doc_store,
+        project_store=project_store,
+    )
     # Plafond de requêtes chat simultanées : un appel LLM lent ne doit pas saturer tous les threads de l'API.
     if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
         raise HTTPException(status_code=503, detail="Assistant très sollicité. Réessayez dans un instant.",
@@ -1112,6 +1133,77 @@ def chat_endpoint(
     finally:
         _CHAT_SLOTS.release()
     return ChatResponse(**result)
+
+
+@app.post(
+    "/api/v1/chat/stream",
+    dependencies=[Depends(_chat_rate_limit_dependency)],
+)
+def chat_stream_endpoint(
+    payload: ChatRequest,
+    state: dict = Depends(get_state),
+    x_premium_key: Optional[str] = Header(default=None),
+    x_user_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+    doc_store: UserDocumentStore = Depends(get_user_document_store),
+    project_store: ProjectStore = Depends(get_project_store),
+):
+    """Flux SSE (text/event-stream) : statut immédiat, deltas vérifiés, puis payload ChatResponse complet."""
+    agent: FreeDataAIAgent = state["agent"]
+    tier, private_chunks = _prepare_chat_context(
+        payload,
+        x_premium_key=x_premium_key,
+        x_user_id=x_user_id,
+        authorization=authorization,
+        sub_store=sub_store,
+        doc_store=doc_store,
+        project_store=project_store,
+    )
+    if not _CHAT_SLOTS.acquire(timeout=_CHAT_WAIT_S):
+        raise HTTPException(
+            status_code=503,
+            detail="Assistant très sollicité. Réessayez dans un instant.",
+            headers={"Retry-After": "5"},
+        )
+
+    def _event_stream():
+        try:
+            yield f"event: status\ndata: {json.dumps({'phase': 'analyzing'}, ensure_ascii=False)}\n\n"
+            result = agent.answer(
+                payload.message,
+                history=payload.history,
+                tier=tier,
+                study_context=payload.study_context,
+                private_chunks=private_chunks,
+            )
+            validated = ChatResponse(**result).model_dump(mode="json")
+            reply_text = validated.get("reply") or ""
+            # Découpe progressive par mots pour un affichage fluide après validation anti-hallucination
+            step = 36
+            idx = 0
+            n = len(reply_text)
+            while idx < n:
+                end = min(n, idx + step)
+                if end < n:
+                    ws = reply_text.rfind(" ", idx, end)
+                    if ws > idx:
+                        end = ws + 1
+                chunk = reply_text[idx:end]
+                yield f"event: delta\ndata: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
+                idx = end
+            yield f"event: done\ndata: {json.dumps(validated, ensure_ascii=False)}\n\n"
+        finally:
+            _CHAT_SLOTS.release()
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/v1/forecasts", dependencies=[Depends(_data_rate_limit_dependency)])
