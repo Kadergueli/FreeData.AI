@@ -112,8 +112,8 @@ class _AgroProFakeApi extends ApiService {
 
 void main() {
   testWidgets(
-      'AgronomistProScreen keeps the parcel map usable on a narrow mobile screen',
-      (tester) async {
+    'AgronomistProScreen keeps the parcel map usable on a narrow mobile screen',
+    (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -153,8 +153,8 @@ void main() {
   });
 
   testWidgets(
-      'parcel comparison rejects invalid GPS coordinates before calling the API',
-      (tester) async {
+    'parcel comparison rejects invalid GPS coordinates before calling the API',
+    (tester) async {
     tester.view.physicalSize = const Size(1200, 1600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -182,14 +182,11 @@ void main() {
     await tester.tap(openCompare.first);
     await tester.pumpAndSettle();
 
-    final areaFields =
-        find.widgetWithText(TextField, 'Surface (ha)');
+    final areaFields = find.widgetWithText(TextField, 'Surface (ha)');
     await tester.enterText(areaFields.at(0), '2.5');
     await tester.enterText(areaFields.at(1), '3');
-    final latitudeFields =
-        find.widgetWithText(TextField, 'Lat GPS (opt.)');
-    final longitudeFields =
-        find.widgetWithText(TextField, 'Lon GPS (opt.)');
+    final latitudeFields = find.widgetWithText(TextField, 'Lat GPS (opt.)');
+    final longitudeFields = find.widgetWithText(TextField, 'Lon GPS (opt.)');
     await tester.enterText(latitudeFields.at(0), '91');
     await tester.enterText(longitudeFields.at(0), '0');
 
@@ -205,8 +202,8 @@ void main() {
   });
 
   testWidgets(
-      'AgronomistProScreen gates guest users and runs field diagnostic when PRO',
-      (tester) async {
+    'AgronomistProScreen gates guest users and runs field diagnostic when PRO',
+    (tester) async {
     tester.view.physicalSize = const Size(1200, 1600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
