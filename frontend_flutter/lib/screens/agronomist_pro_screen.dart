@@ -306,7 +306,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String aHub = _hub;
     final aLat = TextEditingController(text: _latCtrl.text);
     final aLon = TextEditingController(text: _lonCtrl.text);
-    final aArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final aArea = TextEditingController(text: _areaCtrl.text);
     final aPh = TextEditingController(text: _phCtrl.text);
     String aTex = _texture;
     final aOm = TextEditingController(text: _omCtrl.text);
@@ -318,7 +318,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String bHub = _hub == 'Moundou' ? 'Sarh' : 'Moundou';
     final bLat = TextEditingController();
     final bLon = TextEditingController();
-    final bArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final bArea = TextEditingController(text: _areaCtrl.text);
     final bPh = TextEditingController();
     String bTex = '';
     final bOm = TextEditingController();
@@ -331,7 +331,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String cHub = 'Bongor';
     final cLat = TextEditingController();
     final cLon = TextEditingController();
-    final cArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final cArea = TextEditingController(text: _areaCtrl.text);
     final cPh = TextEditingController();
     String cTex = '';
     final cOm = TextEditingController();
@@ -679,6 +679,39 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 onPressed: comparing
                     ? null
                     : () async {
+                        final candidates = currentCandidates();
+                        for (final candidate in candidates) {
+                          final area =
+                              (candidate['area_hectares'] as num?)?.toDouble();
+                          final lat =
+                              (candidate['gps_lat'] as num?)?.toDouble();
+                          final lon =
+                              (candidate['gps_lon'] as num?)?.toDouble();
+                          if (area == null ||
+                              !area.isFinite ||
+                              area <= 0 ||
+                              area > 500000) {
+                            setDlg(() => cmpErr =
+                                'Renseignez une superficie réelle valide pour chaque terrain (0 à 500 000 ha).');
+                            return;
+                          }
+                          if ((lat == null) != (lon == null)) {
+                            setDlg(() => cmpErr =
+                                'Pour chaque terrain, renseignez les deux coordonnées GPS ou laissez les deux vides.');
+                            return;
+                          }
+                          if (lat != null &&
+                              (!lat.isFinite ||
+                                  !lon!.isFinite ||
+                                  lat < -90 ||
+                                  lat > 90 ||
+                                  lon < -180 ||
+                                  lon > 180)) {
+                            setDlg(() => cmpErr =
+                                'Coordonnées GPS invalides : latitude -90 à 90, longitude -180 à 180.');
+                            return;
+                          }
+                        }
                         setDlg(() {
                           comparing = true;
                           cmpErr = null;
@@ -686,7 +719,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         try {
                           final res = await widget.apiService
                               .compareAgroAssessments(
-                            candidates: currentCandidates(),
+                            candidates: candidates,
                             agronomistName: _firmCtrl.text,
                             agronomistLicense: _licenseCtrl.text,
                           );
