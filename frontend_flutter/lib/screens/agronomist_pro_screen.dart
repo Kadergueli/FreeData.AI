@@ -1524,13 +1524,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   ),
                   _kvRow(
                     'Méthode pédologique',
-                    siteContext['soil_method']?.toString() ?? 'Non documentée',
+                    siteContext['soil_method']?.toString() ??
+                        'Non documentée',
                     shaded: true,
                   ),
                   if (pointSatellite.isNotEmpty) ...[
                     _kvRow(
                       'Source au point GPS',
-                      pointSatellite['source']?.toString() ?? 'NASA POWER',
+                      pointSatellite['source']?.toString() ??
+                          'NASA POWER',
                     ),
                     _kvRow(
                       'Période de référence',
@@ -1542,7 +1544,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     _kvRow(
                       'Récupération UTC',
                       pointProvenance['retrieved_at_utc']?.toString() ??
-                          pointSatellite['retrieved_at_utc']?.toString() ?? '—',
+                          pointSatellite['retrieved_at_utc']?.toString() ??
+                          '—',
                     ),
                     _kvRow(
                       'Portée spatiale',
