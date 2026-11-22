@@ -334,9 +334,10 @@ class _AccountScreenState extends State<AccountScreen> {
       final data = await widget.apiService.exportMyPrivacyData();
       final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
       triggerFileDownload(
-          Uint8List.fromList(utf8.encode(jsonStr)),
-          'freedata_rgpd_export.json',
-          'application/json');
+        Uint8List.fromList(utf8.encode(jsonStr)),
+        'freedata_rgpd_export.json',
+        'application/json',
+      );
       await Clipboard.setData(ClipboardData(text: jsonStr));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
