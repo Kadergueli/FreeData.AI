@@ -176,7 +176,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
 
   Future<void> _openCreditPassportAgroDialog() async {
     final provCtrl = TextEditingController(text: 'Logone Occidental');
-    final areaCtrl = TextEditingController(text: '5');
+    final areaCtrl = TextEditingController();
     final loanCtrl = TextEditingController(text: '500000');
     String cropId = 'millet';
     Map<String, dynamic>? result;
