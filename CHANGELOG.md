@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] — Correctifs audit frontend/backend (2026-11-22)
+- Fix : `trigger_sqlite_backup` (NameError `Path`, route admin de sauvegarde en 500).
+- Nettoyage : suppression du système de clés PRO mort (`create/list/revoke/redeem_pro_key`, double `_hash_activation_key`, double table `pro_activation_keys`) ; seul `*_activation_key` reste.
+- Perf/confidentialité : cache 24 h des climatologies NASA POWER par cellule GPS arrondie (0,01°).
+- Dépôt : `model_registry.db` et `experiments.db` retirés du suivi git (ignorés).
+
 ## [Unreleased] - Sol réel dans le moteur Agronome PRO
 - `agro_site` : profil de sol (SoilGrids, CC BY 4.0) et de climat (NASA POWER) des 12 pôles, texture USDA calculée, matière organique estimée.
 - Moteur d'analyse : sans mesures labo, le score pédologique utilise le sol réel de la zone (plafonné à 22/30, jamais assimilé à une mesure) ; avec mesures labo, elles prévalent et sont recoupées avec l'estimation zonale (`soil_cross_check`). Le titre « Diagnostic de terrain (pré-achat) » reste réservé aux mesures labo.

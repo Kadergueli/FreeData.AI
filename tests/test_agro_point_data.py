@@ -72,3 +72,23 @@ def test_point_climatology_returns_none_when_provider_fails():
 def test_point_climatology_rejects_invalid_coordinates():
     with pytest.raises(ValueError):
         fetch_nasa_power_point(95.0, 16.1, http_get=lambda *_a, **_k: _Response(_payload()))
+
+
+def test_cache_reuses_successful_fetch(monkeypatch):
+    import src.agro_point_data as apd
+
+    apd._cache.clear()
+    calls = []
+
+    def fake_get(*_a, **_k):
+        calls.append(1)
+        return _Response(_payload())
+
+    monkeypatch.setattr(apd.requests, "get", fake_get)
+    monkeypatch.setattr(apd, "fetch_nasa_power_point", apd.fetch_nasa_power_point)
+    # le wrapper compare http_get à requests.get : on appelle avec la valeur patchée
+    first = apd.fetch_nasa_power_point(8.501, 16.101, http_get=apd.requests.get)
+    second = apd.fetch_nasa_power_point(8.504, 16.104, http_get=apd.requests.get)
+    assert first is not None and second == first
+    assert len(calls) == 1
+    apd._cache.clear()
