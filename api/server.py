@@ -1587,6 +1587,75 @@ def admin_review_agro_profile_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     return {"profile": prof}
 
 
@@ -1732,6 +1801,75 @@ def agro_field_assessment_pdf_endpoint(
         saved = assess_store.get_assessment(owner_id, assessment_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     qa = validate_field_assessment_qa(saved)
     if not qa["can_deliver_pdf"]:
         raise HTTPException(
@@ -1764,6 +1902,167 @@ def agro_field_assessment_pdf_endpoint(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="freedata_agro_{code}.pdf"'},
     )
+
+
+class AgroAssessmentCreditPassportRequest(BaseModel):
+    loan_amount_xaf: float = Field(500_000.0, gt=0, le=500_000_000)
+    crop_id: Optional[str] = Field(None, max_length=40)
+
+
+@app.post("/api/v1/agro/field-assessment/{assessment_id}/credit-passport", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_assessment_to_credit_passport_endpoint(
+    assessment_id: str,
+    payload: Optional[AgroAssessmentCreditPassportRequest] = None,
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Liaison directe Audit Agronome -> Credit Passport bancaire (DSCR + échéancier saisonnier)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Credit Passport depuis Audit Agronome")
+    try:
+        saved = assess_store.get_assessment(owner_id, assessment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    scores = saved.get("computed_scores") or {}
+    crops = scores.get("crop_assessments") or []
+    req_crop = (payload.crop_id or "").strip() if payload else ""
+    chosen_crop = req_crop or (crops[0].get("crop_id") if crops else "millet")
+    province = saved.get("province") or saved.get("province_hub") or "N'Djamena"
+    area = float(saved.get("area_hectares") or 1.0)
+    loan_amt = float(payload.loan_amount_xaf) if payload else 500_000.0
+    cp = compute_agro_credit_passport(
+        province=province,
+        crop_id=chosen_crop,
+        area_hectares=area,
+        loan_amount_xaf=loan_amt,
+        hist_df=state.get("hist_df"),
+        forecast_df=state.get("forecast_df"),
+        passport_df=state.get("passport_df"),
+        regional_agro_rows=state.get("agro_regional_rows") or [],
+        national_agro_rows=state.get("agro_national_rows") or [],
+        disclaimer=CREDIT_PASSPORT_DISCLAIMER,
+    )
+    cp["linked_assessment_id"] = assessment_id
+    cp["report_verification_code"] = saved.get("report_verification_code")
+    cp["has_lab_measurements"] = bool(scores.get("has_lab_measurements"))
+    return cp
+
+
+class AgroAssessmentCreditPassportRequest(BaseModel):
+    loan_amount_xaf: float = Field(500_000.0, gt=0, le=500_000_000)
+    crop_id: Optional[str] = Field(None, max_length=40)
+
+
+@app.post("/api/v1/agro/field-assessment/{assessment_id}/credit-passport", dependencies=[Depends(_data_rate_limit_dependency)])
+def agro_assessment_to_credit_passport_endpoint(
+    assessment_id: str,
+    payload: Optional[AgroAssessmentCreditPassportRequest] = None,
+    state: dict = Depends(get_state),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Liaison directe Audit Agronome -> Credit Passport bancaire (DSCR + échéancier saisonnier)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Credit Passport depuis Audit Agronome")
+    try:
+        saved = assess_store.get_assessment(owner_id, assessment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+    scores = saved.get("computed_scores") or {}
+    crops = scores.get("crop_assessments") or []
+    req_crop = (payload.crop_id or "").strip() if payload else ""
+    chosen_crop = req_crop or (crops[0].get("crop_id") if crops else "millet")
+    province = saved.get("province") or saved.get("province_hub") or "N'Djamena"
+    area = float(saved.get("area_hectares") or 1.0)
+    loan_amt = float(payload.loan_amount_xaf) if payload else 500_000.0
+    cp = compute_agro_credit_passport(
+        province=province,
+        crop_id=chosen_crop,
+        area_hectares=area,
+        loan_amount_xaf=loan_amt,
+        hist_df=state.get("hist_df"),
+        forecast_df=state.get("forecast_df"),
+        passport_df=state.get("passport_df"),
+        regional_agro_rows=state.get("agro_regional_rows") or [],
+        national_agro_rows=state.get("agro_national_rows") or [],
+        disclaimer=CREDIT_PASSPORT_DISCLAIMER,
+    )
+    cp["linked_assessment_id"] = assessment_id
+    cp["report_verification_code"] = saved.get("report_verification_code")
+    cp["has_lab_measurements"] = bool(scores.get("has_lab_measurements"))
+    return cp
 
 
 def _evaluate_compare_payload(
@@ -2148,6 +2447,75 @@ def get_project_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.patch("/api/v1/projects/{project_id}", dependencies=[Depends(_data_rate_limit_dependency)])
 def update_project_endpoint(
     project_id: str,
@@ -2166,6 +2534,75 @@ def update_project_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
 
 @app.delete("/api/v1/projects/{project_id}", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2200,6 +2637,142 @@ def delete_project_endpoint(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
 
 @app.post("/api/v1/projects/{project_id}/conversations", dependencies=[Depends(_data_rate_limit_dependency)])
 def create_project_conversation_endpoint(
@@ -2212,6 +2785,75 @@ def create_project_conversation_endpoint(
         return store.create_conversation(owner_id, project_id, title=payload.title)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
 
 @app.post("/api/v1/projects/{project_id}/conversations/{conversation_id}/messages", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2236,6 +2878,75 @@ def add_project_message_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.post("/api/v1/projects/{project_id}/studies", dependencies=[Depends(_chat_rate_limit_dependency)])
 def create_project_study_version_endpoint(
     project_id: str,
@@ -2251,6 +2962,75 @@ def create_project_study_version_endpoint(
         proj = store.get_project(owner_id, project_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
     merged_ctx = payload.study_context or proj.get("study_context")
     study_req = MarketStudyRequest(
@@ -2282,6 +3062,75 @@ def create_project_study_version_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     _consume_user_quota(owner_id, x_premium_key, "monthly_pdf", sub_store, "Quota mensuel de PDF atteint.")
     return created
 
@@ -2297,6 +3146,75 @@ def list_study_versions_endpoint(
         return {"versions": store.list_study_versions(owner_id, project_id, study_id)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
 
 @app.delete("/api/v1/projects/{project_id}/studies/{study_id}", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -2316,6 +3234,75 @@ def delete_study_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.get("/api/v1/projects/{project_id}/studies/{study_id}/compare", dependencies=[Depends(_data_rate_limit_dependency)])
 def compare_study_versions_endpoint(
     project_id: str,
@@ -2331,6 +3318,75 @@ def compare_study_versions_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.get("/api/v1/projects/{project_id}/studies/{study_id}/versions/{version_number}/pdf", dependencies=[Depends(_data_rate_limit_dependency)])
 def download_study_version_pdf_endpoint(
     project_id: str,
@@ -2343,6 +3399,75 @@ def download_study_version_pdf_endpoint(
         pdf_bytes = store.get_study_version_pdf(owner_id, project_id, study_id, version_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(
@@ -2428,6 +3553,75 @@ def get_report_job_status_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.get("/api/v1/reports/jobs/{job_id}/pdf", dependencies=[Depends(_data_rate_limit_dependency)])
 def download_report_job_pdf_endpoint(
     job_id: str,
@@ -2438,6 +3632,75 @@ def download_report_job_pdf_endpoint(
         pdf_bytes = jobs.get_pdf(owner_id, job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(
@@ -2496,6 +3759,75 @@ def governance_admin_decision_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2804,6 +4136,75 @@ def get_data_product_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.get("/api/v1/products/{product_id}/export", dependencies=[Depends(_data_rate_limit_dependency)])
 def export_data_product_endpoint(
     product_id: str,
@@ -2824,6 +4225,75 @@ def export_data_product_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -2899,6 +4369,75 @@ def revoke_developer_key_endpoint(
         return km.revoke_key(key_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
 
 @app.get("/api/v1/developer/keys", dependencies=[Depends(_admin_rate_limit_dependency)])
@@ -3543,6 +5082,75 @@ def auth_update_profile_endpoint(
         user = auth_store.update_profile(sub_id, display_name=payload.display_name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     return {"user": user}
 
 
@@ -3565,6 +5173,75 @@ def auth_change_password_endpoint(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     # Les anciens jetons sont invalidés : on renvoie une session neuve pour l'appareil courant.
     secret = get_auth_secret()
     return {"updated": True, "user": user, "session": auth_store.issue_session(user, secret=secret)}
@@ -3587,6 +5264,75 @@ def auth_delete_account_endpoint(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     owner_id = f"user:{sub_id}"
     if isinstance(conv_store, ConversationStore):
         conv_store.purge_owner(owner_id)
@@ -3792,6 +5538,75 @@ def admin_review_payment_request_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -3848,6 +5663,75 @@ def admin_revoke_pro_key_endpoint(
         return sub_store.revoke_activation_key(key_id, actor=actor)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -3872,6 +5756,75 @@ def redeem_pro_key_endpoint(
         return sub_store.redeem_activation_key(owner_id, payload.activation_key)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -4452,6 +6405,11 @@ def admin_overview_endpoint(
         "model_flags": admin.list_model_flags(),
         "ml_models": _MODEL_REGISTRY.list_models(),
         "users_summary": {"total_known_users": len(users), "by_plan": plan_counts},
+        "unit_economics_summary": simulate_unit_economics(
+            pro_subscribers=max(1, plan_counts.get("premium", 0)),
+            free_users=plan_counts.get("free", 0),
+            avg_chats_per_user=max(1, round(api_metrics.get("chat_requests", 0) / max(1, len(users)))),
+        ),
         "datasets": registry.list_entries(),
         "recent_audit_logs": admin.list_audit_logs(limit=20),
     }
@@ -4613,6 +6571,75 @@ def admin_ai_set_domain_status_endpoint(
         res = DomainRegistry.set_domain_active(domain_id, payload.active)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     admin.log_action(
         actor=actor,
         actor_role=role,
@@ -4676,6 +6703,75 @@ def admin_ai_transition_model_endpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     admin.log_action(
@@ -4710,6 +6806,75 @@ def admin_ai_rollback_model_endpoint(
         rolled = _MODEL_REGISTRY.rollback_model(model_id, payload.target_version)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     admin.log_action(
@@ -4831,6 +6996,141 @@ def admin_ai_get_benchmark_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/admin/ai/benchmark/{job_id}/report", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_benchmark_report_endpoint(
+    job_id: str,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    """Exporte un rapport exécutif synthétique (Markdown + JSON) d'un job de benchmark ML."""
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        job = _BENCHMARK_JOB_MANAGER.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    res = job.get("result") or {}
+    best = res.get("best_model") or res.get("winner") or "—"
+    md_lines = [
+        f"# Rapport Exécutif Benchmark ML — {job_id}",
+        f"- **Statut :** {job.get('status')}",
+        f"- **Domaine / Tâche :** {job.get('domain')} / {job.get('task_type')}",
+        f"- **Dataset :** {job.get('dataset_name')} (`{str(job.get('dataset_hash', ''))[:12]}`)",
+        f"- **Modèle retenu :** {best}",
+    ]
+    metrics = res.get("metrics") or {}
+    if isinstance(metrics, dict) and metrics:
+        md_lines.append("## Métriques")
+        for k, v in metrics.items():
+            md_lines.append(f"- `{k}` : {v}")
+    return {"job_id": job_id, "status": job.get("status"), "markdown_report": "\n".join(md_lines), "job": job}
+
+
+
+@app.get("/api/v1/admin/ai/benchmark/{job_id}/report", dependencies=[Depends(_admin_rate_limit_dependency)])
+def admin_ai_benchmark_report_endpoint(
+    job_id: str,
+    actor_info: tuple[str, str] = Depends(_require_admin_actor),
+    admin: AdminService = Depends(get_admin_service),
+):
+    """Exporte un rapport exécutif synthétique (Markdown + JSON) d'un job de benchmark ML."""
+    _, role = actor_info
+    try:
+        admin.check_permission(role, "read_overview")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    try:
+        job = _BENCHMARK_JOB_MANAGER.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    res = job.get("result") or {}
+    best = res.get("best_model") or res.get("winner") or "—"
+    md_lines = [
+        f"# Rapport Exécutif Benchmark ML — {job_id}",
+        f"- **Statut :** {job.get('status')}",
+        f"- **Domaine / Tâche :** {job.get('domain')} / {job.get('task_type')}",
+        f"- **Dataset :** {job.get('dataset_name')} (`{str(job.get('dataset_hash', ''))[:12]}`)",
+        f"- **Modèle retenu :** {best}",
+    ]
+    metrics = res.get("metrics") or {}
+    if isinstance(metrics, dict) and metrics:
+        md_lines.append("## Métriques")
+        for k, v in metrics.items():
+            md_lines.append(f"- `{k}` : {v}")
+    return {"job_id": job_id, "status": job.get("status"), "markdown_report": "\n".join(md_lines), "job": job}
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
+
+
 @app.get("/api/v1/admin/ai/benchmarks", dependencies=[Depends(_admin_rate_limit_dependency)])
 def admin_ai_list_benchmarks_endpoint(
     limit: int = Query(20, ge=1, le=50),
@@ -4864,6 +7164,75 @@ def admin_ai_promotion_check_endpoint(
         blockers = promotion_blockers(_MODEL_REGISTRY, model_id, version)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     return {"model_id": model_id, "version": version, "eligible": not blockers, "blockers": blockers}
 
 
@@ -4882,6 +7251,75 @@ def admin_ai_compare_model_versions_endpoint(
         return {"model_id": model_id, "versions": _MODEL_REGISTRY.compare_versions(model_id)}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
 
 
 @app.get("/api/v1/admin/audit-logs", dependencies=[Depends(_admin_rate_limit_dependency)])
@@ -4908,6 +7346,75 @@ def retry_report_job_endpoint(
         return jobs.retry_job(owner_id, job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OverflowError as exc:
@@ -5075,6 +7582,75 @@ def admin_update_ticket_endpoint(
         updated = sup.admin_update_ticket(ticket_id, status=payload.status, priority=payload.priority)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+
+def _project_share_secret() -> bytes:
+    raw = (os.getenv("AUTH_SECRET") or settings.admin_token or "freedata-share-dev-secret").strip()
+    return raw.encode("utf-8")
+
+
+@app.post("/api/v1/projects/{project_id}/share-link", dependencies=[Depends(_data_rate_limit_dependency)])
+def create_project_share_link_endpoint(
+    project_id: str,
+    ttl_hours: int = Query(72, ge=1, le=720),
+    owner_id: str = Depends(_require_project_owner),
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Génère un jeton signé HMAC-SHA256 expirable pour partage en lecture seule."""
+    import base64
+    try:
+        store.get_project(owner_id, project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    exp = int(time.time()) + ttl_hours * 3600
+    payload_b = json.dumps({"o": owner_id, "p": project_id, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    b64 = base64.urlsafe_b64encode(payload_b).decode("ascii").rstrip("=")
+    sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    token = f"{b64}.{sig}"
+    return {
+        "project_id": project_id,
+        "share_token": token,
+        "share_path": f"/api/v1/shared/projects/{token}",
+        "expires_at_utc": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+    }
+
+
+@app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
+def get_shared_project_endpoint(
+    token: str,
+    store: ProjectStore = Depends(get_project_store),
+):
+    """Accès public en lecture seule à un projet partagé via jeton signé."""
+    import base64
+    parts = (token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Jeton de partage invalide.")
+    b64, sig = parts
+    expected_sig = hmac.new(_project_share_secret(), b64.encode("ascii"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(status_code=403, detail="Signature de partage invalide.")
+    padded = b64 + "=" * (-len(b64) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Jeton de partage illisible.") from exc
+    if int(data.get("exp") or 0) < int(time.time()):
+        raise HTTPException(status_code=410, detail="Lien de partage expiré.")
+    try:
+        proj = store.get_project(str(data["o"]), str(data["p"]))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
+    return {
+        "read_only": True,
+        "project_id": proj.get("project_id"),
+        "title": proj.get("title"),
+        "description": proj.get("description"),
+        "domain": proj.get("domain"),
+        "created_at": proj.get("created_at"),
+        "studies": proj.get("studies") or [],
+    }
     admin.log_action(
         actor=actor,
         actor_role=role,

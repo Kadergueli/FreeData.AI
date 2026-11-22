@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Optional
 
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -190,7 +192,18 @@ def render_agro_assessment_pdf(
         f"Réf. : {code} | Date : {date_str}<br/>"
         f"Confiance : {conf_label}"
     )
-    header_tbl = Table([[left_cells, Paragraph(right_html, body_style)]], colWidths=[8.8 * cm, 9.4 * cm])
+    qr_payload = f"FreeData.td|REF:{code}|SCORE:{ws.get('total_score', '-')}/100|CABINET:{firm[:36]}"
+    qr_widget = QrCodeWidget(qr_payload)
+    qr_bounds = qr_widget.getBounds()
+    qr_size = 1.75 * cm
+    qr_w = max(1.0, qr_bounds[2] - qr_bounds[0])
+    qr_h = max(1.0, qr_bounds[3] - qr_bounds[1])
+    qr_drawing = Drawing(qr_size, qr_size, transform=[qr_size / qr_w, 0, 0, qr_size / qr_h, 0, 0])
+    qr_drawing.add(qr_widget)
+    header_tbl = Table(
+        [[left_cells, Paragraph(right_html, body_style), qr_drawing]],
+        colWidths=[8.0 * cm, 8.2 * cm, 2.0 * cm],
+    )
     header_tbl.setStyle(
         TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),

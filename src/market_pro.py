@@ -551,6 +551,15 @@ def compute_agro_credit_passport(
                 "ltv_ratio": float(r0["ltv_ratio"]) if "ltv_ratio" in r0 else None,
             }
 
+    loan_val = float(loan_amount_xaf)
+    tranche_1 = round(loan_val * 0.60)
+    tranche_2 = round(loan_val - tranche_1)
+    repayment_schedule = [
+        {"period": "Mois 1 à 5 (Cycle cultural)", "installment_xaf": 0, "share_pct": 0, "note": "Différé saisonnier (semis, entretien, récolte)"},
+        {"period": "Mois 6 (Post-récolte immédiate)", "installment_xaf": tranche_1, "share_pct": 60, "note": "Remboursement principal après battage/vente initiale"},
+        {"period": "Mois 8 (Fenêtre stockage +60 j)", "installment_xaf": tranche_2, "share_pct": 40, "note": "Solde sur arbitrage prix post-récolte"},
+    ]
+
     return {
         "profile": "agro",
         "province": prov_name,
@@ -558,12 +567,13 @@ def compute_agro_credit_passport(
         "commodity_std": comm,
         "label_fr": meta["label_fr"],
         "area_hectares": float(area_hectares),
-        "loan_amount_xaf": float(loan_amount_xaf),
+        "loan_amount_xaf": loan_val,
         "cereal_yield_mean_2020_2024_kg_ha": yield_mean_kg_ha,
         "estimated_production_kg": est_prod_kg,
         "dry_years_risk": dry_info,
         "market_credit_passport": cp_match,
         "scenarios": scenarios,
+        "repayment_schedule": repayment_schedule,
         "sources": ["WFP", "FEWS NET", "NASA POWER Agro", "World Bank"],
         "licenses": ["CC BY-IGO 3.0", "Attribution Required", "Public Domain (NASA)", "CC BY 4.0"],
         "spatial_resolution": "province / regional_city_hub",
