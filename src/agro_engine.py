@@ -1546,9 +1546,9 @@ def evaluate_field_assessment(
                 for h in (gps_logistics.get("idw_hubs") or [])
             ],
             "soil_method": (
-                "Mesures de laboratoire fournies par l'utilisateur"
-                if has_lab
-                else ("SoilGrids 2.0 — estimation régionale" if zonal_soil else "Données pédologiques indisponibles")
+                "SoilGrids 2.0 — estimation régionale non parcellaire"
+                if zonal_soil
+                else "Estimation pédologique régionale indisponible"
             ),
             "laboratory_values": {
                 key: value
