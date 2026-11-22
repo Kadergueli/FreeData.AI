@@ -387,11 +387,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('AM-9988'), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.text('Approuver'),
-      160,
-      scrollable: find.byType(Scrollable).first,
+    // The payment tab keeps its sections in the page-level ListView.
+    // Scroll that viewport itself so the action is inside the 800x600 screen.
+    await tester.drag(
+      find.byType(ListView).first,
+      const Offset(0, -420),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Approuver'));
     await tester.pumpAndSettle();
     expect(api.lastReviewedRequestId, 'PAY-001');
