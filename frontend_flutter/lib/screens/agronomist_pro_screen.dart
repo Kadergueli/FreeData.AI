@@ -211,9 +211,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       return;
     }
     final area = _parseOpt(_areaCtrl);
-    if (area == null || area <= 0 || area > 500000) {
+    if (area == null || !area.isFinite || area <= 0 || area > 500000) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saisissez la superficie réelle de la parcelle en hectares (valeur supérieure à 0).')),
+        const SnackBar(content: Text('Saisissez une superficie réelle comprise entre 0 et 500 000 hectares.')),
       );
       return;
     }
@@ -222,6 +222,18 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     if ((latitude == null) != (longitude == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+      );
+      return;
+    }
+    if (latitude != null &&
+        (!latitude.isFinite ||
+            !longitude!.isFinite ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Coordonnées GPS invalides : latitude entre -90 et 90, longitude entre -180 et 180.')),
       );
       return;
     }
@@ -243,9 +255,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     try {
       final res = await widget.apiService.createAgroFieldAssessment(
         provinceHub: _hub,
-        gpsLat: _parseOpt(_latCtrl),
-        gpsLon: _parseOpt(_lonCtrl),
-        areaHectares: _parseOpt(_areaCtrl),
+        gpsLat: latitude,
+        gpsLon: longitude,
+        areaHectares: area,
         labSoilInputs: lab,
         agronomistFieldNotes: _notesCtrl.text,
         targetCrops: _selectedCrops.toList(),
@@ -294,7 +306,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String aHub = _hub;
     final aLat = TextEditingController(text: _latCtrl.text);
     final aLon = TextEditingController(text: _lonCtrl.text);
-    final aArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final aArea = TextEditingController(text: _areaCtrl.text);
     final aPh = TextEditingController(text: _phCtrl.text);
     String aTex = _texture;
     final aOm = TextEditingController(text: _omCtrl.text);
@@ -306,7 +318,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String bHub = _hub == 'Moundou' ? 'Sarh' : 'Moundou';
     final bLat = TextEditingController();
     final bLon = TextEditingController();
-    final bArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final bArea = TextEditingController(text: _areaCtrl.text);
     final bPh = TextEditingController();
     String bTex = '';
     final bOm = TextEditingController();
@@ -319,7 +331,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String cHub = 'Bongor';
     final cLat = TextEditingController();
     final cLon = TextEditingController();
-    final cArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final cArea = TextEditingController(text: _areaCtrl.text);
     final cPh = TextEditingController();
     String cTex = '';
     final cOm = TextEditingController();
@@ -667,6 +679,39 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 onPressed: comparing
                     ? null
                     : () async {
+                        final candidates = currentCandidates();
+                        for (final candidate in candidates) {
+                          final area =
+                              (candidate['area_hectares'] as num?)?.toDouble();
+                          final lat =
+                              (candidate['gps_lat'] as num?)?.toDouble();
+                          final lon =
+                              (candidate['gps_lon'] as num?)?.toDouble();
+                          if (area == null ||
+                              !area.isFinite ||
+                              area <= 0 ||
+                              area > 500000) {
+                            setDlg(() => cmpErr =
+                                'Renseignez une superficie réelle valide pour chaque terrain (0 à 500 000 ha).');
+                            return;
+                          }
+                          if ((lat == null) != (lon == null)) {
+                            setDlg(() => cmpErr =
+                                'Pour chaque terrain, renseignez les deux coordonnées GPS ou laissez les deux vides.');
+                            return;
+                          }
+                          if (lat != null &&
+                              (!lat.isFinite ||
+                                  !lon!.isFinite ||
+                                  lat < -90 ||
+                                  lat > 90 ||
+                                  lon < -180 ||
+                                  lon > 180)) {
+                            setDlg(() => cmpErr =
+                                'Coordonnées GPS invalides : latitude -90 à 90, longitude -180 à 180.');
+                            return;
+                          }
+                        }
                         setDlg(() {
                           comparing = true;
                           cmpErr = null;
@@ -674,7 +719,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         try {
                           final res = await widget.apiService
                               .compareAgroAssessments(
-                            candidates: currentCandidates(),
+                            candidates: candidates,
                             agronomistName: _firmCtrl.text,
                             agronomistLicense: _licenseCtrl.text,
                           );
@@ -1249,6 +1294,21 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final gps = scores['gps_logistics'] is Map
         ? Map<String, dynamic>.from(scores['gps_logistics'] as Map)
         : const <String, dynamic>{};
+    final pointSatellite = scores['point_satellite_data'] is Map
+        ? Map<String, dynamic>.from(scores['point_satellite_data'] as Map)
+        : const <String, dynamic>{};
+    final pointSeason = pointSatellite['growing_season'] is Map
+        ? Map<String, dynamic>.from(pointSatellite['growing_season'] as Map)
+        : const <String, dynamic>{};
+    final pointProvenance = pointSatellite['provenance'] is Map
+        ? Map<String, dynamic>.from(pointSatellite['provenance'] as Map)
+        : const <String, dynamic>{};
+    final precipitationText = pointSeason['precipitation_mean'] == null
+        ? '—'
+        : '${pointSeason['precipitation_mean']} mm/jour';
+    final temperatureText = pointSeason['temperature_mean_c'] == null
+        ? '—'
+        : '${pointSeason['temperature_mean_c']} °C';
     final econ = scores['verified_economics'] is Map
         ? Map<String, dynamic>.from(scores['verified_economics'] as Map)
         : const <String, dynamic>{};
@@ -1325,7 +1385,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     '$code · Date : $dateStr · Cabinet : ${_firmCtrl.text.trim().isNotEmpty ? _firmCtrl.text.trim() : '—'}',
                     shaded: true),
                 _kvRow('Coordonnées GPS & Surface',
-                    'GPS : $gpsStr · Surface : ${assessment['area_hectares'] ?? '1.0 (réf.)'} ha'),
+                    'GPS : $gpsStr · Surface : ${assessment['area_hectares'] ?? 'Non renseignée'} ha'),
                 _kvRow(
                     'Rattachement Spatial (IDW)',
                     'Pôle : ${gps['selected_hub'] ?? assessment['province_hub'] ?? '—'} '
@@ -1343,6 +1403,63 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             ),
           ),
 
+          if (gps['gps_provided'] == true || pointSatellite.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _bulletinSectionTitle('Données satellitaires et provenance au point GPS'),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  _kvRow(
+                    'Source ponctuelle',
+                    pointSatellite.isNotEmpty
+                        ? (pointSatellite['source']?.toString() ?? 'NASA POWER')
+                        : 'NASA POWER indisponible — repli régional',
+                    shaded: true,
+                  ),
+                  if (pointSatellite.isNotEmpty) ...[
+                    _kvRow(
+                      'Climatologie de référence',
+                      pointProvenance['reference_period']?.toString() ??
+                          pointSatellite['reference_period']?.toString() ??
+                          'Période non précisée',
+                    ),
+                    _kvRow(
+                      'Récupération UTC',
+                      pointProvenance['retrieved_at_utc']?.toString() ??
+                          pointSatellite['retrieved_at_utc']?.toString() ??
+                          '—',
+                      shaded: true,
+                    ),
+                    _kvRow(
+                      'Humidité racinaire / surface',
+                      '${pointSeason['root_zone_wetness_mean'] ?? '—'} / ${pointSeason['surface_wetness_mean'] ?? '—'} (fraction 0–1)',
+                    ),
+                    _kvRow(
+                      'Précipitations / température',
+                      '$precipitationText / $temperatureText',
+                      shaded: true,
+                    ),
+                    _kvRow(
+                      'Résolution annoncée',
+                      pointProvenance['resolution']?.toString() ??
+                          pointSatellite['spatial_resolution']?.toString() ??
+                          'Variable selon le paramètre',
+                    ),
+                  ],
+                  _kvRow(
+                    'Portée spatiale',
+                    'Valeurs au point GPS, pas une moyenne de toute la superficie. Une géométrie de parcelle est nécessaire pour une extraction zonale.',
+                    shaded: true,
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (labParams.isNotEmpty) ...[
             const SizedBox(height: 14),
             _bulletinSectionTitle(

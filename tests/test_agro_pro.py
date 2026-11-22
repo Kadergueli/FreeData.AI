@@ -94,7 +94,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
         owner_id=pro_owner, x_premium_key=None,
         store=ind_store, assess_store=assess_store, project_store=proj_store, sub_store=sub_store,
     )
-    assert "En attente d'analyse physique" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
+    assert "Sans analyse labo" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
     assert res_no_lab["qa"]["can_deliver_pdf"] is True
     assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
     assert any("22/30 pts" in warning for warning in res_no_lab["qa"]["warnings"])
@@ -105,6 +105,13 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert ws["breakdown"]["soil_quality"]["max"] == 30
     assert ws["breakdown"]["market_logistics"]["max"] == 20
     assert cs["crop_assessments"][0]["suitability_score"] == round(ws["total_score"])
+    site_context = cs["site_context"]
+    assert site_context["area_hectares"] == 5.0
+    assert site_context["area_m2"] == 50000.0
+    assert site_context["area_basis"] == "user_declared"
+    assert site_context["coordinates"]["provided"] is True
+    assert site_context["climate_method"]
+    assert "géométrie de parcelle" in site_context["area_usage"]
     assert len(cs["bulletin"]["lab_parameters"]) >= 6
     soil_parameter_names = {p["parameter"] for p in cs["bulletin"]["lab_parameters"]}
     assert {"Argile", "Sable", "Carbone organique"} <= soil_parameter_names
@@ -129,6 +136,10 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "Références bibliographiques" in pdf_sat_text
     assert "NASA POWER" in pdf_sat_text
     assert "World Bank" in pdf_sat_text
+    assert "50 000 m²" in pdf_sat_text
+    assert "Provenance climatique" in pdf_sat_text
+    normalized_pdf_text = " ".join(pdf_sat_text.split())
+    assert "Estimation pédologique régionale" in normalized_pdf_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
