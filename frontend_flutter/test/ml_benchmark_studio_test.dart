@@ -235,6 +235,14 @@ void main() {
     await tester.tap(find.text('Continuer vers la configuration'));
     await tester.pumpAndSettle();
 
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Source du jeu de données (obligatoire)'),
+      'FreeData.td test dataset',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Licence (obligatoire)'),
+      'CC BY 4.0',
+    );
     await tester.ensureVisible(find.text('Passer à la revue'));
     await tester.tap(find.text('Passer à la revue'));
     await tester.pumpAndSettle();
