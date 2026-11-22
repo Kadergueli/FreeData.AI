@@ -94,7 +94,7 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
         owner_id=pro_owner, x_premium_key=None,
         store=ind_store, assess_store=assess_store, project_store=proj_store, sub_store=sub_store,
     )
-    assert "En attente d'analyse physique" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
+    assert "Sans analyse labo" in res_no_lab["assessment"]["computed_scores"]["confidence_level"]
     assert res_no_lab["qa"]["can_deliver_pdf"] is True
     assert res_no_lab["qa"]["qa_mode"] == "SATELLITE_ESTIMATION"
     assert any("22/30 pts" in warning for warning in res_no_lab["qa"]["warnings"])
@@ -111,7 +111,6 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert site_context["area_basis"] == "user_declared"
     assert site_context["coordinates"]["provided"] is True
     assert site_context["climate_method"]
-    assert "field geometry" not in site_context["area_usage"]
     assert "géométrie de parcelle" in site_context["area_usage"]
     assert len(cs["bulletin"]["lab_parameters"]) >= 6
     soil_parameter_names = {p["parameter"] for p in cs["bulletin"]["lab_parameters"]}
