@@ -134,3 +134,20 @@ def test_zonal_soil_changes_the_score_for_unfavourable_ph(monkeypatch):
     b = {c["crop_id"]: c["soil_score"] for c in base["crop_assessments"]}
     w = {c["crop_id"]: c["soil_score"] for c in worse["crop_assessments"]}
     assert all(w[k] <= b[k] for k in b) and any(w[k] < b[k] for k in b)
+
+
+def test_aberrant_lab_values_do_not_unlock_certified_title():
+    from src import agro_engine as ae
+
+    for lab in ({"ph": 99}, {"ph": "abc"}, {"ph": -4, "organic_matter": 500}, {"texture": "foo"}):
+        r = ae.evaluate_field_assessment(
+            region="Moundou", regional_rows=[], national_rows=[], target_crops=["maize"], area_hectares=2, lab_soil_inputs=lab
+        )
+        assert r["has_lab_measurements"] is False
+        assert r["soil_basis"] != "lab"
+        assert "CERTIFIÉ" not in r["resolution_label"]
+    ok = ae.evaluate_field_assessment(
+        region="Moundou", regional_rows=[], national_rows=[], target_crops=["maize"], area_hectares=2,
+        lab_soil_inputs={"ph": "6,5", "texture": "Sandy Loam"},
+    )
+    assert ok["has_lab_measurements"] is True and ok["soil_basis"] == "lab"

@@ -366,14 +366,43 @@ SUPPORTED_AGRO_CROPS: dict[str, dict[str, Any]] = {
 _LAB_SOIL_KEYS = ("ph", "texture", "nitrogen", "phosphorus", "potassium", "organic_matter")
 
 
-def has_lab_soil_measurements(lab_soil_inputs: Optional[dict[str, Any]]) -> bool:
+_LAB_RANGES = {
+    "ph": (3.0, 10.0),
+    "organic_matter": (0.0, 40.0),
+    "nitrogen": (0.0, 10000.0),
+    "phosphorus": (0.0, 10000.0),
+    "potassium": (0.0, 10000.0),
+}
+_LAB_TEXTURES = ("sandy", "sandy_loam", "loamy", "silty", "clay_loam", "clay")
+
+
+def sanitize_lab_soil_inputs(lab_soil_inputs: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Ne garde que les mesures labo plausibles (numériques, finies, dans une plage agronomique).
+
+    Une valeur illisible ou aberrante (pH 99, « abc ») est écartée : elle ne doit ni fausser le score
+    ni faire passer l'audit pour « mesuré en laboratoire ».
+    """
     if not isinstance(lab_soil_inputs, dict):
-        return False
-    for k in _LAB_SOIL_KEYS:
-        val = lab_soil_inputs.get(k)
-        if val is not None and str(val).strip() != "":
-            return True
-    return False
+        return {}
+    clean: dict[str, Any] = {}
+    for key, (lo, hi) in _LAB_RANGES.items():
+        raw = lab_soil_inputs.get(key)
+        if raw is None or isinstance(raw, bool) or str(raw).strip() == "":
+            continue
+        try:
+            val = float(str(raw).replace(",", "."))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(val) and lo <= val <= hi:
+            clean[key] = val
+    texture = str(lab_soil_inputs.get("texture") or "").strip().lower().replace(" ", "_")
+    if texture in _LAB_TEXTURES:
+        clean["texture"] = texture
+    return clean
+
+
+def has_lab_soil_measurements(lab_soil_inputs: Optional[dict[str, Any]]) -> bool:
+    return bool(sanitize_lab_soil_inputs(lab_soil_inputs))
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -1074,8 +1103,8 @@ def evaluate_field_assessment(
 
     zone = build_zone_profile(resolved_region, regional_rows, national_rows, today=today)
     province = zone.get("province")
-    lab = dict(lab_soil_inputs or {})
-    has_lab = has_lab_soil_measurements(lab)
+    lab = sanitize_lab_soil_inputs(lab_soil_inputs)
+    has_lab = bool(lab)
     zonal_soil = zonal_soil_estimate(resolved_region)
     resolution_label = (
         "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
