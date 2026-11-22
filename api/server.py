@@ -4826,7 +4826,9 @@ def admin_trigger_backup_endpoint(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    backup_root = Path(os.getenv("FREEDATA_BACKUP_DIR", "data/backups"))
+    from pathlib import Path as _BackupPath
+
+    backup_root = _BackupPath(os.getenv("FREEDATA_BACKUP_DIR", "data/backups"))
     results = backup_all_databases([store.db_path, sub_store.db_path, admin.db_path], backup_root)
     admin.log_action(
         actor=actor,

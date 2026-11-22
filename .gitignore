@@ -18,3 +18,6 @@ frontend_flutter/.flutter-plugins-dependencies
 data/*.db
 data/research/
 data/artifacts/
+
+data/models/*.db
+data/research/*.db

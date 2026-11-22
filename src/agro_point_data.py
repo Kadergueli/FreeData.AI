@@ -5,6 +5,8 @@ Unavailable parameters remain None; this module never substitutes synthetic valu
 """
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -15,7 +17,41 @@ NASA_POWER_PARAMETERS = ("GWETROOT", "GWETTOP", "IMERG_PRECTOT", "T2M")
 MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 
 
+_CACHE_TTL_SECONDS = 24 * 3600
+_CACHE_MAX_ENTRIES = 512
+_cache: dict[tuple[float, float], tuple[float, dict[str, Any]]] = {}
+_cache_lock = threading.Lock()
+
+
 def fetch_nasa_power_point(
+    latitude: Optional[float],
+    longitude: Optional[float],
+    *,
+    timeout: float = 12.0,
+    http_get: Any = requests.get,
+) -> Optional[dict[str, Any]]:
+    """Cached wrapper (climatology is static): only successes are cached, per ~1 km cell."""
+    if latitude is None or longitude is None or http_get is not requests.get:
+        return _fetch_nasa_power_point(latitude, longitude, timeout=timeout, http_get=http_get)
+    lat, lon = float(latitude), float(longitude)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("Coordonnées GPS hors limites.")
+    key = (round(lat, 2), round(lon, 2))
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < _CACHE_TTL_SECONDS:
+            return dict(hit[1])
+    result = _fetch_nasa_power_point(lat, lon, timeout=timeout, http_get=http_get)
+    if result is not None:
+        with _cache_lock:
+            if len(_cache) >= _CACHE_MAX_ENTRIES:
+                _cache.pop(next(iter(_cache)))
+            _cache[key] = (now, result)
+    return result
+
+
+def _fetch_nasa_power_point(
     latitude: Optional[float],
     longitude: Optional[float],
     *,
