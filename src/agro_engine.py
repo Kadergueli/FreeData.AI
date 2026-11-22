@@ -1,10 +1,10 @@
-"""Moteur agro-climatique déterministe (V1) : anomalies d'humidité des sols et alertes de déficit hydrique.
+"""Moteur agro-climatique déterministe pour les pré-diagnostics de parcelles.
 
-Principes :
-- uniquement les indicateurs réellement ingérés (humidité racinaire, humidité de surface, PAR) ;
-- AUCUNE température ni précipitation en V1 (absentes du jeu de données) ;
-- anomalie = écart à la normale 2020–2023 du MÊME mois calendaire, calculée seulement si ≥ 3 années de référence ;
-- les seuils d'alerte sont des repères de lecture indicatifs (non calibrés sur des rendements) et sont exposés dans la réponse.
+Les indicateurs régionaux (humidité des sols, PAR et anomalies historiques) sont
+interpolés depuis les pôles couverts. Avec des coordonnées GPS, la climatologie
+NASA POWER au point peut compléter ou remplacer les valeurs d'humidité disponibles ;
+température et précipitations ne sont exposées que si cette source ponctuelle les fournit.
+Les seuils d'alerte restent des repères indicatifs, non calibrés sur les rendements.
 """
 from __future__ import annotations
 
@@ -52,10 +52,11 @@ HUB_COORDINATES: dict[str, tuple[float, float]] = {
 ZONE_TITLE = "Pré-diagnostic agro-climatique de zone"
 
 LIMITATIONS = (
-    "Couverture spatiale : indicateurs satellitaires modélisés à l'échelle du pôle régional (maille urbaine/provinciale), ne constituant pas une mesure parcellaire.",
-    "Périmètre des variables : jeu de données limité à l'humidité des sols (surface et zone racinaire) et au rayonnement PAR ; aucune variable de température ou de précipitations n'est intégrée.",
-    "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023.",
-    "Portée décisionnelle : ce pré-diagnostic zonal ne se substitue ni à une analyse physico-chimique en laboratoire ni à une expertise agronomique sur site.",
+    "Portée spatiale : les données NASA POWER interrogées avec GPS sont des climatologies au point ; elles ne constituent pas une moyenne zonale ni une extraction sur le polygone de la parcelle.",
+    "Couverture régionale : les indicateurs historiques d'humidité des sols et de PAR proviennent des pôles couverts et peuvent être interpolés par IDW ; la pondération et les pôles contributeurs sont exposés dans le rapport.",
+    "Variables ponctuelles : température et précipitations ne sont renseignées que lorsque NASA POWER les retourne au point GPS ; aucune valeur régionale ou synthétique ne leur est substituée.",
+    "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023, non calibrés sur les rendements.",
+    "Portée décisionnelle : ce pré-diagnostic ne remplace ni une analyse physico-chimique en laboratoire ni une expertise agronomique sur site.",
 )
 
 INDICATOR_LABELS_FR = {
@@ -1078,20 +1079,16 @@ def evaluate_field_assessment(
     has_lab = has_lab_soil_measurements(lab)
     zonal_soil = zonal_soil_estimate(resolved_region)
     resolution_label = (
-        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
-        if has_lab
-        else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
-    )
-    confidence_short = "Satellite IDW + Labo" if has_lab else "Modèle Satellitaire IDW"
-    confidence_label = (
-        "Confiance Élevée : Satellite IDW + Mesures Labo Certifiées"
+        "DIAGNOSTIC AGRONOMIQUE & ÉCONOMIQUE (MESURES LABORATOIRE FOURNIES)"
         if has_lab
         else (
-            "Modèle Satellitaire IDW (Mesures labo non fournies)"
+            "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (POINT GPS ET DONNÉES RÉGIONALES)"
             if gps_logistics.get("gps_provided")
-            else "Modèle Satellitaire Zonal (Mesures labo non fournies)"
+            else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE RÉGIONALE)"
         )
     )
+    confidence_short = "Mesures labo fournies" if has_lab else "Modèle agro-climatique"
+    confidence_label = "Mesures de laboratoire fournies" if has_lab else "Estimation agro-climatique"
 
     idw = compute_idw_interpolation(
         idw_hubs=gps_logistics.get("idw_hubs") or [],
@@ -1115,6 +1112,22 @@ def evaluate_field_assessment(
         surf_parcel = idw.get("surf_growing")
     if surf_parcel is None:
         surf_parcel = (zone.get("latest", {}).get("surface_wetness") or {}).get("value")
+    point_season = (point_satellite or {}).get("growing_season") or {}
+    point_humidity_available = any(
+        isinstance(point_season.get(key), (int, float)) and math.isfinite(float(point_season[key]))
+        for key in ("root_zone_wetness_mean", "surface_wetness_mean")
+    )
+    climate_method_label = (
+        "NASA POWER Point API (climatologie ponctuelle)"
+        if point_humidity_available
+        else ("IDW régional avec coordonnées GPS" if gps_logistics.get("gps_provided") else "Données régionales du pôle")
+    )
+    if has_lab:
+        confidence_short = "Labo + NASA POWER Point" if point_humidity_available else "Labo + estimation régionale"
+        confidence_label = f"Mesures de laboratoire fournies · {climate_method_label}"
+    else:
+        confidence_short = "NASA POWER Point + IDW" if point_humidity_available else "Estimation IDW régionale"
+        confidence_label = climate_method_label
     dry_years = float(idw.get("dry_years") or 0.0)
 
     requested = [c for c in (target_crops or list(SUPPORTED_AGRO_CROPS)) if c in SUPPORTED_AGRO_CROPS]
@@ -1500,12 +1513,56 @@ def evaluate_field_assessment(
         "region": zone["region"],
         "province": province,
         "has_lab_measurements": has_lab,
-        "confidence_level": (
-            "Satellite IDW + Labo Certifié"
-            if has_lab
-            else "Satellite IDW Uniquement — En attente d'analyse physique"
-        ),
+        "confidence_level": confidence_short,
         "gps_logistics": gps_logistics,
+        "site_context": {
+            "area_hectares": float(area_hectares) if area_hectares is not None else None,
+            "area_m2": round(float(area_hectares) * 10000.0, 1) if area_hectares is not None else None,
+            "area_basis": "user_declared" if area_hectares is not None else "missing",
+            "coordinates": {
+                "latitude": gps_lat,
+                "longitude": gps_lon,
+                "provided": bool(gps_logistics.get("gps_provided")),
+            },
+            "climate_method": climate_method_label,
+            "climate_hubs": [
+                {
+                    "hub": h.get("hub"),
+                    "distance_km": h.get("road_distance_km"),
+                    "weight_pct": h.get("weight_pct"),
+                }
+                for h in (gps_logistics.get("idw_hubs") or [])
+            ],
+            "soil_method": (
+                "Mesures de laboratoire fournies par l'utilisateur"
+                if has_lab
+                else ("SoilGrids 2.0 — estimation régionale" if zonal_soil else "Données pédologiques indisponibles")
+            ),
+            "soil_values": {
+                key: value
+                for key, value in {
+                    "ph": (zonal_soil or {}).get("ph"),
+                    "texture": (zonal_soil or {}).get("texture_usda"),
+                    "clay_pct": soil_profile_data.get("clay_pct"),
+                    "sand_pct": soil_profile_data.get("sand_pct"),
+                    "organic_carbon_g_kg": soil_profile_data.get("organic_carbon_g_kg"),
+                }.items()
+                if value is not None
+            },
+            "satellite_values": {
+                "root_zone_wetness": rz_parcel,
+                "surface_wetness": surf_parcel,
+                "precipitation_mean": point_season.get("precipitation_mean"),
+                "temperature_mean_c": point_season.get("temperature_mean_c"),
+                "par_mean": par_val,
+                "dry_years": dry_years,
+            },
+            "area_usage": (
+                "Superficie déclarée utilisée pour mettre à l'échelle la production et le chiffre d'affaires estimés. "
+                "Elle ne transforme pas les valeurs au point GPS ou les estimations régionales en moyennes de parcelle. "
+                "Une géométrie de parcelle est nécessaire pour une extraction zonale."
+            ),
+        },
         "idw_climate": {
             "rz_growing": rz_parcel,
             "surf_growing": surf_parcel,
