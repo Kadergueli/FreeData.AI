@@ -268,10 +268,11 @@ def render_agro_assessment_pdf(
     firm_label = f"{firm} (N° {lic})" if lic else firm
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
+    area_raw = assessment.get("area_hectares")
     area_val = (
-        f"{float(assessment.get('area_hectares')):g} (superficie déclarée)"
-        if assessment.get("area_hectares") is not None
-        else "Non renseignée — estimation économique provisoire sur 1 ha, à ne pas utiliser comme dimension réelle"
+        f"{float(area_raw):g} (superficie déclarée ; {float(area_raw) * 10000:,.0f} m²)".replace(",", " ")
+        if isinstance(area_raw, (int, float)) and float(area_raw) > 0
+        else "Non renseignée — aucune projection surfacique fiable"
     )
     bd = ws.get("breakdown") or {}
     ident_rows = [
@@ -298,6 +299,37 @@ def render_agro_assessment_pdf(
         ],
     ]
     story.append(_make_table(ident_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm], has_header=False))
+
+    # --- 1 BIS. LOCALISATION, SUPERFICIE ET PROVENANCE DES DONNÉES ---
+    site_ctx = scores.get("site_context") or {}
+    coords = site_ctx.get("coordinates") or {}
+    climate_hubs = site_ctx.get("climate_hubs") or []
+    hub_weights = ", ".join(
+        f"{h.get('hub')} : {h.get('road_distance_km', h.get('distance_km'))} km / {h.get('weight_pct')} %"
+        for h in climate_hubs if (h.get("weight_pct") or 0) > 0
+    ) or "Aucun pôle IDW disponible"
+    soil_values = site_ctx.get("soil_values") or {}
+    soil_values_text = "; ".join(f"{key} : {value}" for key, value in soil_values.items() if value is not None) or "Aucune valeur régionale disponible"
+    lab_values = site_ctx.get("laboratory_values") or {}
+    lab_values_text = "; ".join(f"{key} : {value}" for key, value in lab_values.items() if value is not None) or "Aucune mesure déclarée"
+    location_rows = [
+        ["Élément", "Valeur / provenance"],
+        ["Coordonnées du site", f"Latitude {coords.get('latitude')} ; longitude {coords.get('longitude')}" if coords.get("provided") else "Non fournies — rattachement régional"],
+        ["Superficie déclarée", area_val + (" ha" if area_raw is not None else "")],
+        ["Méthode climatique", str(site_ctx.get("climate_method") or "Données régionales du pôle")],
+        ["Pôles IDW contributeurs", hub_weights],
+        ["Méthode pédologique", str(site_ctx.get("soil_method") or "Non documentée")],
+        ["Mesures déclarées (non vérifiées)", lab_values_text],
+        ["Valeurs pédologiques régionales", soil_values_text],
+    ]
+    story.append(Paragraph("1 bis. Localisation, superficie et provenance des données", h2_style))
+    story.append(_make_table(location_rows, col_widths=[4.6 * cm, usable_w - 4.6 * cm]))
+    story.append(Spacer(1, 0.12 * cm))
+    story.append(Paragraph(
+        _clean_pdf_text(str(site_ctx.get("area_usage") or
+            "La superficie est une donnée déclarée. Sans contour géographique, les valeurs satellitaires et pédologiques ne constituent pas des moyennes de toute la parcelle.")),
+        body_style,
+    ))
 
     # --- 2. BULLETIN PÉDOLOGIQUE & AGRO-CLIMATIQUE ---
     story.append(Paragraph("2. Bulletin Pédologique & Agro-Climatique (Paramètres, Valeurs & Seuils)", h2_style))

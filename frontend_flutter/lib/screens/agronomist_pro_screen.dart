@@ -1396,6 +1396,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final gps = scores['gps_logistics'] is Map
         ? Map<String, dynamic>.from(scores['gps_logistics'] as Map)
         : const <String, dynamic>{};
+    final pointSatellite = scores['point_satellite_data'] is Map
+        ? Map<String, dynamic>.from(scores['point_satellite_data'] as Map)
+        : const <String, dynamic>{};
+    final pointProvenance = pointSatellite['provenance'] is Map
+        ? Map<String, dynamic>.from(pointSatellite['provenance'] as Map)
+        : const <String, dynamic>{};
+    final siteContext = scores['site_context'] is Map
+        ? Map<String, dynamic>.from(scores['site_context'] as Map)
+        : const <String, dynamic>{};
     final econ = scores['verified_economics'] is Map
         ? Map<String, dynamic>.from(scores['verified_economics'] as Map)
         : const <String, dynamic>{};
@@ -1490,6 +1499,59 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             ),
           ),
 
+          if (siteContext.isNotEmpty || pointSatellite.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _bulletinSectionTitle('Données spatiales et provenance des sources'),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  _kvRow(
+                    'Superficie déclarée',
+                    siteContext['area_hectares'] == null
+                        ? 'Non renseignée'
+                        : '${siteContext['area_hectares']} ha · ${siteContext['area_m2'] ?? '—'} m²',
+                    shaded: true,
+                  ),
+                  _kvRow(
+                    'Méthode climatique',
+                    siteContext['climate_method']?.toString() ?? 'Données régionales du pôle',
+                  ),
+                  _kvRow(
+                    'Méthode pédologique',
+                    siteContext['soil_method']?.toString() ?? 'Non documentée',
+                    shaded: true,
+                  ),
+                  if (pointSatellite.isNotEmpty) ...[
+                    _kvRow(
+                      'Source au point GPS',
+                      pointSatellite['source']?.toString() ?? 'NASA POWER',
+                    ),
+                    _kvRow(
+                      'Période de référence',
+                      pointProvenance['reference_period']?.toString() ??
+                          pointSatellite['reference_period']?.toString() ?? 'Non précisée',
+                      shaded: true,
+                    ),
+                    _kvRow(
+                      'Récupération UTC',
+                      pointProvenance['retrieved_at_utc']?.toString() ??
+                          pointSatellite['retrieved_at_utc']?.toString() ?? '—',
+                    ),
+                    _kvRow(
+                      'Portée spatiale',
+                      'Valeurs au point GPS, pas une moyenne de toute la parcelle. Une géométrie de parcelle est nécessaire pour une extraction zonale.',
+                      shaded: true,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           if (labParams.isNotEmpty) ...[
             const SizedBox(height: 14),
             _bulletinSectionTitle('2. Bulletin Pédologique & Agro-Climatique'),

@@ -1542,6 +1542,41 @@ def evaluate_field_assessment(
             else "Satellite IDW Uniquement — En attente d'analyse physique"
         ),
         "gps_logistics": gps_logistics,
+        "site_context": {
+            "area_hectares": float(area_hectares) if area_hectares is not None else None,
+            "area_m2": round(float(area_hectares) * 10000.0, 1) if area_hectares is not None else None,
+            "area_basis": "user_declared" if area_hectares is not None else "missing",
+            "coordinates": {
+                "latitude": gps_logistics.get("gps_lat"),
+                "longitude": gps_logistics.get("gps_lon"),
+                "provided": bool(gps_logistics.get("gps_provided")),
+            },
+            "climate_method": (
+                "NASA POWER Point + IDW régional"
+                if point_satellite
+                else ("IDW régional depuis les pôles couverts" if gps_logistics.get("gps_provided") else "Données régionales du pôle")
+            ),
+            "climate_hubs": gps_logistics.get("idw_hubs") or [],
+            "soil_method": (
+                "Mesures de sol déclarées par l'utilisateur — non vérifiées"
+                if has_lab
+                else ("SoilGrids 2.0 — estimation régionale non parcellaire" if zonal_soil else "Estimation pédologique régionale indisponible")
+            ),
+            "laboratory_values": dict(lab),
+            "soil_values": dict(zonal_soil or {}),
+            "satellite_values": {
+                "root_zone_wetness": rz_parcel,
+                "surface_wetness": surf_parcel,
+                "par_mean": par_val,
+                "dry_years": dry_years,
+                "point_data_available": bool(point_satellite),
+            },
+            "area_usage": (
+                "La superficie déclarée sert uniquement à mettre à l'échelle la production et le revenu brut estimés. "
+                "Elle ne transforme pas les mesures au point GPS ou les estimations régionales en moyennes de parcelle. "
+                "Une géométrie de parcelle est nécessaire pour une extraction zonale."
+            ),
+        },
         "idw_climate": {
             "rz_growing": rz_parcel,
             "surf_growing": surf_parcel,
