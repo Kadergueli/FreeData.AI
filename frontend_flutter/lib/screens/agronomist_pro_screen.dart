@@ -221,8 +221,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) {
           final availableWidth = MediaQuery.sizeOf(ctx).width - 56;
-          final dialogWidth =
-              availableWidth.clamp(240.0, 380.0).toDouble();
+          final dialogWidth = availableWidth.clamp(240.0, 380.0).toDouble();
           final mapWidth = (dialogWidth - 32).clamp(180.0, 340.0).toDouble();
           final mapHeight = mapWidth * 300 / 340;
           String nearest = _hub;
