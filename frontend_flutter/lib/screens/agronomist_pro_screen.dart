@@ -1435,7 +1435,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     _kvRow(
                       'Précipitations / température',
-                      '${pointSeason['precipitation_mean'] ?? '—'} / ${pointSeason['temperature_mean_c'] ?? '—'}',
+                      '${pointSeason['precipitation_mean'] != null ? '${pointSeason['precipitation_mean']} mm/jour' : '—'} / ${pointSeason['temperature_mean_c'] != null ? '${pointSeason['temperature_mean_c']} °C' : '—'}',
                       shaded: true,
                     ),
                     _kvRow(
