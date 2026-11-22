@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class ApiHttpException implements Exception {
@@ -2003,8 +2002,7 @@ class ApiService {
       final newTok = session is Map ? session['token']?.toString() ?? '' : '';
       if (newTok.isNotEmpty) {
         setAuthSession(token: newTok, user: _authUser);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('fd_auth_token_v1', newTok);
+        // Keep refreshed bearer tokens in memory only; do not persist them in browser storage.
       }
     } catch (_) {}
   }
