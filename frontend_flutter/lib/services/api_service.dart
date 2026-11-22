@@ -644,7 +644,7 @@ class ApiService {
               'project_id': projectId,
             if (gpsLat != null) 'gps_lat': gpsLat,
             if (gpsLon != null) 'gps_lon': gpsLon,
-            if (areaHectares != null) 'area_hectares': areaHectares,
+            'area_hectares': areaHectares,
             if (customYieldKgHa != null) 'custom_yield_kg_ha': customYieldKgHa,
             'lab_soil_inputs': labSoilInputs,
             'agronomist_field_notes': agronomistFieldNotes.trim(),
