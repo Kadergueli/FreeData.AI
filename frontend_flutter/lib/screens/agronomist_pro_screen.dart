@@ -1535,7 +1535,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     _kvRow(
                       'Période de référence',
                       pointProvenance['reference_period']?.toString() ??
-                          pointSatellite['reference_period']?.toString() ?? 'Non précisée',
+                          pointSatellite['reference_period']?.toString() ??
+                          'Non précisée',
                       shaded: true,
                     ),
                     _kvRow(
