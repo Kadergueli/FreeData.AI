@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
-import '../core/utils/pdf_download.dart';
+import '../core/utils/pdf_download_web.dart';
 import '../services/api_service.dart';
 
 /// Espace Marché PRO (P3) : Prévisions 4 cultures avec MAPE, Arbitrage inter-provinces,
