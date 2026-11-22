@@ -263,12 +263,29 @@ def render_agro_assessment_pdf(
     )
     site_ctx = scores.get("site_context") or {}
     soil_values = site_ctx.get("soil_values") or {}
+    soil_labels = {
+        "regional_ph": "pH",
+        "regional_texture": "Texture",
+        "regional_clay_pct": "Argile (%)",
+        "regional_sand_pct": "Sable (%)",
+        "regional_organic_carbon_g_kg": "Carbone organique (g/kg)",
+    }
     soil_values_text = " ; ".join(
-        f"{key.replace('regional_', '')} : {value}" for key, value in soil_values.items() if value is not None
+        f"{soil_labels.get(key, key)} : {value}"
+        for key, value in soil_values.items() if value is not None
     ) or "Aucune valeur régionale disponible"
     laboratory_values = site_ctx.get("laboratory_values") or {}
+    laboratory_labels = {
+        "ph": "pH",
+        "texture": "Texture",
+        "organic_matter_pct": "Matière organique (%)",
+        "nitrogen": "Azote (N)",
+        "phosphorus": "Phosphore (P)",
+        "potassium": "Potassium (K)",
+    }
     laboratory_values_text = " ; ".join(
-        f"{key} : {value}" for key, value in laboratory_values.items() if value is not None
+        f"{laboratory_labels.get(key, key)} : {value}"
+        for key, value in laboratory_values.items() if value is not None
     ) or "Aucune mesure de laboratoire fournie"
     climate_method = str(site_ctx.get("climate_method") or (
         "NASA POWER Point / IDW régional" if gps_provided else "Données régionales du pôle"
