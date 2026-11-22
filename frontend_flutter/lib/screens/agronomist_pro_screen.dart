@@ -1519,7 +1519,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   ),
                   _kvRow(
                     'Méthode climatique',
-                    siteContext['climate_method']?.toString() ?? 'Données régionales du pôle',
+                    siteContext['climate_method']?.toString() ??
+                        'Données régionales du pôle',
                   ),
                   _kvRow(
                     'Méthode pédologique',
