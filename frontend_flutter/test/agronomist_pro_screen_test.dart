@@ -134,10 +134,14 @@ void main() {
       find.widgetWithText(TextField, 'pH du sol (labo)'),
       '6.3',
     );
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Superficie exacte (ha) *'),
-      '2.5',
+    final areaField =
+        find.widgetWithText(TextField, 'Superficie exacte (ha) *');
+    await tester.scrollUntilVisible(
+      areaField,
+      160,
+      scrollable: find.byType(Scrollable).first,
     );
+    await tester.enterText(areaField, '2.5');
     final calcBtn = find.text('Calculer le diagnostic');
     await tester.scrollUntilVisible(calcBtn, 200,
         scrollable: find.byType(Scrollable).first);
