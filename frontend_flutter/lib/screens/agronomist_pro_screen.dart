@@ -811,15 +811,54 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         ];
                         final invalidArea = areaControllers.any((controller) {
                           final value = pNum(controller);
-                          return value == null || !value.isFinite || value <= 0;
+                          return value == null ||
+                              !value.isFinite ||
+                              value <= 0 ||
+                              value > 500000;
                         });
                         if (invalidArea) {
                           setDlg(() {
                             cmpErr =
-                                'Saisissez une superficie positive pour chaque terrain comparé.';
+                                'Chaque terrain doit avoir une superficie réelle comprise entre 0 et 500 000 hectares.';
                           });
                           return;
                         }
+
+                        final coordinatePairs = [
+                          (aLat, aLon),
+                          (bLat, bLon),
+                          if (includeC) (cLat, cLon),
+                        ];
+                        for (final pair in coordinatePairs) {
+                          final latText = pair.$1.text.trim();
+                          final lonText = pair.$2.text.trim();
+                          final latitude = pNum(pair.$1);
+                          final longitude = pNum(pair.$2);
+                          if ((latText.isEmpty) != (lonText.isEmpty)) {
+                            setDlg(() {
+                              cmpErr =
+                                  'Pour chaque terrain, renseignez les deux coordonnées GPS ou laissez les deux vides.';
+                            });
+                            return;
+                          }
+                          if (latText.isNotEmpty &&
+                              (latitude == null ||
+                                  longitude == null ||
+                                  !latitude.isFinite ||
+                                  !longitude.isFinite ||
+                                  latitude < -90 ||
+                                  latitude > 90 ||
+                                  longitude < -180 ||
+                                  longitude > 180)) {
+                            setDlg(() {
+                              cmpErr =
+                                  'Coordonnées GPS invalides : latitude entre -90 et 90, longitude entre -180 et 180.';
+                            });
+                            return;
+                          }
+                        }
+
+                        final candidates = currentCandidates();
                         setDlg(() {
                           comparing = true;
                           cmpErr = null;
@@ -827,7 +866,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         try {
                           final res =
                               await widget.apiService.compareAgroAssessments(
-                            candidates: currentCandidates(),
+                            candidates: candidates,
                             agronomistName: _firmCtrl.text,
                             agronomistLicense: _licenseCtrl.text,
                           );
