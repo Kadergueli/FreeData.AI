@@ -348,7 +348,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
             ...?_activeJob,
             'status': 'tracking_timeout',
             'tracking_message':
-                'Le suivi automatique a atteint sa limite. Le traitement serveur peut continuer ; relancez le suivi pour actualiser son état.',
+                'Le suivi automatique a atteint sa limite. Le traitement serveur peut continuer ; vous pouvez relancer le suivi pour actualiser son état.',
           };
         });
         return;
@@ -1014,6 +1014,21 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                 '(${_activeJob!['progress_pct'] ?? 0}%)',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+              if (_activeJob!['tracking_message'] != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  _activeJob!['tracking_message'].toString(),
+                  style: const TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 8),
+                FDSecondaryButton(
+                  label: 'Relancer le suivi',
+                  icon: Icons.refresh_rounded,
+                  onPressed: () => _startBoundedPolling(
+                    (_activeJob!['job_id'] ?? '').toString(),
+                  ),
+                ),
+              ],
               if (_activeJob!['status'] == 'queued' ||
                   _activeJob!['status'] == 'running') ...[
                 const SizedBox(height: 8),
