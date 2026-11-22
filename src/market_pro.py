@@ -379,24 +379,54 @@ def compute_spatial_arbitrage_detailed(
                 if tonnage is not None
                 else None
             )
+            spread_bag = round(spread * 100.0)
+            if transport_cost_xaf_kg is not None:
+                rec_text = (
+                    f"Arbitrage positif (+{net_kg:.1f} FCFA/kg net). Vérifier la disponibilité du fret et l'état de l'axe avant expédition."
+                    if net_kg is not None and net_kg > 0
+                    else f"Arbitrage déficitaire ({net_kg:.1f} FCFA/kg net) : le coût de transport saisi dépasse l'écart de prix."
+                )
+            else:
+                rec_text = (
+                    f"Écart brut +{spread:.1f} FCFA/kg (+{spread_bag:,} FCFA/sac 100 kg). "
+                    f"Carburant/état des routes non modélisés : vérifier que le fret réel reste < {spread:.1f} FCFA/kg avant expédition."
+                ).replace(",", " ")
             routes.append({
                 "origin_province": str(orig_prov),
                 "dest_province": str(dest_prov),
                 "origin_predicted_xaf_kg": round(float(orig_px), 1),
                 "dest_predicted_xaf_kg": round(float(dest_px), 1),
                 "spread_xaf_kg": round(spread, 1),
+                "spread_per_100kg_bag_xaf": spread_bag,
+                "breakeven_transport_xaf_kg": round(spread, 1),
                 "transport_cost_xaf_kg": round(float(transport_cost_xaf_kg), 1) if transport_cost_xaf_kg is not None else None,
                 "net_margin_xaf_kg": round(net_kg, 1) if net_kg is not None else None,
                 "tonnage": tonnage,
                 "estimated_net_margin_xaf": total_net_xaf,
                 "roi_pct": roi_pct,
                 "forecast_month": fc_month,
+                "recommendation": rec_text,
             })
 
     routes.sort(
         key=lambda r: r["net_margin_xaf_kg"] if r["net_margin_xaf_kg"] is not None else r["spread_xaf_kg"],
         reverse=True,
     )
+    top_routes = routes[:limit]
+    recommendations: list[str] = []
+    if top_routes:
+        best = top_routes[0]
+        recommendations.append(
+            f"Corridor prioritaire : {best['origin_province']} → {best['dest_province']} "
+            f"(écart brut {best['spread_xaf_kg']} FCFA/kg, soit +{best['spread_per_100kg_bag_xaf']:,} FCFA/sac 100 kg).".replace(",", " ")
+        )
+        recommendations.append(
+            f"Seuil de rentabilité transport : ne pas engager d'expédition si le coût réel (carburant, péages, manutention) dépasse {best['breakeven_transport_xaf_kg']} FCFA/kg."
+        )
+    if mape_val is not None:
+        recommendations.append(
+            f"Prudence modèle : intégrer une marge d'incertitude de ±{mape_val}% (MAPE hors-temps) dans le calcul du prix de revente."
+        )
     return {
         "crop_id": cid,
         "commodity_std": comm,
@@ -404,7 +434,8 @@ def compute_spatial_arbitrage_detailed(
         "historical_mape_pct": mape_val,
         "backtest_verdict": rec.get("verdict"),
         "forecast_month": fc_month,
-        "routes": routes[:limit],
+        "routes": top_routes,
+        "recommendations": recommendations,
         "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
         "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
         "spatial_resolution": "regional_city_hub / market_province",

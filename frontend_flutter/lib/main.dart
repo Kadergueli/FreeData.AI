@@ -70,6 +70,8 @@ class _MainShellState extends State<MainShell> {
   Map<String, dynamic>? _activeProject;
   int _projectsRefreshToken = 0;
   List<ConversationThread> _conversations = const [];
+  List<Map<String, dynamic>> _watchlistAlerts = const [];
+  int _triggeredWatchlistCount = 0;
 
   @override
   void initState() {
@@ -146,6 +148,7 @@ class _MainShellState extends State<MainShell> {
         if (mounted) setState(() {});
         // Synchronisation cloud en arrière-plan sans bloquer la suite de l'initialisation.
         _syncCloudConversations();
+        _refreshWatchlistNotifications();
       } on ApiHttpException catch (e) {
         if (e.statusCode == 401) {
           await prefs.remove(kAuthTokenStorageKey);
@@ -713,6 +716,204 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  Future<void> _refreshWatchlistNotifications() async {
+    if (!_apiService.isAuthenticated && !_apiService.hasPremiumKey) return;
+    try {
+      final overview = await _apiService.getMarketProOverview();
+      final raw = overview['watchlists'];
+      if (raw is List && mounted) {
+        final items = raw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        final triggered =
+            items.where((w) => w['alert_triggered'] == true).length;
+        setState(() {
+          _watchlistAlerts = items;
+          _triggeredWatchlistCount = triggered;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _openWatchlistNotificationsDialog() async {
+    await _refreshWatchlistNotifications();
+    if (!mounted) return;
+    final triggeredItems =
+        _watchlistAlerts.where((w) => w['alert_triggered'] == true).toList();
+    final activeItems =
+        _watchlistAlerts.where((w) => w['alert_triggered'] != true).toList();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.notifications_active_outlined,
+                color: FDTheme.blue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Alertes Watchlist (${triggeredItems.length} déclenchée${triggeredItems.length > 1 ? 's' : ''})',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!_apiService.isAuthenticated && !_apiService.hasPremiumKey)
+                  const Text(
+                    'Connectez-vous ou activez un accès PRO pour recevoir les alertes de seuils de prix sur vos watchlists.',
+                    style: TextStyle(fontSize: 13, color: FDTheme.muted),
+                  )
+                else if (_watchlistAlerts.isEmpty)
+                  const Text(
+                    'Aucune watchlist configurée pour le moment. Ajoutez des seuils dans l\'onglet Marchés pour recevoir des alertes.',
+                    style: TextStyle(fontSize: 13, color: FDTheme.muted),
+                  )
+                else ...[
+                  if (triggeredItems.isNotEmpty) ...[
+                    const Text(
+                      'Seuils franchis',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: FDTheme.danger,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    for (final w in triggeredItems)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFFECACA)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? ''}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                color: FDTheme.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Prix prévu : ${w['current_predicted_xaf_kg'] ?? '—'} FCFA/kg · Seuil : ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (${w['direction'] ?? ''})',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: FDTheme.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                  if (activeItems.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Surveillances actives',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: FDTheme.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    for (final w in activeItems)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: FDTheme.canvas,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: FDTheme.line),
+                        ),
+                        child: Text(
+                          '${w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? ''} — Seuil ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (prévu : ${w['current_predicted_xaf_kg'] ?? '—'})',
+                          style: const TextStyle(
+                              fontSize: 12.5, color: FDTheme.ink),
+                        ),
+                      ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Fermer'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _selectTab(4);
+            },
+            icon: const Icon(Icons.show_chart_rounded, size: 16),
+            label: const Text('Ouvrir Marchés'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWatchlistNotificationButton() {
+    final count = _triggeredWatchlistCount;
+    return Tooltip(
+      message: count > 0
+          ? '$count alerte(s) Watchlist déclenchée(s)'
+          : 'Notifications Watchlist',
+      child: IconButton(
+        onPressed: _openWatchlistNotificationsDialog,
+        icon: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
+              count > 0
+                  ? Icons.notifications_active_rounded
+                  : Icons.notifications_outlined,
+              color: count > 0 ? FDTheme.danger : FDTheme.ink,
+            ),
+            if (count > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: FDTheme.danger,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    count > 9 ? '9+' : '$count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildUtilityMenu({
     bool includeSubscription = false,
     bool includeAccount = true,
@@ -1073,6 +1274,7 @@ class _MainShellState extends State<MainShell> {
                                 style: TextStyle(
                                     fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
+                          _buildWatchlistNotificationButton(),
                           _buildUtilityMenu(includeAccount: false),
                         ],
                       ],
@@ -1177,6 +1379,7 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         actions: [
+          _buildWatchlistNotificationButton(),
           _buildUtilityMenu(includeSubscription: true),
           Padding(
             padding: const EdgeInsets.only(right: 12),
