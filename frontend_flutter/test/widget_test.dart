@@ -36,8 +36,8 @@ void main() {
 
     // Vérifie les entrées du Workspace
     expect(find.text('Assistant IA'), findsOneWidget);
-    expect(find.text('Explore'), findsOneWidget);
-    expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Explorer'), findsOneWidget);
+    expect(find.text('Bibliothèque'), findsOneWidget);
     expect(find.text('Prévisions'), findsOneWidget);
     expect(find.text('Credit Passport'), findsOneWidget);
     expect(find.text('Nouvelle conversation'), findsOneWidget);
@@ -61,8 +61,8 @@ void main() {
 
     // Sidebar directement visible
     expect(find.text('Assistant IA'), findsOneWidget);
-    expect(find.text('Explore'), findsOneWidget);
-    expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Explorer'), findsOneWidget);
+    expect(find.text('Bibliothèque'), findsOneWidget);
     expect(find.text('Prévisions'), findsOneWidget);
     expect(find.text('Credit Passport'), findsOneWidget);
     expect(find.text('Nouvelle conversation'), findsOneWidget);
