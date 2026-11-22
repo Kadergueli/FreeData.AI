@@ -540,6 +540,10 @@ async def observability_middleware(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if not request.url.path.startswith(("/docs", "/redoc")):
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    if getattr(settings, "on_render", False) or request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if request.url.path.startswith(("/api/v1/auth", "/api/v1/admin", "/api/v1/privacy")):
         response.headers["Cache-Control"] = "no-store"
     return response
