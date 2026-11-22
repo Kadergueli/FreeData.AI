@@ -1542,14 +1542,26 @@ def evaluate_field_assessment(
                 if has_lab
                 else ("SoilGrids 2.0 — estimation régionale" if zonal_soil else "Données pédologiques indisponibles")
             ),
+            "laboratory_values": {
+                key: value
+                for key, value in {
+                    "ph": ph_val,
+                    "texture": texture_val,
+                    "organic_matter_pct": om_val,
+                    "nitrogen": lab.get("nitrogen"),
+                    "phosphorus": lab.get("phosphorus"),
+                    "potassium": lab.get("potassium"),
+                }.items()
+                if value is not None
+            },
             "soil_values": {
                 key: value
                 for key, value in {
-                    "ph": (zonal_soil or {}).get("ph"),
-                    "texture": (zonal_soil or {}).get("texture_usda"),
-                    "clay_pct": soil_profile_data.get("clay_pct"),
-                    "sand_pct": soil_profile_data.get("sand_pct"),
-                    "organic_carbon_g_kg": soil_profile_data.get("organic_carbon_g_kg"),
+                    "regional_ph": (zonal_soil or {}).get("ph"),
+                    "regional_texture": (zonal_soil or {}).get("texture_usda"),
+                    "regional_clay_pct": soil_profile_data.get("clay_pct"),
+                    "regional_sand_pct": soil_profile_data.get("sand_pct"),
+                    "regional_organic_carbon_g_kg": soil_profile_data.get("organic_carbon_g_kg"),
                 }.items()
                 if value is not None
             },
