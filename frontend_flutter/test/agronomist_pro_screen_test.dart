@@ -9,6 +9,7 @@ import 'package:freedata_ai/services/api_service.dart';
 class _AgroProFakeApi extends ApiService {
   Map<String, dynamic>? lastPayload;
   String? lastPdfId;
+  bool compareCalled = false;
 
   @override
   Future<Map<String, dynamic>?> getMyAgroProfile() async => {
@@ -85,6 +86,17 @@ class _AgroProFakeApi extends ApiService {
   }
 
   @override
+  Future<Map<String, dynamic>> compareAgroAssessments({
+    List<String> assessmentIds = const [],
+    List<Map<String, dynamic>> candidates = const [],
+    String agronomistName = '',
+    String agronomistLicense = '',
+  }) async {
+    compareCalled = true;
+    return {'comparison_table': <Map<String, dynamic>>[]};
+  }
+
+  @override
   Future<Uint8List> downloadAgroAssessmentPdf(
     String assessmentId, {
     String agronomistName = '',
@@ -137,6 +149,58 @@ void main() {
 
     await tester.tap(find.text('Annuler'));
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'parcel comparison rejects invalid GPS coordinates before calling the API',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _AgroProFakeApi()
+      ..setAuthSession(
+        token: 'jwt-pro',
+        user: {'user_id': 'u123', 'email': 'agro@tchad.td'},
+        isPro: true,
+      );
+    await tester.pumpWidget(
+      MaterialApp(home: AgronomistProScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    final openCompare = find.text('Comparer 2 à 3 terrains');
+    await tester.scrollUntilVisible(
+      openCompare,
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(openCompare.first);
+    await tester.pumpAndSettle();
+
+    final areaFields =
+        find.widgetWithText(TextField, 'Surface (ha)');
+    await tester.enterText(areaFields.at(0), '2.5');
+    await tester.enterText(areaFields.at(1), '3');
+    final latitudeFields =
+        find.widgetWithText(TextField, 'Lat GPS (opt.)');
+    final longitudeFields =
+        find.widgetWithText(TextField, 'Lon GPS (opt.)');
+    await tester.enterText(latitudeFields.at(0), '91');
+    await tester.enterText(longitudeFields.at(0), '0');
+
+    await tester.tap(find.text('Lancer la comparaison'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Coordonnées GPS invalides'),
+      findsOneWidget,
+    );
+    expect(api.compareCalled, isFalse);
     expect(tester.takeException(), isNull);
   });
 
