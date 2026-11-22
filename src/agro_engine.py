@@ -1123,11 +1123,15 @@ def evaluate_field_assessment(
         else ("IDW régional avec coordonnées GPS" if gps_logistics.get("gps_provided") else "Données régionales du pôle")
     )
     if has_lab:
-        confidence_short = "Labo + NASA POWER Point" if point_humidity_available else "Labo + estimation régionale"
+        confidence_short = "Labo fourni · NASA POWER Point" if point_humidity_available else "Labo fourni · IDW régional"
         confidence_label = f"Mesures de laboratoire fournies · {climate_method_label}"
     else:
-        confidence_short = "NASA POWER Point + IDW" if point_humidity_available else "Estimation IDW régionale"
-        confidence_label = climate_method_label
+        confidence_short = (
+            "Sans analyse labo · NASA POWER Point + IDW"
+            if point_humidity_available
+            else "Sans analyse labo · IDW régional"
+        )
+        confidence_label = f"Sans analyse laboratoire · {climate_method_label}"
     dry_years = float(idw.get("dry_years") or 0.0)
 
     requested = [c for c in (target_crops or list(SUPPORTED_AGRO_CROPS)) if c in SUPPORTED_AGRO_CROPS]
