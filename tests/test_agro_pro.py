@@ -138,7 +138,8 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert "World Bank" in pdf_sat_text
     assert "50 000 m²" in pdf_sat_text
     assert "Provenance climatique" in pdf_sat_text
-    assert "Estimation pédologique régionale" in pdf_sat_text
+    normalized_pdf_text = " ".join(pdf_sat_text.split())
+    assert "Estimation pédologique régionale" in normalized_pdf_text
 
     # 3. Avec mesures labo -> score complet + PDF co-brandé généré + isolation stricte entre comptes
     res_lab = server.create_agro_field_assessment_endpoint(
