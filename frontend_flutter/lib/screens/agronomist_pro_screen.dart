@@ -1008,8 +1008,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Nutriments NPK — reprenez les unités indiquées sur le bulletin du laboratoire.',
-                      style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                      '2. Superficie et localisation GPS',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.blue),
                     ),
                     const SizedBox(height: 8),
                     LayoutBuilder(
@@ -1073,7 +1076,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                      '3. Mesures de sol laboratoire (priment sur la moyenne zonale)',
                       style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
@@ -1139,7 +1142,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                      'Nutriments NPK — reprenez les unités indiquées sur le bulletin du laboratoire.',
                       style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
@@ -1221,7 +1224,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      '3. Inspection terrain & Co-branding officiel du cabinet',
+                      '4. Inspection terrain & Co-branding officiel du cabinet',
                       style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
