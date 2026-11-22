@@ -1593,9 +1593,7 @@ class _SidebarContentState extends State<_SidebarContent> {
               _navItem(
                 5,
                 Icons.eco_outlined,
-                widget.hasPremiumKey
-                    ? 'Agriculture · Agro PRO'
-                    : 'Agriculture',
+                widget.hasPremiumKey ? 'Agriculture · Agro PRO' : 'Agriculture',
               ),
               const Divider(
                   height: 18, thickness: 1, color: FDTheme.canvasSoft),

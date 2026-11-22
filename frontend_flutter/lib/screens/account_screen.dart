@@ -63,9 +63,8 @@ class _AccountScreenState extends State<AccountScreen> {
       final docsFuture = widget.apiService
           .listUserDocuments()
           .catchError((_) => const <Map<String, dynamic>>[]);
-      final agroFuture = widget.apiService
-          .getMyAgroProfile()
-          .catchError((_) => null);
+      final agroFuture =
+          widget.apiService.getMyAgroProfile().catchError((_) => null);
       final results =
           await Future.wait<Object?>([billingFuture, docsFuture, agroFuture]);
       final b = results[0] as Map<String, dynamic>?;
@@ -334,8 +333,8 @@ class _AccountScreenState extends State<AccountScreen> {
     try {
       final data = await widget.apiService.exportMyPrivacyData();
       final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
-      triggerPdfDownload(
-          Uint8List.fromList(utf8.encode(jsonStr)), 'freedata_rgpd_export.json');
+      triggerPdfDownload(Uint8List.fromList(utf8.encode(jsonStr)),
+          'freedata_rgpd_export.json');
       await Clipboard.setData(ClipboardData(text: jsonStr));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -519,8 +518,8 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _openSubmitAgroProfileDialog() async {
-    final firmCtrl =
-        TextEditingController(text: _agroProfile?['firm_name']?.toString() ?? '');
+    final firmCtrl = TextEditingController(
+        text: _agroProfile?['firm_name']?.toString() ?? '');
     final licCtrl = TextEditingController(
         text: _agroProfile?['license_number']?.toString() ?? '');
     final addrCtrl =
@@ -570,7 +569,8 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                     if (err != null) ...[
                       const SizedBox(height: 8),
-                      Text(err!, style: const TextStyle(color: AppColors.danger)),
+                      Text(err!,
+                          style: const TextStyle(color: AppColors.danger)),
                     ],
                   ],
                 ),
@@ -616,7 +616,8 @@ class _AccountScreenState extends State<AccountScreen> {
         );
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
       } finally {
         if (mounted) setState(() => _savingAgroProfile = false);
       }

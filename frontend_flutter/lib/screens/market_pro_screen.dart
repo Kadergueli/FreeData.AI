@@ -254,7 +254,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 style: const TextStyle(fontSize: 12.5),
                               ),
                             ))),
-                    if ((result!['disclaimer']?.toString() ?? '').isNotEmpty) ...[
+                    if ((result!['disclaimer']?.toString() ?? '')
+                        .isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
                         result!['disclaimer'].toString(),
@@ -273,7 +274,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
                 icon: const Icon(Icons.copy_rounded, size: 17),
                 label: const Text('Copier le résumé'),
                 onPressed: () {
-                  final scenarios = ((result!['scenarios'] as List?) ?? const [])
+                  final scenarios = ((result!['scenarios'] as List?) ??
+                          const [])
                       .whereType<Map>()
                       .map((s) =>
                           '- ${s['description']} : ${s['price_xaf_kg'] ?? '—'} XAF/kg · DSCR ${s['dscr'] ?? '—'}')
@@ -463,305 +465,301 @@ class _MarketProScreenState extends State<MarketProScreen> {
                           );
                         },
                       ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
                         ),
-                        const SizedBox(height: 8),
-                        FDCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 10,
-                                children: [
-                                  SizedBox(
-                                    width: 180,
-                                    child: DropdownButtonFormField<String>(
-                                      key: ValueKey(_arbCrop),
-                                      initialValue: _arbCrop,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Culture'),
-                                      items: _cropLabels.entries
-                                          .map((e) => DropdownMenuItem(
-                                              value: e.key,
-                                              child: Text(e.value)))
-                                          .toList(),
-                                      onChanged: (v) => setState(
-                                          () => _arbCrop = v ?? 'millet'),
-                                    ),
+                      ),
+                      const SizedBox(height: 8),
+                      FDCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                SizedBox(
+                                  width: 180,
+                                  child: DropdownButtonFormField<String>(
+                                    key: ValueKey(_arbCrop),
+                                    initialValue: _arbCrop,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Culture'),
+                                    items: _cropLabels.entries
+                                        .map((e) => DropdownMenuItem(
+                                            value: e.key, child: Text(e.value)))
+                                        .toList(),
+                                    onChanged: (v) => setState(
+                                        () => _arbCrop = v ?? 'millet'),
                                   ),
-                                  SizedBox(
-                                    width: 170,
-                                    child: TextField(
-                                      controller: _arbTransportCtrl,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                              decimal: true),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Transport (XAF/kg)'),
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 150,
-                                    child: TextField(
-                                      controller: _arbTonnageCtrl,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                              decimal: true),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Tonnage (t)'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              FDPrimaryButton(
-                                label: _loadingArb
-                                    ? 'Calcul…'
-                                    : 'Simuler marge & ROI',
-                                icon: Icons.calculate_outlined,
-                                onPressed:
-                                    _loadingArb ? null : _runArbitrageSim,
-                              ),
-                              if (_arbResult != null) ...[
-                                const SizedBox(height: 10),
-                                Text(
-                                  'MAPE historique modèle : ${_arbResult!['historical_mape_pct'] ?? 'N/D'} %',
-                                  style: const TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.muted),
                                 ),
-                                const SizedBox(height: 6),
-                                ...(((_arbResult!['routes'] as List?) ??
-                                        const [])
-                                    .take(3)
-                                    .whereType<Map>()
-                                    .map((r) => Padding(
-                                          padding:
-                                              const EdgeInsets.only(bottom: 4),
-                                          child: Text(
-                                            '• ${r['origin_province']} → ${r['dest_province']} : marge nette ${r['net_margin_xaf_kg'] ?? r['spread_xaf_kg']} XAF/kg · Total ${r['estimated_net_margin_xaf'] ?? '—'} XAF · ROI ${r['roi_pct'] ?? '—'} %',
-                                            style: const TextStyle(
-                                                fontSize: 12.5,
-                                                color: AppColors.ink),
-                                          ),
-                                        ))),
+                                SizedBox(
+                                  width: 170,
+                                  child: TextField(
+                                    controller: _arbTransportCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Transport (XAF/kg)'),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 150,
+                                  child: TextField(
+                                    controller: _arbTonnageCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Tonnage (t)'),
+                                  ),
+                                ),
                               ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Arbitrage inter-provinces (écarts bruts)',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (arbitrage.isEmpty)
-                          const FDCard(
-                            child: Text(
-                              'Aucun écart inter-provinces significatif détecté.',
-                              style: TextStyle(color: AppColors.muted),
                             ),
-                          )
-                        else
-                          ...arbitrage.map((a) => Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: FDCard(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              '${a['label_fr']} : ${a['origin_province']} → ${a['dest_province']}',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                color: AppColors.ink,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              '${a['origin_predicted_xaf_kg']} → ${a['dest_predicted_xaf_kg']} XAF/kg (${a['forecast_month'] ?? ''})',
-                                              style: const TextStyle(
-                                                fontSize: 12.5,
-                                                color: AppColors.muted,
-                                              ),
-                                            ),
-                                          ],
+                            const SizedBox(height: 10),
+                            FDPrimaryButton(
+                              label: _loadingArb
+                                  ? 'Calcul…'
+                                  : 'Simuler marge & ROI',
+                              icon: Icons.calculate_outlined,
+                              onPressed: _loadingArb ? null : _runArbitrageSim,
+                            ),
+                            if (_arbResult != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'MAPE historique modèle : ${_arbResult!['historical_mape_pct'] ?? 'N/D'} %',
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.muted),
+                              ),
+                              const SizedBox(height: 6),
+                              ...(((_arbResult!['routes'] as List?) ?? const [])
+                                  .take(3)
+                                  .whereType<Map>()
+                                  .map((r) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 4),
+                                        child: Text(
+                                          '• ${r['origin_province']} → ${r['dest_province']} : marge nette ${r['net_margin_xaf_kg'] ?? r['spread_xaf_kg']} XAF/kg · Total ${r['estimated_net_margin_xaf'] ?? '—'} XAF · ROI ${r['roi_pct'] ?? '—'} %',
+                                          style: const TextStyle(
+                                              fontSize: 12.5,
+                                              color: AppColors.ink),
                                         ),
+                                      ))),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Arbitrage inter-provinces (écarts bruts)',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (arbitrage.isEmpty)
+                        const FDCard(
+                          child: Text(
+                            'Aucun écart inter-provinces significatif détecté.',
+                            style: TextStyle(color: AppColors.muted),
+                          ),
+                        )
+                      else
+                        ...arbitrage.map((a) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: FDCard(
+                                padding: const EdgeInsets.all(14),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${a['label_fr']} : ${a['origin_province']} → ${a['dest_province']}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.ink,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            '${a['origin_predicted_xaf_kg']} → ${a['dest_predicted_xaf_kg']} XAF/kg (${a['forecast_month'] ?? ''})',
+                                            style: const TextStyle(
+                                              fontSize: 12.5,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      FDBadge(
-                                        label: '+${a['spread_xaf_kg']} XAF',
-                                        color: AppColors.greenDark,
-                                        backgroundColor: AppColors.greenSoft,
-                                      ),
-                                    ],
+                                    ),
+                                    FDBadge(
+                                      label: '+${a['spread_xaf_kg']} XAF',
+                                      color: AppColors.greenDark,
+                                      backgroundColor: AppColors.greenSoft,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Watchlists & Alertes de seuils de prix',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      FDCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                SizedBox(
+                                  width: 180,
+                                  child: DropdownButtonFormField<String>(
+                                    key: ValueKey(_watchCrop),
+                                    initialValue: _watchCrop,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Culture'),
+                                    items: _cropLabels.entries
+                                        .map((e) => DropdownMenuItem(
+                                            value: e.key, child: Text(e.value)))
+                                        .toList(),
+                                    onChanged: (v) => setState(
+                                        () => _watchCrop = v ?? 'millet'),
                                   ),
                                 ),
-                              )),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Watchlists & Alertes de seuils de prix',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        FDCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 10,
-                                children: [
-                                  SizedBox(
-                                    width: 180,
-                                    child: DropdownButtonFormField<String>(
-                                      key: ValueKey(_watchCrop),
-                                      initialValue: _watchCrop,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Culture'),
-                                      items: _cropLabels.entries
-                                          .map((e) => DropdownMenuItem(
-                                              value: e.key,
-                                              child: Text(e.value)))
-                                          .toList(),
-                                      onChanged: (v) => setState(
-                                          () => _watchCrop = v ?? 'millet'),
-                                    ),
+                                SizedBox(
+                                  width: 170,
+                                  child: DropdownButtonFormField<String>(
+                                    key: ValueKey(_watchDirection),
+                                    initialValue: _watchDirection,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Condition'),
+                                    items: const [
+                                      DropdownMenuItem(
+                                          value: 'above',
+                                          child: Text('Supérieur ou égal')),
+                                      DropdownMenuItem(
+                                          value: 'below',
+                                          child: Text('Inférieur ou égal')),
+                                    ],
+                                    onChanged: (v) => setState(
+                                        () => _watchDirection = v ?? 'above'),
                                   ),
-                                  SizedBox(
-                                    width: 170,
-                                    child: DropdownButtonFormField<String>(
-                                      key: ValueKey(_watchDirection),
-                                      initialValue: _watchDirection,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Condition'),
-                                      items: const [
-                                        DropdownMenuItem(
-                                            value: 'above',
-                                            child: Text('Supérieur ou égal')),
-                                        DropdownMenuItem(
-                                            value: 'below',
-                                            child: Text('Inférieur ou égal')),
-                                      ],
-                                      onChanged: (v) => setState(
-                                          () => _watchDirection = v ?? 'above'),
-                                    ),
+                                ),
+                                SizedBox(
+                                  width: 160,
+                                  child: TextField(
+                                    controller: _thresholdCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Seuil (XAF/kg)'),
                                   ),
-                                  SizedBox(
-                                    width: 160,
-                                    child: TextField(
-                                      controller: _thresholdCtrl,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                              decimal: true),
-                                      decoration: const InputDecoration(
-                                          labelText: 'Seuil (XAF/kg)'),
-                                    ),
+                                ),
+                                SizedBox(
+                                  width: 180,
+                                  child: TextField(
+                                    controller: _provinceCtrl,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Province (opt.)'),
                                   ),
-                                  SizedBox(
-                                    width: 180,
-                                    child: TextField(
-                                      controller: _provinceCtrl,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Province (opt.)'),
-                                    ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            FDPrimaryButton(
+                              label: _creatingWatch
+                                  ? 'Ajout…'
+                                  : 'Ajouter l’alerte',
+                              icon: Icons.notifications_active_outlined,
+                              onPressed: _creatingWatch ? null : _addWatch,
+                            ),
+                            if (watchlists.isNotEmpty) ...[
+                              const Divider(height: 24),
+                              ...watchlists.map((w) {
+                                final trig = w['triggered'] == true;
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    trig
+                                        ? Icons.notifications_active_rounded
+                                        : Icons.notifications_none_rounded,
+                                    color: trig
+                                        ? AppColors.danger
+                                        : AppColors.muted,
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              FDPrimaryButton(
-                                label: _creatingWatch
-                                    ? 'Ajout…'
-                                    : 'Ajouter l’alerte',
-                                icon: Icons.notifications_active_outlined,
-                                onPressed: _creatingWatch ? null : _addWatch,
-                              ),
-                              if (watchlists.isNotEmpty) ...[
-                                const Divider(height: 24),
-                                ...watchlists.map((w) {
-                                  final trig = w['triggered'] == true;
-                                  return ListTile(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: Icon(
-                                      trig
-                                          ? Icons.notifications_active_rounded
-                                          : Icons.notifications_none_rounded,
+                                  title: Text(
+                                    '${w['label_fr']} ${w['direction'] == 'above' ? '≥' : '≤'} ${w['threshold_xaf_kg']} XAF/kg'
+                                    '${(w['province']?.toString().isNotEmpty ?? false) ? ' · ${w['province']}' : ''}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                  subtitle: Text(
+                                    'Prévu : ${w['predicted_xaf_kg'] ?? '—'} XAF/kg · ${trig ? 'ALERTE DÉCLENCHÉE' : 'Sous surveillance'}',
+                                    style: TextStyle(
+                                      fontSize: 12,
                                       color: trig
                                           ? AppColors.danger
                                           : AppColors.muted,
                                     ),
-                                    title: Text(
-                                      '${w['label_fr']} ${w['direction'] == 'above' ? '≥' : '≤'} ${w['threshold_xaf_kg']} XAF/kg'
-                                      '${(w['province']?.toString().isNotEmpty ?? false) ? ' · ${w['province']}' : ''}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                    subtitle: Text(
-                                      'Prévu : ${w['predicted_xaf_kg'] ?? '—'} XAF/kg · ${trig ? 'ALERTE DÉCLENCHÉE' : 'Sous surveillance'}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: trig
-                                            ? AppColors.danger
-                                            : AppColors.muted,
-                                      ),
-                                    ),
-                                    trailing: IconButton(
-                                      icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          color: AppColors.danger,
-                                          size: 19),
-                                      onPressed: () => _deleteWatch(
-                                          w['watch_id'].toString()),
-                                    ),
-                                  );
-                                }),
-                              ],
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: AppColors.danger,
+                                        size: 19),
+                                    onPressed: () =>
+                                        _deleteWatch(w['watch_id'].toString()),
+                                  ),
+                                );
+                              }),
                             ],
-                          ),
+                          ],
                         ),
-                        if (_radar != null &&
-                            ((_radar!['hubs'] as List?) ?? const [])
-                                .isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          _buildCampaignRadarCard(_radar!),
-                        ],
-                        const SizedBox(height: 14),
-                        const FDCard(
-                          padding: EdgeInsets.all(14),
-                          child: Text(
-                            'Sources & Licences : WFP (CC BY-IGO 3.0) · FEWS NET (Attribution Required) · NASA POWER Agro (Public Domain) · World Bank (CC BY 4.0)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.muted,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
+                      ),
+                      if (_radar != null &&
+                          ((_radar!['hubs'] as List?) ?? const [])
+                              .isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _buildCampaignRadarCard(_radar!),
                       ],
-                    ),
+                      const SizedBox(height: 14),
+                      const FDCard(
+                        padding: EdgeInsets.all(14),
+                        child: Text(
+                          'Sources & Licences : WFP (CC BY-IGO 3.0) · FEWS NET (Attribution Required) · NASA POWER Agro (Public Domain) · World Bank (CC BY 4.0)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                );
+                ),
+              );
     if (widget.embedded) {
       return Container(color: AppColors.canvas, child: body);
     }
@@ -822,16 +820,18 @@ class _MarketProScreenState extends State<MarketProScreen> {
             runSpacing: 8,
             children: [
               FDBadge(
-                label: 'Pôles analysés : ${summary['hubs_count'] ?? hubs.length}',
+                label:
+                    'Pôles analysés : ${summary['hubs_count'] ?? hubs.length}',
                 color: AppColors.blue,
                 backgroundColor: AppColors.blueSoft,
               ),
               FDBadge(
                 label:
                     'Double vulnérabilité : ${summary['double_vulnerability_count'] ?? 0}',
-                color: ((summary['double_vulnerability_count'] as num?) ?? 0) > 0
-                    ? AppColors.danger
-                    : AppColors.greenDark,
+                color:
+                    ((summary['double_vulnerability_count'] as num?) ?? 0) > 0
+                        ? AppColors.danger
+                        : AppColors.greenDark,
                 backgroundColor:
                     ((summary['double_vulnerability_count'] as num?) ?? 0) > 0
                         ? const Color(0xFFFEE2E2)
@@ -870,9 +870,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
                   DataColumn(label: Text('Alerte')),
                 ],
                 rows: hubs.map((h) {
-                  final best = h['best_crop'] is Map
-                      ? h['best_crop'] as Map
-                      : const {};
+                  final best =
+                      h['best_crop'] is Map ? h['best_crop'] as Map : const {};
                   final anom = h['root_anomaly_pct'];
                   final dbl = h['double_vulnerability'] == true;
                   final risk = h['credit_risk_level']?.toString() ?? '—';

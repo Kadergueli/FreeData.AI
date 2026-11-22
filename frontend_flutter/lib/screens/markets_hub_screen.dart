@@ -239,4 +239,3 @@ class _ProLockView extends StatelessWidget {
     );
   }
 }
-

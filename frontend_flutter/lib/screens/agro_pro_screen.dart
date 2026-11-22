@@ -95,7 +95,9 @@ class _AgroProScreenState extends State<AgroProScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isPro ? 'Agriculture · Agro PRO' : 'Agriculture',
+                                  isPro
+                                      ? 'Agriculture · Agro PRO'
+                                      : 'Agriculture',
                                   style: const TextStyle(
                                     fontSize: 16.5,
                                     fontWeight: FontWeight.w800,
@@ -116,7 +118,9 @@ class _AgroProScreenState extends State<AgroProScreen>
                           ],
                         ),
                         FDBadge(
-                          label: isPro ? 'AGRO PRO ACTIF' : 'DONNÉES OUVERTES + PRO',
+                          label: isPro
+                              ? 'AGRO PRO ACTIF'
+                              : 'DONNÉES OUVERTES + PRO',
                           color: AppColors.greenDark,
                           backgroundColor: AppColors.greenSoft,
                         ),

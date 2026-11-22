@@ -122,10 +122,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           _firmCtrl.text = prof['firm_name']?.toString() ?? _firmCtrl.text;
           _licenseCtrl.text =
               prof['license_number']?.toString() ?? _licenseCtrl.text;
-          _addressCtrl.text =
-              prof['address']?.toString() ?? _addressCtrl.text;
-          _contactCtrl.text =
-              prof['contact']?.toString() ?? _contactCtrl.text;
+          _addressCtrl.text = prof['address']?.toString() ?? _addressCtrl.text;
+          _contactCtrl.text = prof['contact']?.toString() ?? _contactCtrl.text;
         }
       });
     } catch (_) {}
@@ -213,7 +211,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final area = _parseOpt(_areaCtrl);
     if (area == null || area <= 0 || area > 500000) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saisissez la superficie réelle de la parcelle en hectares (valeur supérieure à 0).')),
+        const SnackBar(
+            content: Text(
+                'Saisissez la superficie réelle de la parcelle en hectares (valeur supérieure à 0).')),
       );
       return;
     }
@@ -221,7 +221,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final longitude = _parseOpt(_lonCtrl);
     if ((latitude == null) != (longitude == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+        const SnackBar(
+            content: Text(
+                'Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
       );
       return;
     }
@@ -294,7 +296,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String aHub = _hub;
     final aLat = TextEditingController(text: _latCtrl.text);
     final aLon = TextEditingController(text: _lonCtrl.text);
-    final aArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final aArea = TextEditingController(
+        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
     final aPh = TextEditingController(text: _phCtrl.text);
     String aTex = _texture;
     final aOm = TextEditingController(text: _omCtrl.text);
@@ -306,7 +309,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String bHub = _hub == 'Moundou' ? 'Sarh' : 'Moundou';
     final bLat = TextEditingController();
     final bLon = TextEditingController();
-    final bArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final bArea = TextEditingController(
+        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
     final bPh = TextEditingController();
     String bTex = '';
     final bOm = TextEditingController();
@@ -319,7 +323,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String cHub = 'Bongor';
     final cLat = TextEditingController();
     final cLon = TextEditingController();
-    final cArea = TextEditingController(text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final cArea = TextEditingController(
+        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
     final cPh = TextEditingController();
     String cTex = '';
     final cOm = TextEditingController();
@@ -413,8 +418,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   width: 165,
                   child: DropdownButtonFormField<String>(
                     initialValue: hub,
-                    decoration: const InputDecoration(
-                        labelText: 'Pôle', isDense: true),
+                    decoration:
+                        const InputDecoration(labelText: 'Pôle', isDense: true),
                     items: widget.availableHubs
                         .map((h) => DropdownMenuItem(value: h, child: Text(h)))
                         .toList(),
@@ -437,8 +442,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   width: 120,
                   child: TextField(
                     controller: lat,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true, signed: true),
                     decoration: const InputDecoration(
                         labelText: 'Lat GPS (opt.)', isDense: true),
                   ),
@@ -447,8 +452,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   width: 120,
                   child: TextField(
                     controller: lon,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true, signed: true),
                     decoration: const InputDecoration(
                         labelText: 'Lon GPS (opt.)', isDense: true),
                   ),
@@ -492,8 +497,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     controller: n,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: 'N', isDense: true),
+                    decoration:
+                        const InputDecoration(labelText: 'N', isDense: true),
                   ),
                 ),
                 SizedBox(
@@ -502,8 +507,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     controller: p,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: 'P', isDense: true),
+                    decoration:
+                        const InputDecoration(labelText: 'P', isDense: true),
                   ),
                 ),
                 SizedBox(
@@ -512,8 +517,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     controller: k,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: 'K', isDense: true),
+                    decoration:
+                        const InputDecoration(labelText: 'K', isDense: true),
                   ),
                 ),
               ],
@@ -601,7 +606,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         cK,
                       ),
                     TextButton.icon(
-                      icon: Icon(includeC ? Icons.remove_circle_outline : Icons.add_circle_outline, size: 18),
+                      icon: Icon(
+                          includeC
+                              ? Icons.remove_circle_outline
+                              : Icons.add_circle_outline,
+                          size: 18),
                       label: Text(includeC
                           ? 'Retirer le Terrain C'
                           : 'Ajouter un 3ᵉ terrain (Terrain C)'),
@@ -617,8 +626,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: DataTable(
-                          headingRowColor: WidgetStateProperty.all(
-                              const Color(0xFFF0F9FF)),
+                          headingRowColor:
+                              WidgetStateProperty.all(const Color(0xFFF0F9FF)),
                           columns: const [
                             DataColumn(label: Text('Rang')),
                             DataColumn(label: Text('Terrain / Pôle')),
@@ -672,8 +681,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           cmpErr = null;
                         });
                         try {
-                          final res = await widget.apiService
-                              .compareAgroAssessments(
+                          final res =
+                              await widget.apiService.compareAgroAssessments(
                             candidates: currentCandidates(),
                             agronomistName: _firmCtrl.text,
                             agronomistLicense: _licenseCtrl.text,
@@ -705,8 +714,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           setDlg(() => downloading = true);
                           try {
                             await _persistBranding();
-                            final bytes = await widget.apiService
-                                .downloadAgroComparePdf(
+                            final bytes =
+                                await widget.apiService.downloadAgroComparePdf(
                               candidates: currentCandidates(),
                               agronomistName: _firmCtrl.text,
                               agronomistLicense: _licenseCtrl.text,
@@ -744,473 +753,466 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-              if (!widget.apiService.isAuthenticated ||
-                  !widget.apiService.hasPremiumKey) ...[
-                FDCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const FDBadge(
-                        label: 'ESPACE AGRONOME PRO',
-                        color: AppColors.greenDark,
-                        backgroundColor: AppColors.greenSoft,
+            if (!widget.apiService.isAuthenticated ||
+                !widget.apiService.hasPremiumKey) ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const FDBadge(
+                      label: 'ESPACE AGRONOME PRO',
+                      color: AppColors.greenDark,
+                      backgroundColor: AppColors.greenSoft,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Diagnostic de terrain (pré-achat) & Rapport PDF co-brandé',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.ink,
                       ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Diagnostic de terrain (pré-achat) & Rapport PDF co-brandé',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.ink,
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Saisissez vos mesures de sol laboratoire (pH, texture, NPK, matière organique), croisez-les avec l’humidité zonale NASA POWER et les prix de marché, et générez un rapport PDF signé avec code de vérification unique.',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        color: AppColors.muted,
+                        height: 1.45,
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Saisissez vos mesures de sol laboratoire (pH, texture, NPK, matière organique), croisez-les avec l’humidité zonale NASA POWER et les prix de marché, et générez un rapport PDF signé avec code de vérification unique.',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          color: AppColors.muted,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (!widget.apiService.isAuthenticated)
-                        FDPrimaryButton(
-                          label: 'Se connecter',
-                          icon: Icons.login_rounded,
-                          onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (_) =>
-                                  AuthDialog(apiService: widget.apiService),
-                            );
-                            if (ok == true && mounted) {
-                              if (_firmCtrl.text.trim().isEmpty) {
-                                _firmCtrl.text = widget
-                                        .apiService.authUser?['display_name']
-                                        ?.toString()
-                                        .trim() ??
-                                    '';
-                              }
-                              setState(() {});
-                              if (_hasAccess) await _loadHistory();
+                    ),
+                    const SizedBox(height: 12),
+                    if (!widget.apiService.isAuthenticated)
+                      FDPrimaryButton(
+                        label: 'Se connecter',
+                        icon: Icons.login_rounded,
+                        onPressed: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (_) =>
+                                AuthDialog(apiService: widget.apiService),
+                          );
+                          if (ok == true && mounted) {
+                            if (_firmCtrl.text.trim().isEmpty) {
+                              _firmCtrl.text = widget
+                                      .apiService.authUser?['display_name']
+                                      ?.toString()
+                                      .trim() ??
+                                  '';
                             }
-                          },
-                        )
-                      else
-                        const Text(
-                          'Activez l’offre PRO depuis l’onglet Abonnement & Quotas pour débloquer cet outil.',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.blue,
+                            setState(() {});
+                            if (_hasAccess) await _loadHistory();
+                          }
+                        },
+                      )
+                    else
+                      const Text(
+                        'Activez l’offre PRO depuis l’onglet Abonnement & Quotas pour débloquer cet outil.',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.blue,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              FDCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '1. Localisation & Mesures laboratoire de la parcelle',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Vos analyses restent strictement privées sur votre compte. Sans mesure de sol, seul un pré-diagnostic régional est produit (le PDF terrain est bloqué par la porte QA).',
+                      style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_hub),
+                      initialValue: _hub,
+                      decoration:
+                          const InputDecoration(labelText: 'Pôle régional'),
+                      items: widget.availableHubs
+                          .map(
+                              (h) => DropdownMenuItem(value: h, child: Text(h)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _hub = v);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Les deux coordonnées GPS permettent de demander les indicateurs satellitaires au point de la parcelle. Sans GPS, le système utilise les données régionales disponibles et l’indique dans le PDF.',
+                      style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.blue),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _areaCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Superficie exacte (ha) *',
+                              helperText:
+                                  'Obligatoire — utilisée pour dimensionner production et revenus',
+                            ),
                           ),
                         ),
-                    ],
-                  ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _latCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Latitude GPS (recommandée)',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _lonCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true, signed: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Longitude GPS (recommandée)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.blue),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _phCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'pH du sol (labo)',
+                              hintText: 'Ex. 6.2',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            key: ValueKey(_texture),
+                            initialValue: _texture,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Texture du sol',
+                            ),
+                            items: _textures
+                                .map((t) => DropdownMenuItem(
+                                    value: t['id'], child: Text(t['label']!)))
+                                .toList(),
+                            onChanged: (v) =>
+                                setState(() => _texture = v ?? ''),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _omCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Mat. organique (%)',
+                              hintText: 'Ex. 1.8',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.blue),
+                    ),
+                    const SizedBox(height: 8),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final fieldWidth = constraints.maxWidth >= 560
+                            ? (constraints.maxWidth - 20) / 3
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _nCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                    labelText: 'Azote N (opt.)'),
+                              ),
+                            ),
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _pCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                    labelText: 'Phosphore P (opt.)'),
+                              ),
+                            ),
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _kCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                    labelText: 'Potassium K (opt.)'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Cultures cibles (4 cultures avec modèles prix validés)',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _cropLabels.entries.map((e) {
+                        final sel = _selectedCrops.contains(e.key);
+                        return FilterChip(
+                          label: Text(e.value),
+                          selected: sel,
+                          onSelected: (v) => setState(() {
+                            if (v) {
+                              _selectedCrops.add(e.key);
+                            } else {
+                              _selectedCrops.remove(e.key);
+                            }
+                          }),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '3. Inspection terrain & Co-branding officiel du cabinet',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.blue),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: _isOfficialApproved
+                            ? AppColors.greenSoft
+                            : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _isOfficialApproved
+                            ? 'Cabinet vérifié par l’administrateur : vos informations officielles sont pré-remplies automatiquement sur tous vos PDF.'
+                            : (_officialProfile?['status'] == 'pending'
+                                ? 'Profil officiel en attente de validation par l’administrateur. La génération de PDF sera débloquée dès confirmation.'
+                                : 'Pour générer des rapports PDF certifiés, soumettez vos informations officielles depuis « Mon compte » pour validation administrateur.'),
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _firmCtrl,
+                      readOnly: _isOfficialApproved,
+                      decoration: const InputDecoration(
+                        labelText:
+                            'Raison sociale / Nom officiel de l’agronome (en-tête PDF)',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final half = constraints.maxWidth >= 560
+                            ? (constraints.maxWidth - 10) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            SizedBox(
+                              width: half,
+                              child: TextField(
+                                controller: _licenseCtrl,
+                                readOnly: _isOfficialApproved,
+                                decoration: const InputDecoration(
+                                  labelText:
+                                      'N° d’agrément / Ordre / RCCM (opt.)',
+                                ),
+                              ),
+                            ),
+                            SizedBox(
+                              width: half,
+                              child: TextField(
+                                controller: _contactCtrl,
+                                readOnly: _isOfficialApproved,
+                                decoration: const InputDecoration(
+                                  labelText:
+                                      'Téléphone & Email professionnel (opt.)',
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _addressCtrl,
+                      readOnly: _isOfficialApproved,
+                      decoration: const InputDecoration(
+                        labelText:
+                            'Adresse officielle du cabinet / ville (opt.)',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _notesCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes d’inspection terrain (opt.)',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        FDPrimaryButton(
+                          label: _submitting
+                              ? 'Analyse en cours…'
+                              : 'Calculer le diagnostic',
+                          icon: Icons.science_outlined,
+                          onPressed: _submitting ? null : _submit,
+                        ),
+                        FDSecondaryButton(
+                          label: 'Comparer 2 à 3 terrains',
+                          icon: Icons.compare_arrows_rounded,
+                          onPressed: _openCompareParcelsDialog,
+                        ),
+                        if (!_isOfficialApproved)
+                          TextButton.icon(
+                            icon: const Icon(Icons.verified_user_outlined,
+                                size: 18),
+                            label: const Text('Mon profil officiel'),
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .push(MaterialPageRoute(
+                                      builder: (_) => AccountScreen(
+                                          apiService: widget.apiService)))
+                                  .then((_) => _loadOfficialProfile());
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
-              ] else ...[
+              ),
+              if (assessment != null) ...[
+                const SizedBox(height: 14),
+                _buildResultCard(assessment, qa),
+              ],
+              if (_history.isNotEmpty) ...[
+                const SizedBox(height: 14),
                 FDCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '1. Localisation & Mesures laboratoire de la parcelle',
+                        'Mes diagnostics enregistrés',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Vos analyses restent strictement privées sur votre compte. Sans mesure de sol, seul un pré-diagnostic régional est produit (le PDF terrain est bloqué par la porte QA).',
-                        style:
-                            TextStyle(fontSize: 12.5, color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey(_hub),
-                        initialValue: _hub,
-                        decoration:
-                            const InputDecoration(labelText: 'Pôle régional'),
-                        items: widget.availableHubs
-                            .map((h) =>
-                                DropdownMenuItem(value: h, child: Text(h)))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) setState(() => _hub = v);
-                        },
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Les deux coordonnées GPS permettent de demander les indicateurs satellitaires au point de la parcelle. Sans GPS, le système utilise les données régionales disponibles et l’indique dans le PDF.',
-                        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.blue),
-                      ),
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _areaCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                labelText: 'Superficie exacte (ha) *',
-                                helperText: 'Obligatoire — utilisée pour dimensionner production et revenus',
-                              ),
-                            ),
+                      ..._history.take(8).map((item) {
+                        final code =
+                            item['report_verification_code']?.toString() ?? '';
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            '${item['province_hub']} · Code $code',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _latCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true, signed: true),
-                              decoration: const InputDecoration(
-                                labelText: 'Latitude GPS (recommandée)',
-                              ),
-                            ),
+                          subtitle: Text(
+                            '${item['area_hectares'] ?? 'N/A'} ha · ${item['created_at'] ?? ''}',
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.muted),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _lonCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true, signed: true),
-                              decoration: const InputDecoration(
-                                labelText: 'Longitude GPS (recommandée)',
-                              ),
-                            ),
+                          trailing: TextButton(
+                            onPressed: () =>
+                                _downloadPdf(item['id'].toString(), code),
+                            child: const Text('PDF'),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.blue),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _phCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                labelText: 'pH du sol (labo)',
-                                hintText: 'Ex. 6.2',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              key: ValueKey(_texture),
-                              initialValue: _texture,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Texture du sol',
-                              ),
-                              items: _textures
-                                  .map((t) => DropdownMenuItem(
-                                      value: t['id'], child: Text(t['label']!)))
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => _texture = v ?? ''),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _omCtrl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                labelText: 'Mat. organique (%)',
-                                hintText: 'Ex. 1.8',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.blue),
-                      ),
-                      const SizedBox(height: 8),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final fieldWidth = constraints.maxWidth >= 560
-                              ? (constraints.maxWidth - 20) / 3
-                              : constraints.maxWidth;
-                          return Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              SizedBox(
-                                width: fieldWidth,
-                                child: TextField(
-                                  controller: _nCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  decoration: const InputDecoration(
-                                      labelText: 'Azote N (opt.)'),
-                                ),
-                              ),
-                              SizedBox(
-                                width: fieldWidth,
-                                child: TextField(
-                                  controller: _pCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  decoration: const InputDecoration(
-                                      labelText: 'Phosphore P (opt.)'),
-                                ),
-                              ),
-                              SizedBox(
-                                width: fieldWidth,
-                                child: TextField(
-                                  controller: _kCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  decoration: const InputDecoration(
-                                      labelText: 'Potassium K (opt.)'),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Cultures cibles (4 cultures avec modèles prix validés)',
-                        style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _cropLabels.entries.map((e) {
-                          final sel = _selectedCrops.contains(e.key);
-                          return FilterChip(
-                            label: Text(e.value),
-                            selected: sel,
-                            onSelected: (v) => setState(() {
-                              if (v) {
-                                _selectedCrops.add(e.key);
-                              } else {
-                                _selectedCrops.remove(e.key);
-                              }
-                            }),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        '3. Inspection terrain & Co-branding officiel du cabinet',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.blue),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _isOfficialApproved
-                              ? AppColors.greenSoft
-                              : const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          _isOfficialApproved
-                              ? 'Cabinet vérifié par l’administrateur : vos informations officielles sont pré-remplies automatiquement sur tous vos PDF.'
-                              : (_officialProfile?['status'] == 'pending'
-                                  ? 'Profil officiel en attente de validation par l’administrateur. La génération de PDF sera débloquée dès confirmation.'
-                                  : 'Pour générer des rapports PDF certifiés, soumettez vos informations officielles depuis « Mon compte » pour validation administrateur.'),
-                          style: const TextStyle(
-                              fontSize: 12.5,
-                              color: AppColors.ink,
-                              fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _firmCtrl,
-                        readOnly: _isOfficialApproved,
-                        decoration: const InputDecoration(
-                          labelText:
-                              'Raison sociale / Nom officiel de l’agronome (en-tête PDF)',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final half = constraints.maxWidth >= 560
-                              ? (constraints.maxWidth - 10) / 2
-                              : constraints.maxWidth;
-                          return Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              SizedBox(
-                                width: half,
-                                child: TextField(
-                                  controller: _licenseCtrl,
-                                  readOnly: _isOfficialApproved,
-                                  decoration: const InputDecoration(
-                                    labelText:
-                                        'N° d’agrément / Ordre / RCCM (opt.)',
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                width: half,
-                                child: TextField(
-                                  controller: _contactCtrl,
-                                  readOnly: _isOfficialApproved,
-                                  decoration: const InputDecoration(
-                                    labelText:
-                                        'Téléphone & Email professionnel (opt.)',
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _addressCtrl,
-                        readOnly: _isOfficialApproved,
-                        decoration: const InputDecoration(
-                          labelText:
-                              'Adresse officielle du cabinet / ville (opt.)',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _notesCtrl,
-                        maxLines: 2,
-                        decoration: const InputDecoration(
-                          labelText: 'Notes d’inspection terrain (opt.)',
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 8,
-                        children: [
-                          FDPrimaryButton(
-                            label: _submitting
-                                ? 'Analyse en cours…'
-                                : 'Calculer le diagnostic',
-                            icon: Icons.science_outlined,
-                            onPressed: _submitting ? null : _submit,
-                          ),
-                          FDSecondaryButton(
-                            label: 'Comparer 2 à 3 terrains',
-                            icon: Icons.compare_arrows_rounded,
-                            onPressed: _openCompareParcelsDialog,
-                          ),
-                          if (!_isOfficialApproved)
-                            TextButton.icon(
-                              icon: const Icon(Icons.verified_user_outlined,
-                                  size: 18),
-                              label: const Text('Mon profil officiel'),
-                              onPressed: () {
-                                Navigator.of(context)
-                                    .push(MaterialPageRoute(
-                                        builder: (_) => AccountScreen(
-                                            apiService: widget.apiService)))
-                                    .then((_) => _loadOfficialProfile());
-                              },
-                            ),
-                        ],
-                      ),
+                        );
+                      }),
                     ],
                   ),
                 ),
-                if (assessment != null) ...[
-                  const SizedBox(height: 14),
-                  _buildResultCard(assessment, qa),
-                ],
-                if (_history.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  FDCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Mes diagnostics enregistrés',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ..._history.take(8).map((item) {
-                          final code =
-                              item['report_verification_code']?.toString() ??
-                                  '';
-                          return ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              '${item['province_hub']} · Code $code',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text(
-                              '${item['area_hectares'] ?? 'N/A'} ha · ${item['created_at'] ?? ''}',
-                              style: const TextStyle(
-                                  fontSize: 12, color: AppColors.muted),
-                            ),
-                            trailing: TextButton(
-                              onPressed: () =>
-                                  _downloadPdf(item['id'].toString(), code),
-                              child: const Text('PDF'),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ],
-          ),
+          ],
         ),
-      );
+      ),
+    );
     if (widget.embedded) {
       return Container(color: AppColors.canvas, child: content);
     }
@@ -1345,8 +1347,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
 
           if (labParams.isNotEmpty) ...[
             const SizedBox(height: 14),
-            _bulletinSectionTitle(
-                '2. Bulletin Pédologique & Agro-Climatique'),
+            _bulletinSectionTitle('2. Bulletin Pédologique & Agro-Climatique'),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Container(
@@ -1445,8 +1446,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     DataCell(Text(
                         '${c['water_score'] ?? '—'} + ${c['soil_score'] ?? '—'} + ${c['market_score'] ?? '—'}')),
                     DataCell(Text(fg != null ? '$fg F/kg' : 'N/A')),
-                    DataCell(
-                        Text(rev is num ? '${formatXaf(rev)} F' : '—')),
+                    DataCell(Text(rev is num ? '${formatXaf(rev)} F' : '—')),
                     DataCell(Text(c['suitability_label']?.toString() ?? '—')),
                   ]);
                 }).toList(),

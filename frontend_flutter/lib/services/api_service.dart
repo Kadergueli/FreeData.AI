@@ -482,9 +482,9 @@ class ApiService {
       queryParameters:
           (status != null && status.isNotEmpty) ? {'status': status} : null,
     );
-    final resp = await _client
-        .get(uri, headers: {'X-Admin-Token': adminToken.trim()})
-        .timeout(const Duration(seconds: 20));
+    final resp = await _client.get(uri, headers: {
+      'X-Admin-Token': adminToken.trim()
+    }).timeout(const Duration(seconds: 20));
     if (resp.statusCode == 200) {
       final decoded =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;

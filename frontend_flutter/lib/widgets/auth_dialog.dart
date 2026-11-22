@@ -266,9 +266,8 @@ class _AuthDialogState extends State<AuthDialog> {
     final strengthColor = strength <= 1
         ? AppColors.danger
         : (strength == 2 ? AppColors.warning : AppColors.green);
-    final strengthLabel = strength <= 1
-        ? 'Faible'
-        : (strength == 2 ? 'Moyen' : 'Solide');
+    final strengthLabel =
+        strength <= 1 ? 'Faible' : (strength == 2 ? 'Moyen' : 'Solide');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(26),

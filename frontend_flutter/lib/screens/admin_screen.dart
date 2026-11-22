@@ -26,7 +26,8 @@ class _AdminScreenState extends State<AdminScreen> {
   List<Map<String, dynamic>> _proKeys = const [];
   List<Map<String, dynamic>> _agroProfiles = const [];
   String _agroFilter = 'all';
-  int _tab = 0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements, 4: Centre IA, 5: Agronomes
+  int _tab =
+      0; // 0: Système, 1: Utilisateurs, 2: Support, 3: Paiements, 4: Centre IA, 5: Agronomes
   bool _loading = false;
   bool _probing = false;
   String? _error;
@@ -1430,8 +1431,8 @@ class _AdminScreenState extends State<AdminScreen> {
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF8FAFC),
-                                border: Border.all(
-                                    color: const Color(0xFFCBD5E1)),
+                                border:
+                                    Border.all(color: const Color(0xFFCBD5E1)),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Column(
