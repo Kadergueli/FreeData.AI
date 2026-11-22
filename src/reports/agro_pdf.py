@@ -255,11 +255,21 @@ def render_agro_assessment_pdf(
     firm_label = f"{firm} (N° {lic})" if lic else firm
     hub_name = gps.get("selected_hub") or assessment.get("province_hub") or "—"
     prov_name = assessment.get("province") or gps.get("province") or hub_name
+    area_raw = assessment.get("area_hectares")
     area_val = (
-        f"{float(assessment.get('area_hectares')):g} (superficie déclarée)"
-        if assessment.get("area_hectares") is not None
-        else "Non renseignée — estimation économique provisoire sur 1 ha, à ne pas utiliser comme dimension réelle"
+        f"{float(area_raw):g} (superficie déclarée ; {float(area_raw) * 10000:,.0f} m²)".replace(",", " ")
+        if isinstance(area_raw, (int, float)) and float(area_raw) > 0
+        else "Non renseignée — aucune projection surfacique fiable"
     )
+    site_ctx = scores.get("site_context") or {}
+    soil_values = site_ctx.get("soil_values") or {}
+    soil_values_text = " ; ".join(
+        f"{key} : {value}" for key, value in soil_values.items() if value is not None
+    ) or "Aucune valeur régionale disponible"
+    climate_method = str(site_ctx.get("climate_method") or (
+        "NASA POWER Point / IDW régional" if gps_provided else "Données régionales du pôle"
+    ))
+    soil_method_label = str(site_ctx.get("soil_method") or soil_method)
     bd = ws.get("breakdown") or {}
     ident_rows = [
         [
@@ -277,6 +287,14 @@ def render_agro_assessment_pdf(
         [
             "Pondération IDW",
             idw_str,
+        ],
+        [
+            "Provenance climatique",
+            climate_method,
+        ],
+        [
+            "Référence pédologique",
+            f"{soil_method_label} — {soil_values_text}",
         ],
         [
             "Score Unifié & Confiance",
