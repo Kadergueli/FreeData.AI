@@ -264,6 +264,7 @@ class ApiService {
     final resp = await _client
         .post(uri, headers: _projectHeaders(includeJson: true), body: body)
         .timeout(const Duration(seconds: 45));
+    _notifyIfSessionExpired(resp.statusCode);
     if (resp.statusCode == 200) {
       return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -297,6 +298,7 @@ class ApiService {
 
     final streamed =
         await _client.send(req).timeout(const Duration(seconds: 45));
+    _notifyIfSessionExpired(streamed.statusCode);
     if (streamed.statusCode == 404 || streamed.statusCode == 405) {
       final fallback = await sendChatMessage(
         message,
@@ -375,6 +377,7 @@ class ApiService {
             )
             .timeout(const Duration(seconds: 45));
 
+        _notifyIfSessionExpired(resp.statusCode);
         if (resp.statusCode == 200) {
           return jsonDecode(utf8.decode(resp.bodyBytes))
               as Map<String, dynamic>;
