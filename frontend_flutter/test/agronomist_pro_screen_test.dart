@@ -120,7 +120,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final mapButton = find.byTooltip('Choisir sur la carte (Tchad)');
+    final mapButton = find.text('Choisir sur la carte');
     await tester.scrollUntilVisible(
       mapButton,
       180,
