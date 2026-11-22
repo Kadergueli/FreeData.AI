@@ -1107,13 +1107,13 @@ def evaluate_field_assessment(
     has_lab = bool(lab)
     zonal_soil = zonal_soil_estimate(resolved_region)
     resolution_label = (
-        "DIAGNOSTIC D'AUDIT PARCELLAIRE & MARCHÉ (PRÉ-ACHAT CERTIFIÉ)"
+        "ÉVALUATION AGRONOMIQUE AVEC MESURES DE SOL DÉCLARÉES (NON VÉRIFIÉES)"
         if has_lab
         else "PRÉ-DIAGNOSTIC AGRO-CLIMATIQUE & ÉCONOMIQUE (MAILLE SATELLITAIRE GPS)"
     )
-    confidence_short = "Satellite IDW + Labo" if has_lab else "Modèle Satellitaire IDW"
+    confidence_short = "Satellite IDW + mesures déclarées" if has_lab else "Modèle Satellitaire IDW"
     confidence_label = (
-        "Confiance Élevée : Satellite IDW + Mesures Labo Certifiées"
+        "Satellite IDW + mesures de sol déclarées (non vérifiées)"
         if has_lab
         else (
             "Modèle Satellitaire IDW (Mesures labo non fournies)"
@@ -1534,8 +1534,10 @@ def evaluate_field_assessment(
         "region": zone["region"],
         "province": province,
         "has_lab_measurements": has_lab,
+        "lab_measurements_verified": False,
+        "lab_measurement_status": "declared_unverified" if has_lab else "not_provided",
         "confidence_level": (
-            "Satellite IDW + Labo Certifié"
+            "Satellite IDW + mesures déclarées (non vérifiées)"
             if has_lab
             else "Satellite IDW Uniquement — En attente d'analyse physique"
         ),
@@ -1684,7 +1686,7 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
         blockers.append("Provenance (source/licence) incomplète.")
 
     dimensions = {
-        "data_quality": "pass" if has_lab else "estimated_satellite",
+        "data_quality": "declared_unverified" if has_lab else "estimated_satellite",
         "traceability": "pass" if (prov.get("sources") and assessment.get("report_verification_code")) else "fail",
         "completeness": "pass" if scores.get("crop_assessments") else "fail",
         "transparency": "pass" if scores.get("limitations") else "fail",
@@ -1693,8 +1695,8 @@ def validate_field_assessment_qa(assessment: dict[str, Any]) -> dict[str, Any]:
     }
     return {
         "can_deliver_pdf": len(blockers) == 0,
-        "qa_mode": "CERTIFIED_FIELD_AUDIT" if has_lab else "SATELLITE_ESTIMATION",
-        "qa_badge": "QA TERRAIN VALIDÉ" if has_lab else "ESTIMATION SATELLITAIRE GPS",
+        "qa_mode": "DECLARED_LAB_INPUTS_UNVERIFIED" if has_lab else "SATELLITE_ESTIMATION",
+        "qa_badge": "MESURES DÉCLARÉES — NON VÉRIFIÉES" if has_lab else "ESTIMATION SATELLITAIRE GPS",
         "warnings": warnings,
         "blockers": blockers,
         "dimensions": dimensions,
