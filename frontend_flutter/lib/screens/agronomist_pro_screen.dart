@@ -191,6 +191,126 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     return double.tryParse(t);
   }
 
+  static const Map<String, List<double>> _chadHubCoords = {
+    "N'Djamena": [12.1348, 15.0557],
+    'Moundou': [8.5667, 16.0833],
+    'Sarh': [9.1429, 18.3923],
+    'Abeche': [13.8292, 20.8324],
+    'Bongor': [10.2806, 15.3722],
+    'Doba': [8.6500, 16.8500],
+    'Koumra': [8.9126, 17.5539],
+    'Pala': [9.3642, 14.9046],
+    'Mongo': [12.1844, 18.6930],
+    'Ati': [13.2154, 18.3353],
+    'Mao': [14.1212, 15.3103],
+    'Bol': [13.4586, 14.7147],
+  };
+
+  Future<void> _openChadMapPicker() async {
+    const minLat = 7.4;
+    const maxLat = 23.5;
+    const minLon = 13.4;
+    const maxLon = 24.0;
+    double selLat =
+        _parseOpt(_latCtrl) ?? (_chadHubCoords[_hub]?[0] ?? 12.1348);
+    double selLon =
+        _parseOpt(_lonCtrl) ?? (_chadHubCoords[_hub]?[1] ?? 15.0557);
+
+    final picked = await showDialog<List<double>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          String nearest = _hub;
+          double bestD2 = double.infinity;
+          _chadHubCoords.forEach((hub, ll) {
+            final d2 = (ll[0] - selLat) * (ll[0] - selLat) +
+                (ll[1] - selLon) * (ll[1] - selLon);
+            if (d2 < bestD2) {
+              bestD2 = d2;
+              nearest = hub;
+            }
+          });
+          return AlertDialog(
+            title: const Text('Pointer la parcelle (Carte Tchad — 12 pôles)'),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Cliquez sur la carte ou sur un pôle pour remplir automatiquement la latitude et la longitude.',
+                    style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+                  ),
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTapDown: (details) {
+                      const mapW = 340.0;
+                      const mapH = 300.0;
+                      final dx = details.localPosition.dx.clamp(0.0, mapW);
+                      final dy = details.localPosition.dy.clamp(0.0, mapH);
+                      final lon = minLon + (dx / mapW) * (maxLon - minLon);
+                      final lat = maxLat - (dy / mapH) * (maxLat - minLat);
+                      setDlgState(() {
+                        selLat = double.parse(lat.toStringAsFixed(4));
+                        selLon = double.parse(lon.toStringAsFixed(4));
+                      });
+                    },
+                    child: Container(
+                      width: 340,
+                      height: 300,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F9FF),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBAE6FD)),
+                      ),
+                      child: CustomPaint(
+                        painter: _ChadHubMapPainter(
+                          hubs: _chadHubCoords,
+                          selectedLat: selLat,
+                          selectedLon: selLon,
+                          minLat: minLat,
+                          maxLat: maxLat,
+                          minLon: minLon,
+                          maxLon: maxLon,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Position : ${selLat.toStringAsFixed(4)}, ${selLon.toStringAsFixed(4)} · Pôle proche : $nearest',
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Annuler'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(ctx).pop([selLat, selLon]),
+                icon: const Icon(Icons.my_location, size: 16),
+                label: const Text('Appliquer ces coordonnées'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (picked != null && picked.length == 2 && mounted) {
+      setState(() {
+        _latCtrl.text = picked[0].toStringAsFixed(4);
+        _lonCtrl.text = picked[1].toStringAsFixed(4);
+      });
+    }
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (!widget.apiService.isAuthenticated) {
@@ -899,6 +1019,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
+                          tooltip: 'Choisir sur la carte (Tchad)',
+                          onPressed: _openChadMapPicker,
+                          icon: const Icon(Icons.map_outlined, size: 20),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -951,6 +1077,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                               hintText: 'Ex. 1.8',
                             ),
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
+                          tooltip: 'Choisir sur la carte (Tchad)',
+                          onPressed: _openChadMapPicker,
+                          icon: const Icon(Icons.map_outlined, size: 20),
                         ),
                       ],
                     ),
@@ -1602,4 +1734,68 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           ],
         ),
       );
+}
+
+class _ChadHubMapPainter extends CustomPainter {
+  final Map<String, List<double>> hubs;
+  final double selectedLat;
+  final double selectedLon;
+  final double minLat;
+  final double maxLat;
+  final double minLon;
+  final double maxLon;
+
+  const _ChadHubMapPainter({
+    required this.hubs,
+    required this.selectedLat,
+    required this.selectedLon,
+    required this.minLat,
+    required this.maxLat,
+    required this.minLon,
+    required this.maxLon,
+  });
+
+  Offset _toOffset(double lat, double lon, Size size) {
+    final x = ((lon - minLon) / (maxLon - minLon)) * size.width;
+    final y = ((maxLat - lat) / (maxLat - minLat)) * size.height;
+    return Offset(
+        x.clamp(8.0, size.width - 8.0), y.clamp(8.0, size.height - 8.0));
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = const Color(0xFFCBD5E1)
+      ..strokeWidth = 0.6;
+    for (var i = 1; i < 4; i++) {
+      final gx = size.width * i / 4;
+      final gy = size.height * i / 4;
+      canvas.drawLine(Offset(gx, 0), Offset(gx, size.height), gridPaint);
+      canvas.drawLine(Offset(0, gy), Offset(size.width, gy), gridPaint);
+    }
+
+    final hubPaint = Paint()..color = const Color(0xFF0284C7);
+    hubs.forEach((name, ll) {
+      final pt = _toOffset(ll[0], ll[1], size);
+      canvas.drawCircle(pt, 4.0, hubPaint);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: name,
+          style: const TextStyle(fontSize: 9.5, color: Color(0xFF334155)),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas,
+          Offset((pt.dx + 5).clamp(2.0, size.width - tp.width - 2), pt.dy - 5));
+    });
+
+    final sel = _toOffset(selectedLat, selectedLon, size);
+    canvas.drawCircle(sel, 8.0, Paint()..color = const Color(0x33DC2626));
+    canvas.drawCircle(sel, 4.5, Paint()..color = const Color(0xFFDC2626));
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChadHubMapPainter oldDelegate) =>
+      oldDelegate.selectedLat != selectedLat ||
+      oldDelegate.selectedLon != selectedLon;
 }

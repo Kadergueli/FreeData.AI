@@ -1266,6 +1266,11 @@ def evaluate_field_assessment(
             max_hub_province=max_hub_prov,
         )
         indicative_revenue_xaf = econ.get("ca_central_xaf")
+        if not (custom_yield_kg_ha and custom_yield_kg_ha > 0) and crop_id in ("groundnut_raw", "sesame", "cowpeas"):
+            limiting.append(
+                f"CA basé sur le proxy céréalier national ({ref_yield:.1f} kg/ha World Bank) : "
+                "saisir un rendement terrain pour affiner cette culture non céréalière."
+            )
 
         crop_results.append({
             "crop_id": crop_id,
