@@ -39,7 +39,6 @@ void main() {
     expect(find.text('Explorer'), findsOneWidget);
     expect(find.text('Bibliothèque'), findsOneWidget);
     expect(find.text('Marchés & Crédit'), findsOneWidget);
-    expect(find.text('Marchés & Crédit'), findsOneWidget);
     expect(find.text('Nouvelle conversation'), findsOneWidget);
     expect(find.text('+ Nouvelle conversation'), findsNothing);
   });
@@ -63,7 +62,6 @@ void main() {
     expect(find.text('Assistant IA'), findsOneWidget);
     expect(find.text('Explorer'), findsOneWidget);
     expect(find.text('Bibliothèque'), findsOneWidget);
-    expect(find.text('Marchés & Crédit'), findsOneWidget);
     expect(find.text('Marchés & Crédit'), findsOneWidget);
     expect(find.text('Nouvelle conversation'), findsOneWidget);
     expect(find.text('+ Nouvelle conversation'), findsNothing);
