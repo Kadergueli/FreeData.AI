@@ -16,6 +16,7 @@ import requests
 import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
@@ -546,6 +547,8 @@ async def observability_middleware(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if request.url.path.startswith(("/api/v1/auth", "/api/v1/admin", "/api/v1/privacy")):
         response.headers["Cache-Control"] = "no-store"
+    elif request.method == "GET" and response.status_code == 200 and request.url.path in ("/api/v1/metadata", "/api/v1/agro/zones"):
+        response.headers.setdefault("Cache-Control", "public, max-age=300")
     return response
 
 
@@ -568,6 +571,8 @@ async def limit_body_size(request: Request, call_next):
             return JSONResponse({"detail": "Requête trop volumineuse."}, status_code=413)
     return await call_next(request)
 
+
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.add_middleware(
     CORSMiddleware,

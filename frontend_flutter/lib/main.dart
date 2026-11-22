@@ -135,13 +135,17 @@ class _MainShellState extends State<MainShell> {
       await prefs.setString('fd_pref_user_id', uid);
     }
     _apiService.setUserId(uid);
+    // Pré-chauffage parallèle des caches (métadonnées & catalogue plans) sans bloquer l'affichage.
+    _apiService.prefetchBillingCatalog();
+    _apiService.getMetadata().catchError((_) => <String, dynamic>{});
     final savedAuthToken = prefs.getString(kAuthTokenStorageKey);
     if (savedAuthToken != null && savedAuthToken.trim().isNotEmpty) {
       _apiService.setAuthSession(token: savedAuthToken);
       try {
         await _apiService.getAuthMe();
         if (mounted) setState(() {});
-        await _syncCloudConversations();
+        // Synchronisation cloud en arrière-plan sans bloquer la suite de l'initialisation.
+        _syncCloudConversations();
       } on ApiHttpException catch (e) {
         if (e.statusCode == 401) {
           await prefs.remove(kAuthTokenStorageKey);
@@ -150,7 +154,6 @@ class _MainShellState extends State<MainShell> {
         }
       } catch (_) {}
     }
-    _apiService.prefetchBillingCatalog();
     if (urlKey != null && urlKey.isNotEmpty) {
       try {
         final isValid = await _apiService.verifyPremiumKey(urlKey);

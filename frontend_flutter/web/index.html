@@ -30,11 +30,42 @@
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="preconnect" href="https://freedata-ai.onrender.com" crossorigin>
+  <link rel="dns-prefetch" href="https://freedata-ai.onrender.com">
 
   <title>FreeData.AI</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #fd-boot-splash {
+      position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; background: #ffffff; color: #0f172a;
+      transition: opacity 0.2s ease-out;
+    }
+    .fd-boot-badge {
+      width: 48px; height: 48px; border-radius: 12px; background: #0284c7; color: #ffffff;
+      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px;
+      margin-bottom: 14px; box-shadow: 0 8px 20px rgba(2, 132, 199, 0.22);
+    }
+    .fd-boot-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 6px; }
+    .fd-boot-sub { font-size: 13px; color: #64748b; }
+    .fd-boot-bar {
+      width: 160px; height: 3px; border-radius: 999px; background: #e2e8f0; overflow: hidden; margin-top: 16px;
+    }
+    .fd-boot-bar::after {
+      content: ""; display: block; width: 45%; height: 100%; background: #0284c7; border-radius: 999px;
+      animation: fdSlide 1.1s ease-in-out infinite;
+    }
+    @keyframes fdSlide { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+  </style>
 </head>
 <body>
+  <div id="fd-boot-splash" aria-label="Chargement FreeData.AI">
+    <div class="fd-boot-badge">FD</div>
+    <div class="fd-boot-title">FreeData.AI</div>
+    <div class="fd-boot-sub">Préparation de votre espace analytique…</div>
+    <div class="fd-boot-bar"></div>
+  </div>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -45,6 +76,11 @@
   -->
   <script>
     window.addEventListener('flutter-first-frame', function () {
+      var splash = document.getElementById('fd-boot-splash');
+      if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(function () { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 220);
+      }
       try {
         var url = new URL(window.location.href);
         if (url.searchParams.has('key') || url.searchParams.has('premium_key')) {
