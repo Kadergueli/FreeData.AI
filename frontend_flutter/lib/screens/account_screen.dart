@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
-import '../core/utils/pdf_download.dart';
+import '../core/utils/pdf_download_web.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
