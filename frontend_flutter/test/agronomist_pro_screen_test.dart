@@ -134,6 +134,14 @@ void main() {
       find.widgetWithText(TextField, 'pH du sol (labo)'),
       '6.3',
     );
+    final areaField =
+        find.widgetWithText(TextField, 'Superficie exacte (ha) *');
+    await tester.scrollUntilVisible(
+      areaField,
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(areaField, '2.5');
     final calcBtn = find.text('Calculer le diagnostic');
     await tester.scrollUntilVisible(calcBtn, 200,
         scrollable: find.byType(Scrollable).first);
@@ -146,7 +154,7 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('3. Matrice Comparative d’Aptitude Culturale'),
         findsOneWidget);
-    expect(find.text('Mil'), findsOneWidget);
+    expect(find.text('Mil'), findsWidgets);
     expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);
     expect(tester.takeException(), isNull);

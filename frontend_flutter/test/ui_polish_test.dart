@@ -1050,7 +1050,7 @@ void main() {
     expect(find.text('Question unique'), findsOneWidget);
 
     // Aller dans Library et supprimer la conversation active
-    await tester.tap(find.text('Library'));
+    await tester.tap(find.text('Bibliothèque'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Mettre à la corbeille'));
     await tester.pumpAndSettle();
@@ -1325,7 +1325,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Question précédente'), findsOneWidget);
 
-    await tester.tap(find.text('Explore'));
+    await tester.tap(find.text('Explorer'));
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Mil (Millet)').first);
@@ -1633,4 +1633,15 @@ class _DelayedChatFakeApi extends ApiService {
     String? projectId,
   }) =>
       completer.future;
+
+  @override
+  Stream<Map<String, dynamic>> streamChatMessage(
+    String message, {
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+    Map<String, dynamic>? studyContext,
+    String? projectId,
+  }) async* {
+    yield {'event': 'done', 'data': await completer.future};
+  }
 }

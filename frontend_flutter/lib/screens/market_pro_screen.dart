@@ -137,7 +137,11 @@ class _MarketProScreenState extends State<MarketProScreen> {
     setState(() => _exportingCsv = true);
     try {
       final bytes = await widget.apiService.downloadMarketProCsv();
-      triggerPdfDownload(bytes, 'freedata_market_pro.csv');
+      triggerFileDownload(
+        bytes,
+        'freedata_market_pro.csv',
+        'text/csv;charset=utf-8',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Export CSV institutionnel téléchargé.')),
@@ -176,7 +180,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
 
   Future<void> _openCreditPassportAgroDialog() async {
     final provCtrl = TextEditingController(text: 'Logone Occidental');
-    final areaCtrl = TextEditingController(text: '5');
+    final areaCtrl = TextEditingController();
     final loanCtrl = TextEditingController(text: '500000');
     String cropId = 'millet';
     Map<String, dynamic>? result;

@@ -82,6 +82,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
   Map<String, dynamic>? _activeJob;
   Timer? _pollTimer;
   int _pollTicks = 0;
+  bool _pollInFlight = false;
 
   // --- History & Registry Filters ---
   List<Map<String, dynamic>> _historyJobs = const [];
@@ -332,16 +333,28 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
   void _startBoundedPolling(String jobId) {
     _pollTimer?.cancel();
     _pollTicks = 0;
+    _pollInFlight = false;
     _pollTimer = Timer.periodic(widget.pollInterval, (timer) async {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      _pollTicks += 1;
-      if (_pollTicks > _maxPollTicks) {
+      // Avoid overlapping requests when the API is slower than the interval.
+      if (_pollInFlight) return;
+      if (_pollTicks >= _maxPollTicks) {
         timer.cancel();
+        setState(() {
+          _activeJob = {
+            ...?_activeJob,
+            'status': 'tracking_timeout',
+            'tracking_message':
+                'Le suivi automatique a atteint sa limite. Le traitement serveur peut continuer ; vous pouvez relancer le suivi pour actualiser son état.',
+          };
+        });
         return;
       }
+      _pollTicks += 1;
+      _pollInFlight = true;
       try {
         final st = await widget.apiService
             .getAdminBenchmarkJob(widget.adminToken, jobId);
@@ -364,7 +377,9 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
           await widget.onRefreshOverview();
         }
       } catch (_) {
-        // Keep polling up to bounded limit on transient errors
+        // Keep polling up to the bounded limit on transient errors.
+      } finally {
+        _pollInFlight = false;
       }
     });
   }
@@ -999,6 +1014,21 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                 '(${_activeJob!['progress_pct'] ?? 0}%)',
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+              if (_activeJob!['tracking_message'] != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  _activeJob!['tracking_message'].toString(),
+                  style: const TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 8),
+                FDSecondaryButton(
+                  label: 'Relancer le suivi',
+                  icon: Icons.refresh_rounded,
+                  onPressed: () => _startBoundedPolling(
+                    (_activeJob!['job_id'] ?? '').toString(),
+                  ),
+                ),
+              ],
               if (_activeJob!['status'] == 'queued' ||
                   _activeJob!['status'] == 'running') ...[
                 const SizedBox(height: 8),

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] — Réparation de main (2026-11-22)
+- Fix critique : `api/server.py` ne se chargeait plus (SyntaxError, bloc « share-link » inséré 35 fois dont au milieu de fonctions). Fichier reconstruit avec une seule copie des 3 ajouts (credit-passport depuis un audit agro, rapport de benchmark, liens de partage de projet).
+- Sécurité : le secret des liens de partage n'a plus de valeur de repli publique ; sans `AUTH_SECRET` (16 car. min.), le partage répond 503.
+- Moteur agro : les mesures labo aberrantes ou illisibles (pH 99, « abc », texture inconnue) sont écartées et ne débloquent plus le titre « PRÉ-ACHAT CERTIFIÉ ».
+- Tests : liens de partage (aller-retour, falsification, expiration, secret absent), routes uniques.
+
 ## [Unreleased] — Correctifs audit frontend/backend (2026-11-22)
 - Fix : `trigger_sqlite_backup` (NameError `Path`, route admin de sauvegarde en 500).
 - Nettoyage : suppression du système de clés PRO mort (`create/list/revoke/redeem_pro_key`, double `_hash_activation_key`, double table `pro_activation_keys`) ; seul `*_activation_key` reste.

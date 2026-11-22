@@ -15,7 +15,7 @@ services:
         value: "0"
       - key: ENABLE_DOCS
         value: "0"
-      # Passer à "1" uniquement lorsqu'un endpoint d'émission de jetons Bearer (/api/v1/auth) sera déployé.
+      # "1" : les jetons Bearer signés (/api/v1/auth) sont obligatoires en production.
       - key: REQUIRE_SIGNED_USER_AUTH
         value: "1"
       - key: SUPABASE_URL

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class ApiHttpException implements Exception {
@@ -264,6 +263,7 @@ class ApiService {
     final resp = await _client
         .post(uri, headers: _projectHeaders(includeJson: true), body: body)
         .timeout(const Duration(seconds: 45));
+    _notifyIfSessionExpired(resp.statusCode);
     if (resp.statusCode == 200) {
       return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -297,6 +297,7 @@ class ApiService {
 
     final streamed =
         await _client.send(req).timeout(const Duration(seconds: 45));
+    _notifyIfSessionExpired(streamed.statusCode);
     if (streamed.statusCode == 404 || streamed.statusCode == 405) {
       final fallback = await sendChatMessage(
         message,
@@ -375,6 +376,7 @@ class ApiService {
             )
             .timeout(const Duration(seconds: 45));
 
+        _notifyIfSessionExpired(resp.statusCode);
         if (resp.statusCode == 200) {
           return jsonDecode(utf8.decode(resp.bodyBytes))
               as Map<String, dynamic>;
@@ -2000,8 +2002,7 @@ class ApiService {
       final newTok = session is Map ? session['token']?.toString() ?? '' : '';
       if (newTok.isNotEmpty) {
         setAuthSession(token: newTok, user: _authUser);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('fd_auth_token_v1', newTok);
+        // Keep refreshed bearer tokens in memory only; do not persist them in browser storage.
       }
     } catch (_) {}
   }

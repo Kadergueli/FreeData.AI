@@ -316,6 +316,25 @@ class _AuditFakeApiService extends ApiService {
   }
 
   @override
+  Stream<Map<String, dynamic>> streamChatMessage(
+    String message, {
+    List<Map<String, String>> history = const [],
+    String tier = 'free',
+    Map<String, dynamic>? studyContext,
+    String? projectId,
+  }) async* {
+    lastSentChatMessage = message;
+    yield {
+      'event': 'done',
+      'data': {
+        'reply': 'Analyse mil à N’Djamena : 245 XAF/kg.',
+        'intent': 'forecast',
+        'sources': const [],
+      },
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> getProject(String projectId) async => {
         'project_id': projectId,
         'name': 'Négoce Sésame',
@@ -368,7 +387,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('AM-9988'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Approuver'));
+    // The payment tab keeps its sections in the page-level ListView.
+    // Scroll that viewport itself so the action is inside the 800x600 screen.
+    await tester.drag(
+      find.byType(ListView).first,
+      const Offset(0, -420),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Approuver'));
     await tester.pumpAndSettle();
     expect(api.lastReviewedRequestId, 'PAY-001');
@@ -528,7 +553,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('Bienvenue sur FreeData.AI'), findsOneWidget);
+    expect(find.text('Connexion à votre espace'), findsOneWidget);
     expect(
       find.textContaining('Connectez-vous ou créez un compte gratuit'),
       findsOneWidget,
@@ -538,7 +563,7 @@ void main() {
     // S'il ferme le dialogue sans se connecter, son texte reste dans le champ
     await tester.tap(find.byTooltip('Fermer'));
     await tester.pumpAndSettle();
-    expect(find.text('Bienvenue sur FreeData.AI'), findsNothing);
+    expect(find.text('Connexion à votre espace'), findsNothing);
     expect(api.lastSentChatMessage, isNull);
     expect(
       tester.widget<TextField>(find.byType(TextField)).controller?.text,

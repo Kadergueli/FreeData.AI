@@ -416,8 +416,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String aHub = _hub;
     final aLat = TextEditingController(text: _latCtrl.text);
     final aLon = TextEditingController(text: _lonCtrl.text);
-    final aArea = TextEditingController(
-        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final aArea = TextEditingController(text: _areaCtrl.text);
     final aPh = TextEditingController(text: _phCtrl.text);
     String aTex = _texture;
     final aOm = TextEditingController(text: _omCtrl.text);
@@ -429,8 +428,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String bHub = _hub == 'Moundou' ? 'Sarh' : 'Moundou';
     final bLat = TextEditingController();
     final bLon = TextEditingController();
-    final bArea = TextEditingController(
-        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final bArea = TextEditingController();
     final bPh = TextEditingController();
     String bTex = '';
     final bOm = TextEditingController();
@@ -443,8 +441,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     String cHub = 'Bongor';
     final cLat = TextEditingController();
     final cLon = TextEditingController();
-    final cArea = TextEditingController(
-        text: _areaCtrl.text.isNotEmpty ? _areaCtrl.text : '5');
+    final cArea = TextEditingController();
     final cPh = TextEditingController();
     String cTex = '';
     final cOm = TextEditingController();
@@ -796,6 +793,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 onPressed: comparing
                     ? null
                     : () async {
+                        final areaControllers = [
+                          aArea,
+                          bArea,
+                          if (includeC) cArea,
+                        ];
+                        final invalidArea = areaControllers.any((controller) {
+                          final value = pNum(controller);
+                          return value == null || !value.isFinite || value <= 0;
+                        });
+                        if (invalidArea) {
+                          setDlg(() {
+                            cmpErr =
+                                'Saisissez une superficie positive pour chaque terrain comparé.';
+                          });
+                          return;
+                        }
                         setDlg(() {
                           comparing = true;
                           cmpErr = null;
@@ -1459,7 +1472,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     '$code · Date : $dateStr · Cabinet : ${_firmCtrl.text.trim().isNotEmpty ? _firmCtrl.text.trim() : '—'}',
                     shaded: true),
                 _kvRow('Coordonnées GPS & Surface',
-                    'GPS : $gpsStr · Surface : ${assessment['area_hectares'] ?? '1.0 (réf.)'} ha'),
+                    'GPS : $gpsStr · Surface : ${assessment['area_hectares'] ?? 'Non renseignée'}${assessment['area_hectares'] != null ? ' ha' : ''}'),
                 _kvRow(
                     'Rattachement Spatial (IDW)',
                     'Pôle : ${gps['selected_hub'] ?? assessment['province_hub'] ?? '—'} '
