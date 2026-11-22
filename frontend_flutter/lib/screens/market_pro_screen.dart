@@ -137,7 +137,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
     setState(() => _exportingCsv = true);
     try {
       final bytes = await widget.apiService.downloadMarketProCsv();
-      triggerPdfDownload(bytes, 'freedata_market_pro.csv');
+      triggerFileDownload(bytes, 'freedata_market_pro.csv', 'text/csv;charset=utf-8');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Export CSV institutionnel téléchargé.')),
