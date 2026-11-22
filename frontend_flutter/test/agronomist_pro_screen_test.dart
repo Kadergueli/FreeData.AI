@@ -120,7 +120,7 @@ void main() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
-  
+
       final api = _AgroProFakeApi()
         ..setAuthSession(
           token: 'jwt-pro',
@@ -131,7 +131,7 @@ void main() {
         MaterialApp(home: AgronomistProScreen(apiService: api)),
       );
       await tester.pumpAndSettle();
-  
+
       final mapButton = find.text('Choisir sur la carte');
       await tester.scrollUntilVisible(
         mapButton,
@@ -140,13 +140,13 @@ void main() {
       );
       await tester.tap(mapButton);
       await tester.pumpAndSettle();
-  
+
       expect(
         find.text('Pointer la parcelle (Carte Tchad — 12 pôles)'),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
-  
+
       await tester.tap(find.text('Annuler'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -162,7 +162,7 @@ void main() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
-  
+
       final api = _AgroProFakeApi()
         ..setAuthSession(
           token: 'jwt-pro',
@@ -173,7 +173,7 @@ void main() {
         MaterialApp(home: AgronomistProScreen(apiService: api)),
       );
       await tester.pumpAndSettle();
-  
+
       final openCompare = find.text('Comparer 2 à 3 terrains');
       await tester.scrollUntilVisible(
         openCompare,
@@ -182,7 +182,7 @@ void main() {
       );
       await tester.tap(openCompare.first);
       await tester.pumpAndSettle();
-  
+
       final areaFields = find.widgetWithText(TextField, 'Surface (ha)');
       await tester.enterText(areaFields.at(0), '2.5');
       await tester.enterText(areaFields.at(1), '3');
@@ -190,10 +190,10 @@ void main() {
       final longitudeFields = find.widgetWithText(TextField, 'Lon GPS (opt.)');
       await tester.enterText(latitudeFields.at(0), '91');
       await tester.enterText(longitudeFields.at(0), '0');
-  
+
       await tester.tap(find.text('Lancer la comparaison'));
       await tester.pumpAndSettle();
-  
+
       expect(
         find.textContaining('Coordonnées GPS invalides'),
         findsOneWidget,
@@ -212,7 +212,7 @@ void main() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
-  
+
       final guestApi = _AgroProFakeApi();
       await tester.pumpWidget(
         MaterialApp(home: AgronomistProScreen(apiService: guestApi)),
@@ -220,7 +220,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('ESPACE AGRONOME PRO'), findsOneWidget);
       expect(find.text('Se connecter'), findsOneWidget);
-  
+
       final proApi = _AgroProFakeApi()
         ..setAuthSession(
           token: 'jwt-pro',
@@ -233,7 +233,7 @@ void main() {
                 key: const ValueKey('pro'), apiService: proApi)),
       );
       await tester.pumpAndSettle();
-  
+
       await tester.enterText(
         find.widgetWithText(TextField, 'pH du sol (labo)'),
         '6.3',
@@ -251,7 +251,7 @@ void main() {
           scrollable: find.byType(Scrollable).first);
       await tester.tap(calcBtn);
       await tester.pumpAndSettle();
-  
+
       expect(proApi.lastPayload?['lab_soil_inputs']?['ph'], 6.3);
       expect(find.textContaining('FDT-2026-AB12CD'), findsWidgets);
       expect(find.textContaining('1. Fiche d’Identification Parcellaire'),
