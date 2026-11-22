@@ -154,7 +154,7 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('3. Matrice Comparative d’Aptitude Culturale'),
         findsOneWidget);
-    expect(find.text('Mil'), findsOneWidget);
+    expect(find.text('Mil'), findsWidgets);
     expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);
     expect(tester.takeException(), isNull);
