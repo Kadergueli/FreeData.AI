@@ -1118,18 +1118,26 @@ def evaluate_field_assessment(
         for key in ("root_zone_wetness_mean", "surface_wetness_mean")
     )
     climate_method_label = (
-        "NASA POWER Point API (climatologie ponctuelle)"
+        "NASA POWER Point (humidités) + IDW régional (PAR, anomalies et signaux marché)"
         if point_humidity_available
-        else ("IDW régional avec coordonnées GPS" if gps_logistics.get("gps_provided") else "Données régionales du pôle")
+        else (
+            "NASA POWER Point indisponible ou incomplet ; repli IDW régional"
+            if gps_logistics.get("gps_provided")
+            else "Données régionales du pôle"
+        )
     )
     if has_lab:
-        confidence_short = "Labo fourni · NASA POWER Point" if point_humidity_available else "Labo fourni · IDW régional"
+        confidence_short = "Labo fourni · NASA POWER Point" if point_humidity_available else "Labo fourni · données régionales"
         confidence_label = f"Mesures de laboratoire fournies · {climate_method_label}"
     else:
         confidence_short = (
             "Sans analyse labo · NASA POWER Point + IDW"
             if point_humidity_available
-            else "Sans analyse labo · IDW régional"
+            else (
+                "Sans analyse labo · NASA POWER indisponible · IDW"
+                if gps_logistics.get("gps_provided")
+                else "Sans analyse labo · données régionales"
+            )
         )
         confidence_label = f"Sans analyse laboratoire · {climate_method_label}"
     dry_years = float(idw.get("dry_years") or 0.0)
