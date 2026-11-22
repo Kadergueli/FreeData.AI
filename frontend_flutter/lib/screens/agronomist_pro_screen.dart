@@ -1501,7 +1501,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
 
           if (siteContext.isNotEmpty || pointSatellite.isNotEmpty) ...[
             const SizedBox(height: 14),
-            _bulletinSectionTitle('Données spatiales et provenance des sources'),
+            _bulletinSectionTitle(
+                'Données spatiales et provenance des sources'),
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -1524,15 +1525,13 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                   ),
                   _kvRow(
                     'Méthode pédologique',
-                    siteContext['soil_method']?.toString() ??
-                        'Non documentée',
+                    siteContext['soil_method']?.toString() ?? 'Non documentée',
                     shaded: true,
                   ),
                   if (pointSatellite.isNotEmpty) ...[
                     _kvRow(
                       'Source au point GPS',
-                      pointSatellite['source']?.toString() ??
-                          'NASA POWER',
+                      pointSatellite['source']?.toString() ?? 'NASA POWER',
                     ),
                     _kvRow(
                       'Période de référence',
