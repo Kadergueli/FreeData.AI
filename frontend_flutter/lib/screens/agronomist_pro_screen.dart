@@ -1303,6 +1303,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final pointProvenance = pointSatellite['provenance'] is Map
         ? Map<String, dynamic>.from(pointSatellite['provenance'] as Map)
         : const <String, dynamic>{};
+    final precipitationText = pointSeason['precipitation_mean'] == null
+        ? '—'
+        : '${pointSeason['precipitation_mean']} mm/jour';
+    final temperatureText = pointSeason['temperature_mean_c'] == null
+        ? '—'
+        : '${pointSeason['temperature_mean_c']} °C';
     final econ = scores['verified_economics'] is Map
         ? Map<String, dynamic>.from(scores['verified_economics'] as Map)
         : const <String, dynamic>{};
@@ -1435,7 +1441,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     _kvRow(
                       'Précipitations / température',
-                      '${pointSeason['precipitation_mean'] != null ? '${pointSeason['precipitation_mean']} mm/jour' : '—'} / ${pointSeason['temperature_mean_c'] != null ? '${pointSeason['temperature_mean_c']} °C' : '—'}',
+                      '$precipitationText / $temperatureText',
                       shaded: true,
                     ),
                     _kvRow(
