@@ -108,18 +108,23 @@ class _AuthDialogState extends State<AuthDialog> {
       backgroundColor: AppColors.surface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: isWide ? 840 : 440),
-        child: isWide
-            ? IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(width: 340, child: _buildBrandPanel()),
-                    Expanded(child: _buildFormPanel(showBrandHeader: false)),
-                  ],
-                ),
-              )
-            : _buildFormPanel(showBrandHeader: true),
+        constraints: BoxConstraints(
+          maxWidth: isWide ? 840 : 440,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+        ),
+        child: SingleChildScrollView(
+          child: isWide
+              ? IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 340, child: _buildBrandPanel()),
+                      Expanded(child: _buildFormPanel(showBrandHeader: false)),
+                    ],
+                  ),
+                )
+              : _buildFormPanel(showBrandHeader: true),
+        ),
       ),
     );
   }
