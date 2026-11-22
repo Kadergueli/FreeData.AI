@@ -210,6 +210,21 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       );
       return;
     }
+    final area = _parseOpt(_areaCtrl);
+    if (area == null || area <= 0 || area > 500000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saisissez la superficie réelle de la parcelle en hectares (valeur supérieure à 0).')),
+      );
+      return;
+    }
+    final latitude = _parseOpt(_latCtrl);
+    final longitude = _parseOpt(_lonCtrl);
+    if ((latitude == null) != (longitude == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+      );
+      return;
+    }
 
     final lab = <String, dynamic>{};
     final ph = _parseOpt(_phCtrl);
@@ -826,6 +841,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           if (v != null) setState(() => _hub = v);
                         },
                       ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Les deux coordonnées GPS permettent de demander les indicateurs satellitaires au point de la parcelle. Sans GPS, le système utilise les données régionales disponibles et l’indique dans le PDF.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                      ),
                       const SizedBox(height: 10),
                       const Text(
                         '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
@@ -844,7 +864,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true),
                               decoration: const InputDecoration(
-                                labelText: 'Superficie (ha)',
+                                labelText: 'Superficie exacte (ha) *',
+                                helperText: 'Obligatoire — utilisée pour dimensionner production et revenus',
                               ),
                             ),
                           ),
@@ -856,7 +877,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true, signed: true),
                               decoration: const InputDecoration(
-                                labelText: 'Latitude GPS (opt.)',
+                                labelText: 'Latitude GPS (recommandée)',
                               ),
                             ),
                           ),
@@ -868,7 +889,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   const TextInputType.numberWithOptions(
                                       decimal: true, signed: true),
                               decoration: const InputDecoration(
-                                labelText: 'Longitude GPS (opt.)',
+                                labelText: 'Longitude GPS (recommandée)',
                               ),
                             ),
                           ),

@@ -1541,6 +1541,10 @@ def create_agro_field_assessment_endpoint(
 ):
     """Enregistre les mesures terrain/labo de l'Agronome PRO, calcule l'audit GPS/économique et le payload du rapport."""
     _require_pro_access(owner_id, x_premium_key, sub_store, "Diagnostic de terrain Agronome PRO")
+    if payload.area_hectares is None:
+        raise HTTPException(status_code=422, detail="La superficie réelle de la parcelle (en hectares) est obligatoire pour calculer la production et les projections économiques.")
+    if (payload.gps_lat is None) != (payload.gps_lon is None):
+        raise HTTPException(status_code=422, detail="Saisissez les deux coordonnées GPS (latitude et longitude), ou laissez les deux champs vides.")
     hub = canonical_region(payload.province_hub) if payload.province_hub else None
     if hub is None and payload.gps_lat is not None and payload.gps_lon is not None:
         hub = compute_gps_logistics(payload.gps_lat, payload.gps_lon).get("closest_hub")
@@ -1548,14 +1552,15 @@ def create_agro_field_assessment_endpoint(
         raise HTTPException(status_code=422, detail=f"Pôle régional invalide ou coordonnées GPS manquantes. Pôles couverts : {', '.join(AGRO_HUBS)}.")
     verified_pid = _assert_project_owned(owner_id, payload.project_id, project_store)
     regional = store.regional_rows(hub)
-    if not regional:
-        raise HTTPException(status_code=503, detail="Données agro-climatiques non encore disponibles pour cette zone.")
+    all_regional = store.rows()
+    if not regional and (payload.gps_lat is None or payload.gps_lon is None):
+        raise HTTPException(status_code=503, detail="Aucune donnée régionale disponible pour cette zone. Fournissez les coordonnées GPS pour tenter une extraction satellitaire ponctuelle.")
     fc_df = STATE.get("forecast_df")
     computed = evaluate_field_assessment(
         region=hub,
         regional_rows=regional,
         national_rows=store.national_rows(),
-        all_regional_rows=store.rows(),
+        all_regional_rows=all_regional,
         lab_soil_inputs=payload.lab_soil_inputs,
         target_crops=payload.target_crops,
         area_hectares=payload.area_hectares,
@@ -1566,6 +1571,10 @@ def create_agro_field_assessment_endpoint(
         hist_df=STATE.get("hist_df"),
         track_record=STATE.get("track_record"),
     )
+    if not regional and not computed.get("point_satellite_data"):
+        climate = computed.get("idw_climate") or {}
+        if climate.get("rz_growing") is None and climate.get("surf_growing") is None:
+            raise HTTPException(status_code=503, detail="Aucune donnée climatique exploitable n'est disponible pour cette localisation : la source satellitaire ponctuelle et les données régionales sont indisponibles.")
     saved = assess_store.create_assessment(
         owner_id,
         province_hub=hub,

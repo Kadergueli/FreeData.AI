@@ -105,7 +105,9 @@ def test_agronome_pro_requires_pro_and_qa_blocks_empty_lab_pdf(tmp_path):
     assert ws["breakdown"]["soil_quality"]["max"] == 30
     assert ws["breakdown"]["market_logistics"]["max"] == 20
     assert cs["crop_assessments"][0]["suitability_score"] == round(ws["total_score"])
-    assert len(cs["bulletin"]["lab_parameters"]) == 6
+    assert len(cs["bulletin"]["lab_parameters"]) >= 6
+    soil_parameter_names = {p["parameter"] for p in cs["bulletin"]["lab_parameters"]}
+    assert {"Argile", "Sable", "Carbone organique"} <= soil_parameter_names
     assert len(cs["bulletin"]["prescriptions"]) >= 1
     # Les 4 cultures doivent avoir des scores différenciés (plus de 75/100 uniforme)
     no_lab_scores = {c["crop_id"]: c["suitability_score"] for c in res_no_lab["assessment"]["computed_scores"]["crop_assessments"]}

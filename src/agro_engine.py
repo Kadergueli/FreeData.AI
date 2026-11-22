@@ -13,6 +13,7 @@ from datetime import date
 from typing import Any, Optional
 
 from src.agro_site import site_profile, zonal_soil_estimate
+from src.agro_point_data import fetch_nasa_power_point
 from src.agro_indicators import (
     HUB_PROVINCE,
     HUBS,
@@ -1100,10 +1101,18 @@ def evaluate_field_assessment(
         hist_df=hist_df,
         track_record=track_record,
     )
-    rz_parcel = idw.get("rz_growing")
+    # Prefer point-level NASA POWER climatology when parcel coordinates exist.
+    # If the provider is unavailable, retain the existing regional IDW estimate and
+    # expose that fallback in the report rather than presenting it as a parcel measurement.
+    point_satellite = fetch_nasa_power_point(gps_lat, gps_lon) if gps_logistics.get("gps_provided") else None
+    rz_parcel = (point_satellite or {}).get("growing_season", {}).get("root_zone_wetness_mean")
+    surf_parcel = (point_satellite or {}).get("growing_season", {}).get("surface_wetness_mean")
+    if rz_parcel is None:
+        rz_parcel = idw.get("rz_growing")
     if rz_parcel is None:
         rz_parcel = (zone.get("latest", {}).get("root_zone_wetness") or {}).get("value")
-    surf_parcel = idw.get("surf_growing")
+    if surf_parcel is None:
+        surf_parcel = idw.get("surf_growing")
     if surf_parcel is None:
         surf_parcel = (zone.get("latest", {}).get("surface_wetness") or {}).get("value")
     dry_years = float(idw.get("dry_years") or 0.0)
@@ -1120,13 +1129,13 @@ def evaluate_field_assessment(
         yield_source = "Rendement saisi par l'agronome"
     elif isinstance(wb_mean_yield, (int, float)) and wb_mean_yield > 0:
         ref_yield = float(wb_mean_yield)
-        yield_source = "World Bank (moyenne officielle 2020–2024)"
+        yield_source = "World Bank — rendement céréalier national agrégé (proxy, non spécifique à la culture)"
     elif cereal_yield and cereal_yield.get("value_kg_ha"):
         ref_yield = float(cereal_yield["value_kg_ha"])
-        yield_source = f"World Bank ({cereal_yield.get('reference_date', 'officiel')})"
+        yield_source = f"World Bank — rendement céréalier national (proxy non spécifique à la culture; {cereal_yield.get('reference_date', 'officiel')})"
     else:
         ref_yield = WORLD_BANK_DEFAULT_YIELD_KG_HA
-        yield_source = "World Bank (moyenne nationale 2020–2024 : 834.6 kg/ha)"
+        yield_source = "Hypothèse FreeData : 834.6 kg/ha (proxy céréalier national, non spécifique à la culture; à confirmer)"
 
     ph_val: Optional[float] = None
     if lab.get("ph") is not None and str(lab.get("ph")).strip() != "":
@@ -1360,14 +1369,16 @@ def evaluate_field_assessment(
             "value": f"{float(rz_parcel):.3f}" + (f" (Normale : {rz_norm:.3f})" if rz_norm else "") if isinstance(rz_parcel, (int, float)) else "—",
             "optimal": "0.55 – 0.75",
             "status": "Bon" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.55 else ("Modéré" if isinstance(rz_parcel, (int, float)) and float(rz_parcel) >= 0.40 else "Déficit"),
-            "source": "NASA POWER Agro",
+            "source": "NASA POWER Point (HY climatologie)" if point_satellite and isinstance(point_satellite.get("growing_season", {}).get("root_zone_wetness_mean"), (int, float)) else "NASA POWER Agro (IDW régional)",
+            "unit": "fraction (0–1)",
         },
         {
             "parameter": "Humidité de surface (0–5 cm)",
             "value": f"{float(surf_parcel):.3f}" if isinstance(surf_parcel, (int, float)) else "—",
             "optimal": "0.45 – 0.70",
             "status": "Bon" if isinstance(surf_parcel, (int, float)) and float(surf_parcel) >= 0.45 else "Déficit",
-            "source": "NASA POWER Agro",
+            "source": "NASA POWER Point (HY climatologie)" if point_satellite and isinstance(point_satellite.get("growing_season", {}).get("surface_wetness_mean"), (int, float)) else "NASA POWER Agro (IDW régional)",
+            "unit": "fraction (0–1)",
         },
         {
             "parameter": "Rayonnement solaire (PAR)",
@@ -1413,6 +1424,25 @@ def evaluate_field_assessment(
             "source": "Labo / World Bank",
         },
     ]
+
+    # Expose the individual SoilGrids values available for the selected regional hub.
+    # They remain explicitly regional estimates, not parcel laboratory measurements.
+    soil_profile_data = (site_profile(resolved_region) or {}).get("soil") or {}
+    soil_rows = [
+        ("Argile", soil_profile_data.get("clay_pct"), "%"),
+        ("Sable", soil_profile_data.get("sand_pct"), "%"),
+        ("Carbone organique", soil_profile_data.get("organic_carbon_g_kg"), "g/kg"),
+    ]
+    for label, value, unit in soil_rows:
+        if isinstance(value, (int, float)):
+            lab_parameters.append({
+                "parameter": label,
+                "value": round(float(value), 2),
+                "unit": unit,
+                "optimal": "Selon texture et culture",
+                "status": "Estimation régionale",
+                "source": "SoilGrids 2.0 — pôle régional, pas mesure parcellaire",
+            })
 
     prescriptions: list[str] = []
     primary_label = (primary_crop or {}).get("label_fr") or "Culture principale"
@@ -1487,6 +1517,8 @@ def evaluate_field_assessment(
         "soil_zonal_estimate": zonal_soil,
         "soil_cross_check": soil_cross_check,
         "site_profile": site_profile(resolved_region),
+        "point_satellite_data": point_satellite,
+        "area_hectares": float(area_hectares) if area_hectares is not None else None,
         "bulletin": {
             "lab_parameters": lab_parameters,
             "prescriptions": prescriptions,
