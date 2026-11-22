@@ -615,6 +615,24 @@ class ApiService {
       'groundnut_raw',
     ],
   }) async {
+    if (areaHectares == null ||
+        !areaHectares.isFinite ||
+        areaHectares <= 0 ||
+        areaHectares > 500000) {
+      throw ArgumentError('areaHectares doit être compris entre 0 et 500 000.');
+    }
+    if ((gpsLat == null) != (gpsLon == null)) {
+      throw ArgumentError('gpsLat et gpsLon doivent être fournis ensemble.');
+    }
+    if (gpsLat != null &&
+        (!gpsLat.isFinite ||
+            !gpsLon!.isFinite ||
+            gpsLat < -90 ||
+            gpsLat > 90 ||
+            gpsLon < -180 ||
+            gpsLon > 180)) {
+      throw ArgumentError('Coordonnées GPS hors limites.');
+    }
     final uri = Uri.parse('$baseUrl/api/v1/agro/field-assessment');
     final resp = await _client
         .post(
@@ -626,7 +644,7 @@ class ApiService {
               'project_id': projectId,
             if (gpsLat != null) 'gps_lat': gpsLat,
             if (gpsLon != null) 'gps_lon': gpsLon,
-            if (areaHectares != null) 'area_hectares': areaHectares,
+            'area_hectares': areaHectares,
             if (customYieldKgHa != null) 'custom_yield_kg_ha': customYieldKgHa,
             'lab_soil_inputs': labSoilInputs,
             'agronomist_field_notes': agronomistFieldNotes.trim(),
