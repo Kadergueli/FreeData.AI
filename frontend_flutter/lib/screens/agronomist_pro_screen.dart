@@ -220,6 +220,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) {
+          final availableWidth = MediaQuery.sizeOf(ctx).width - 56;
+          final dialogWidth =
+              availableWidth.clamp(240.0, 380.0).toDouble();
+          final mapWidth = (dialogWidth - 32).clamp(180.0, 340.0).toDouble();
+          final mapHeight = mapWidth * 300 / 340;
           String nearest = _hub;
           double bestD2 = double.infinity;
           _chadHubCoords.forEach((hub, ll) {
@@ -231,9 +236,10 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             }
           });
           return AlertDialog(
+            scrollable: true,
             title: const Text('Pointer la parcelle (Carte Tchad — 12 pôles)'),
             content: SizedBox(
-              width: 380,
+              width: dialogWidth,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -243,36 +249,42 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
                   ),
                   const SizedBox(height: 10),
-                  GestureDetector(
-                    onTapDown: (details) {
-                      const mapW = 340.0;
-                      const mapH = 300.0;
-                      final dx = details.localPosition.dx.clamp(0.0, mapW);
-                      final dy = details.localPosition.dy.clamp(0.0, mapH);
-                      final lon = minLon + (dx / mapW) * (maxLon - minLon);
-                      final lat = maxLat - (dy / mapH) * (maxLat - minLat);
-                      setDlgState(() {
-                        selLat = double.parse(lat.toStringAsFixed(4));
-                        selLon = double.parse(lon.toStringAsFixed(4));
-                      });
-                    },
-                    child: Container(
-                      width: 340,
-                      height: 300,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0F9FF),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFBAE6FD)),
-                      ),
-                      child: CustomPaint(
-                        painter: _ChadHubMapPainter(
-                          hubs: _chadHubCoords,
-                          selectedLat: selLat,
-                          selectedLon: selLon,
-                          minLat: minLat,
-                          maxLat: maxLat,
-                          minLon: minLon,
-                          maxLon: maxLon,
+                  SizedBox(
+                    width: mapWidth,
+                    height: mapHeight,
+                    child: GestureDetector(
+                      onTapDown: (details) {
+                        final dx =
+                            details.localPosition.dx.clamp(0.0, mapWidth);
+                        final dy =
+                            details.localPosition.dy.clamp(0.0, mapHeight);
+                        final lon =
+                            minLon + (dx / mapWidth) * (maxLon - minLon);
+                        final lat =
+                            maxLat - (dy / mapHeight) * (maxLat - minLat);
+                        setDlgState(() {
+                          selLat = double.parse(lat.toStringAsFixed(4));
+                          selLon = double.parse(lon.toStringAsFixed(4));
+                        });
+                      },
+                      child: Container(
+                        width: mapWidth,
+                        height: mapHeight,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F9FF),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFBAE6FD)),
+                        ),
+                        child: CustomPaint(
+                          painter: _ChadHubMapPainter(
+                            hubs: _chadHubCoords,
+                            selectedLat: selLat,
+                            selectedLon: selLon,
+                            minLat: minLat,
+                            maxLat: maxLat,
+                            minLon: minLon,
+                            maxLon: maxLon,
+                          ),
                         ),
                       ),
                     ),
@@ -926,7 +938,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             builder: (_) =>
                                 AuthDialog(apiService: widget.apiService),
                           );
-                          if (ok == true && mounted) {
+                          if (ok == true &&
+                              mounted &&
+                              widget.apiService.isAuthenticated) {
                             if (_firmCtrl.text.trim().isEmpty) {
                               _firmCtrl.text = widget
                                       .apiService.authUser?['display_name']
@@ -935,7 +949,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                   '';
                             }
                             setState(() {});
-                            if (_hasAccess) await _loadHistory();
+                            if (_hasAccess) {
+                              await Future.wait([
+                                _loadOfficialProfile(),
+                                _loadHistory(),
+                              ]);
+                            }
                           }
                         },
                       )
@@ -965,7 +984,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Vos analyses restent strictement privées sur votre compte. Sans mesure de sol, seul un pré-diagnostic régional est produit (le PDF terrain est bloqué par la porte QA).',
+                      'Renseignez uniquement les mesures réellement disponibles. Les valeurs déclarées sans justificatif de laboratoire sont signalées comme non vérifiées ; sans mesure, le résultat reste un pré-diagnostic régional.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
@@ -989,56 +1008,68 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      '2. Mesures de sol laboratoire (priment sur la moyenne zonale)',
-                      style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.blue),
+                      'Nutriments NPK — reprenez les unités indiquées sur le bulletin du laboratoire.',
+                      style: TextStyle(fontSize: 11.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _areaCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Superficie exacte (ha) *',
-                              helperText:
-                                  'Obligatoire — utilisée pour dimensionner production et revenus',
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final fieldWidth = constraints.maxWidth >= 620
+                            ? (constraints.maxWidth - 20) / 3
+                            : (constraints.maxWidth - 10) / 2;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _areaCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Superficie exacte (ha) *',
+                                  helperText:
+                                      'Obligatoire — dimensionne production et revenus',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: _latCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Latitude GPS (recommandée)',
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _latCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true, signed: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Latitude GPS (recommandée)',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: _lonCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true, signed: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Longitude GPS (recommandée)',
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _lonCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true, signed: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Longitude GPS (recommandée)',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.outlined(
-                          tooltip: 'Choisir sur la carte (Tchad)',
-                          onPressed: _openChadMapPicker,
-                          icon: const Icon(Icons.map_outlined, size: 20),
-                        ),
-                      ],
+                            SizedBox(
+                              width: fieldWidth,
+                              child: OutlinedButton.icon(
+                                onPressed: _openChadMapPicker,
+                                icon: const Icon(Icons.map_outlined, size: 18),
+                                label: const Text('Choisir sur la carte'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     const Text(
@@ -1049,55 +1080,62 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           color: AppColors.blue),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _phCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'pH du sol (labo)',
-                              hintText: 'Ex. 6.2',
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final fieldWidth = constraints.maxWidth >= 620
+                            ? (constraints.maxWidth - 20) / 3
+                            : (constraints.maxWidth - 10) / 2;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _phCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'pH du sol (labo)',
+                                  hintText: 'Ex. 6.2',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            key: ValueKey(_texture),
-                            initialValue: _texture,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Texture du sol',
+                            SizedBox(
+                              width: fieldWidth,
+                              child: DropdownButtonFormField<String>(
+                                key: ValueKey(_texture),
+                                initialValue: _texture,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Texture du sol',
+                                ),
+                                items: _textures
+                                    .map((t) => DropdownMenuItem(
+                                        value: t['id'],
+                                        child: Text(t['label']!)))
+                                    .toList(),
+                                onChanged: (v) =>
+                                    setState(() => _texture = v ?? ''),
+                              ),
                             ),
-                            items: _textures
-                                .map((t) => DropdownMenuItem(
-                                    value: t['id'], child: Text(t['label']!)))
-                                .toList(),
-                            onChanged: (v) =>
-                                setState(() => _texture = v ?? ''),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: _omCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            decoration: const InputDecoration(
-                              labelText: 'Mat. organique (%)',
-                              hintText: 'Ex. 1.8',
+                            SizedBox(
+                              width: fieldWidth,
+                              child: TextField(
+                                controller: _omCtrl,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: 'Mat. organique (%)',
+                                  hintText: 'Ex. 1.8',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.outlined(
-                          tooltip: 'Choisir sur la carte (Tchad)',
-                          onPressed: _openChadMapPicker,
-                          icon: const Icon(Icons.map_outlined, size: 20),
-                        ),
-                      ],
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     const Text(
@@ -1125,7 +1163,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
                                 decoration: const InputDecoration(
-                                    labelText: 'Azote N (opt.)'),
+                                    labelText: 'Azote N (unité labo)'),
                               ),
                             ),
                             SizedBox(
@@ -1136,7 +1174,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
                                 decoration: const InputDecoration(
-                                    labelText: 'Phosphore P (opt.)'),
+                                    labelText: 'Phosphore P (unité labo)'),
                               ),
                             ),
                             SizedBox(
@@ -1147,7 +1185,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
                                 decoration: const InputDecoration(
-                                    labelText: 'Potassium K (opt.)'),
+                                    labelText: 'Potassium K (unité labo)'),
                               ),
                             ),
                           ],
