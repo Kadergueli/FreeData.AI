@@ -264,8 +264,12 @@ def render_agro_assessment_pdf(
     site_ctx = scores.get("site_context") or {}
     soil_values = site_ctx.get("soil_values") or {}
     soil_values_text = " ; ".join(
-        f"{key} : {value}" for key, value in soil_values.items() if value is not None
+        f"{key.replace('regional_', '')} : {value}" for key, value in soil_values.items() if value is not None
     ) or "Aucune valeur régionale disponible"
+    laboratory_values = site_ctx.get("laboratory_values") or {}
+    laboratory_values_text = " ; ".join(
+        f"{key} : {value}" for key, value in laboratory_values.items() if value is not None
+    ) or "Aucune mesure de laboratoire fournie"
     climate_method = str(site_ctx.get("climate_method") or (
         "NASA POWER Point / IDW régional" if gps_provided else "Données régionales du pôle"
     ))
@@ -293,7 +297,11 @@ def render_agro_assessment_pdf(
             climate_method,
         ],
         [
-            "Référence pédologique",
+            "Mesures de laboratoire",
+            laboratory_values_text,
+        ],
+        [
+            "Estimation pédologique régionale",
             f"{soil_method_label} — {soil_values_text}",
         ],
         [
