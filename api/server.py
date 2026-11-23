@@ -927,12 +927,34 @@ def _assert_not_suspended(owner_id: Optional[str], *, skip_auth_store_check: boo
             raise HTTPException(status_code=403, detail=msg)
     except HTTPException:
         raise
-    except Exception as exc:  # base admin indisponible : ne pas bloquer tout le trafic
+    except Exception as exc:
         logger.warning("Vérification de suspension (admin_accounts) impossible : %s", exc)
+        # En production, une panne du registre administratif ne doit jamais
+        # transformer une vérification d'accès en autorisation implicite.
+        strict_production = (
+            os.getenv("RENDER")
+            and os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower()
+            in ("1", "true", "yes")
+        )
+        if strict_production:
+            raise HTTPException(
+                status_code=503,
+                detail="Vérification des autorisations temporairement indisponible. Réessayez.",
+            ) from exc
     if not skip_auth_store_check and owner_id.startswith("user:"):
         try:
             u = get_auth_store().get_user(owner_id)
-        except HTTPException:
+        except HTTPException as exc:
+            strict_production = (
+                os.getenv("RENDER")
+                and os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower()
+                in ("1", "true", "yes")
+            )
+            if strict_production:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Vérification du compte temporairement indisponible. Réessayez.",
+                ) from exc
             u = None
         if u and u.get("status") == "suspended":
             raise HTTPException(status_code=403, detail=msg)
