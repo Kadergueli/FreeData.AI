@@ -961,11 +961,15 @@ def _assert_not_suspended(owner_id: Optional[str], *, skip_auth_store_check: boo
 
 
 def _is_registered_account_id(uid: str) -> bool:
-    """True si `uid` est l'identifiant d'un compte enregistré (donc protégé par mot de passe / jeton Bearer)."""
+    """True si `uid` est enregistré ; indisponibilité du registre = refus temporaire, jamais accès implicite."""
     try:
         return get_auth_store().get_user(uid) is not None
-    except Exception:
-        return False
+    except Exception as exc:
+        logger.warning("Résolution du propriétaire impossible : registre des comptes indisponible (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="Vérification du compte temporairement indisponible. Réessayez.",
+        ) from exc
 
 
 def _resolve_owner_id_optional(
