@@ -75,9 +75,8 @@ class LocalConversationStorage implements ConversationRepository {
         base64Url.normalize(encodedPayload),
       );
       final payload = jsonDecode(utf8.decode(payloadBytes));
-      final subject = payload is Map
-          ? payload['sub']?.toString().trim() ?? ''
-          : '';
+      final subject =
+          payload is Map ? payload['sub']?.toString().trim() ?? '' : '';
       return subject.isEmpty ? null : subject;
     } catch (_) {
       return null;
