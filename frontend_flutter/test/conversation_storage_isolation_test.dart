@@ -8,7 +8,9 @@ import 'package:freedata_ai/services/conversation_storage.dart';
 
 class _FakeApiService extends ApiService {
   @override
-  Future<void> upsertCloudConversation(Map<String, dynamic> conversation) async {}
+  Future<void> upsertCloudConversation(
+    Map<String, dynamic> conversation,
+  ) async {}
 
   @override
   Future<void> deleteCloudConversation(String conversationId) async {}
@@ -41,11 +43,19 @@ void main() {
     storage.attachCloudApi(null);
   });
 
-  test('authenticated accounts read and write separate conversation stores', () async {
+  test(
+    'authenticated accounts read and write separate conversation stores',
+    () async {
     final accountA = _FakeApiService()
-      ..setAuthSession(token: 'token-a', user: {'id': 'account-a', 'email': 'a@example.com'});
+      ..setAuthSession(
+        token: 'token-a',
+        user: {'user_id': 'account-a', 'email': 'a@example.com'},
+      );
     final accountB = _FakeApiService()
-      ..setAuthSession(token: 'token-b', user: {'id': 'account-b', 'email': 'b@example.com'});
+      ..setAuthSession(
+        token: 'token-b',
+        user: {'user_id': 'account-b', 'email': 'b@example.com'},
+      );
 
     storage.attachCloudApi(accountA);
     await storage.saveConversation(_thread('thread-a', 'private message A'));
@@ -61,16 +71,19 @@ void main() {
     storage.attachCloudApi(accountB);
     final bThreads = await storage.loadConversations(includeDeleted: true);
     expect(bThreads.map((thread) => thread.id), ['thread-b']);
-  });
+    },
+  );
 
-  test('anonymous workspace and authenticated account use separate stores', () async {
+  test(
+    'anonymous workspace and authenticated account use separate stores',
+    () async {
     final anonymous = _FakeApiService()
       ..setUserId('u11111111111111111111111111111111');
     storage.attachCloudApi(anonymous);
     await storage.saveConversation(_thread('anonymous-thread', 'anonymous data'));
 
     final account = _FakeApiService()
-      ..setAuthSession(token: 'token-a', user: {'id': 'account-a'});
+      ..setAuthSession(token: 'token-a', user: {'user_id': 'account-a'});
     storage.attachCloudApi(account);
     expect(await storage.loadConversations(includeDeleted: true), isEmpty);
 
@@ -79,18 +92,22 @@ void main() {
       (await storage.loadConversations(includeDeleted: true)).map((t) => t.id),
       ['anonymous-thread'],
     );
-  });
+    },
+  );
 
-  test('legacy shared conversation key is not imported into an account store', () async {
+  test(
+    'legacy shared conversation key is not imported into an account store',
+    () async {
     final legacy = _thread('legacy-thread', 'possibly another account data');
     SharedPreferences.setMockInitialValues({
       LocalConversationStorage.storageKey: jsonEncode([legacy.toJson()]),
     });
 
     final account = _FakeApiService()
-      ..setAuthSession(token: 'token-a', user: {'id': 'account-a'});
+      ..setAuthSession(token: 'token-a', user: {'user_id': 'account-a'});
     storage.attachCloudApi(account);
 
     expect(await storage.loadConversations(includeDeleted: true), isEmpty);
-  });
+    },
+  );
 }
