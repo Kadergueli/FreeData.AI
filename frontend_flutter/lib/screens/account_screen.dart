@@ -357,10 +357,11 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _logout() async {
+    // Effacer le cache du compte avant que logoutAccount ne réinitialise l'identité.
+    await LocalConversationStorage.instance.clearCurrentUserCache();
     await widget.apiService.logoutAccount();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAuthTokenStorageKey);
-    await LocalConversationStorage.instance.saveAll(const []);
     widget.onSessionChanged?.call();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -407,10 +408,12 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       );
       if (ok != true || passCtrl.text.isEmpty) return;
+      final conversationStorage = LocalConversationStorage.instance;
+      final accountCacheKey = conversationStorage.activeStorageKey;
       await widget.apiService.deleteAccount(password: passCtrl.text);
+      await conversationStorage.clearStorageKey(accountCacheKey);
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(kAuthTokenStorageKey);
-      await LocalConversationStorage.instance.saveAll(const []);
       widget.onSessionChanged?.call();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
