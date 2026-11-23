@@ -20,6 +20,12 @@ _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 _PBKDF2_ITERATIONS = 260_000
 DEFAULT_TOKEN_TTL_SECONDS = 7 * 24 * 3600  # 7 jours
 MAX_SESSION_LIFETIME_SECONDS = 30 * 24 * 3600  # durée totale max d'une session renouvelée (30 jours)
+ALLOWED_PERSONAS = ("analyste", "agronome", "marche", "banque")
+
+
+def normalize_persona(persona: Optional[str]) -> str:
+    cleaned = (persona or "").strip().lower()
+    return cleaned if cleaned in ALLOWED_PERSONAS else "analyste"
 
 
 def _utc_now_iso() -> str:
@@ -106,18 +112,22 @@ class AuthStore:
                 );
                 """
             )
-            # Migration douce : date avant laquelle les jetons émis sont invalides (changement de mot de passe).
+            # Migration douce : date avant laquelle les jetons émis sont invalides + persona métier.
             alter_kw = "ADD COLUMN IF NOT EXISTS" if self._pg_url else "ADD COLUMN"
-            try:
-                if self._pg_url:
-                    conn.execute("SAVEPOINT sp_auth_mig")
-                conn.execute(f"ALTER TABLE user_accounts {alter_kw} tokens_valid_after INTEGER NOT NULL DEFAULT 0")
-                if self._pg_url:
-                    conn.execute("RELEASE SAVEPOINT sp_auth_mig")
-            except Exception:
-                if self._pg_url:
-                    conn.execute("ROLLBACK TO SAVEPOINT sp_auth_mig")
-                    conn.execute("RELEASE SAVEPOINT sp_auth_mig")
+            for col_sql in (
+                f"ALTER TABLE user_accounts {alter_kw} tokens_valid_after INTEGER NOT NULL DEFAULT 0",
+                f"ALTER TABLE user_accounts {alter_kw} persona TEXT NOT NULL DEFAULT 'analyste'",
+            ):
+                try:
+                    if self._pg_url:
+                        conn.execute("SAVEPOINT sp_auth_mig")
+                    conn.execute(col_sql)
+                    if self._pg_url:
+                        conn.execute("RELEASE SAVEPOINT sp_auth_mig")
+                except Exception:
+                    if self._pg_url:
+                        conn.execute("ROLLBACK TO SAVEPOINT sp_auth_mig")
+                        conn.execute("RELEASE SAVEPOINT sp_auth_mig")
             if self._pg_url:
                 _db.harden_tables(conn)
 
@@ -128,16 +138,18 @@ class AuthStore:
             "user_id": d["user_id"],
             "email": d["email"],
             "display_name": d.get("display_name") or "",
+            "persona": normalize_persona(d.get("persona")),
             "status": d.get("status") or "active",
             "created_at": d.get("created_at"),
             "last_login_at": d.get("last_login_at"),
         }
 
-    def register(self, email: str, password: str, display_name: str = "") -> dict[str, Any]:
+    def register(self, email: str, password: str, display_name: str = "", persona: str = "analyste") -> dict[str, Any]:
         norm_email = _normalize_email(email)
         if not isinstance(password, str) or len(password) < 8 or len(password) > 128:
             raise ValueError("Le mot de passe doit contenir entre 8 et 128 caractères.")
         clean_name = (display_name or "").strip()[:80]
+        clean_persona = normalize_persona(persona)
         user_id = f"u{uuid.uuid4().hex}"  # 33 car. -> compatible _STRONG_UID_RE
         salt_hex = secrets.token_hex(16)
         pw_hash = _hash_password(password, salt_hex)
@@ -152,10 +164,10 @@ class AuthStore:
             try:
                 conn.execute(
                     """
-                    INSERT INTO user_accounts (user_id, email, display_name, password_hash, password_salt, status, created_at, last_login_at)
-                    VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                    INSERT INTO user_accounts (user_id, email, display_name, persona, password_hash, password_salt, status, created_at, last_login_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
                     """,
-                    (user_id, norm_email, clean_name, pw_hash, salt_hex, now, now),
+                    (user_id, norm_email, clean_name, clean_persona, pw_hash, salt_hex, now, now),
                 )
             except Exception as exc:  # inscription simultanée : la contrainte UNIQUE(email) gagne -> 409, pas 500
                 if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
@@ -217,14 +229,24 @@ class AuthStore:
             rows = conn.execute("SELECT * FROM user_accounts ORDER BY created_at DESC").fetchall()
         return [self._public_user(r) for r in rows]
 
-    def update_profile(self, user_id: str, *, display_name: str) -> dict[str, Any]:
+    def update_profile(
+        self,
+        user_id: str,
+        *,
+        display_name: Optional[str] = None,
+        persona: Optional[str] = None,
+    ) -> dict[str, Any]:
         clean = (user_id or "").strip().removeprefix("user:")
-        clean_name = (display_name or "").strip()[:80]
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
             if not row:
                 raise KeyError("Compte introuvable.")
-            conn.execute("UPDATE user_accounts SET display_name = ? WHERE user_id = ?", (clean_name, clean))
+            next_name = (display_name or "").strip()[:80] if display_name is not None else (row["display_name"] or "")
+            next_persona = normalize_persona(persona) if persona is not None else normalize_persona(dict(row).get("persona"))
+            conn.execute(
+                "UPDATE user_accounts SET display_name = ?, persona = ? WHERE user_id = ?",
+                (next_name, next_persona, clean),
+            )
             updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
         return self._public_user(updated)
 

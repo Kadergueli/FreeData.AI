@@ -3505,11 +3505,39 @@ class AuthRegisterRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=160)
     password: str = Field(..., min_length=8, max_length=128)
     display_name: str = Field("", max_length=80)
+    persona: Literal["analyste", "agronome", "marche", "banque"] = "analyste"
 
 
 class AuthLoginRequest(BaseModel):
     email: str = Field(..., min_length=5, max_length=160)
     password: str = Field(..., min_length=1, max_length=128)
+
+
+def _build_identity_claims(
+    owner_id: str,
+    user: dict[str, Any],
+    *,
+    sub_store: Optional[SubscriptionStore] = None,
+    x_premium_key: Optional[str] = None,
+) -> dict[str, Any]:
+    """Dérive côté serveur uniquement le plan, les rôles, le persona et les droits (entitlements)."""
+    is_pro = _has_pro_access(owner_id, x_premium_key, sub_store) if sub_store is not None else False
+    roles = ["user"]
+    try:
+        official = get_agro_profile_store().get_profile(owner_id)
+        if official and official.get("status") == "approved":
+            roles.append("agronomist_verified")
+    except Exception:
+        pass
+    entitlements = ["chat", "explore", "markets"]
+    if is_pro:
+        entitlements.extend(["agro_pdf", "credit_passport", "projects", "ml_studio", "watchlists"])
+    return {
+        "plan": "pro" if is_pro else "free",
+        "roles": roles,
+        "persona": user.get("persona") or "analyste",
+        "entitlements": entitlements,
+    }
 
 
 @app.post("/api/v1/auth/register", dependencies=[Depends(_chat_rate_limit_dependency)])
@@ -3522,7 +3550,12 @@ def auth_register_endpoint(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
-        user = auth_store.register(payload.email, payload.password, display_name=payload.display_name)
+        user = auth_store.register(
+            payload.email,
+            payload.password,
+            display_name=payload.display_name,
+            persona=getattr(payload, "persona", "analyste"),
+        )
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -3531,12 +3564,14 @@ def auth_register_endpoint(
     owner_id = f"user:{user['user_id']}"
     session["owner_id"] = owner_id
     session["is_pro"] = False
+    sub_store_inst: Optional[SubscriptionStore] = None
     try:
-        sub_store = get_subscription_store()
-        session["subscription"] = sub_store.get_subscription(owner_id)
-        session["is_pro"] = _has_pro_access(owner_id, None, sub_store)
+        sub_store_inst = get_subscription_store()
+        session["subscription"] = sub_store_inst.get_subscription(owner_id)
+        session["is_pro"] = _has_pro_access(owner_id, None, sub_store_inst)
     except Exception:
         pass
+    session.update(_build_identity_claims(owner_id, user, sub_store=sub_store_inst))
     return session
 
 
@@ -3557,12 +3592,14 @@ def auth_login_endpoint(
     owner_id = f"user:{user['user_id']}"
     session["owner_id"] = owner_id
     session["is_pro"] = False
+    sub_store_inst: Optional[SubscriptionStore] = None
     try:
-        sub_store = get_subscription_store()
-        session["subscription"] = sub_store.get_subscription(owner_id)
-        session["is_pro"] = _has_pro_access(owner_id, None, sub_store)
+        sub_store_inst = get_subscription_store()
+        session["subscription"] = sub_store_inst.get_subscription(owner_id)
+        session["is_pro"] = _has_pro_access(owner_id, None, sub_store_inst)
     except Exception:
         pass
+    session.update(_build_identity_claims(owner_id, user, sub_store=sub_store_inst))
     return session
 
 
@@ -3583,7 +3620,8 @@ def auth_me_endpoint(
     _assert_not_suspended(owner_id, skip_auth_store_check=True)
     sub = sub_store.get_subscription(owner_id)
     is_pro = _has_pro_access(owner_id, x_premium_key, sub_store)
-    return {"user": user, "owner_id": owner_id, "subscription": sub, "is_pro": is_pro}
+    claims = _build_identity_claims(owner_id, user, sub_store=sub_store, x_premium_key=x_premium_key)
+    return {"user": user, "owner_id": owner_id, "subscription": sub, "is_pro": is_pro, **claims}
 
 
 @app.post("/api/v1/auth/logout", dependencies=[Depends(_data_rate_limit_dependency)])
@@ -3625,7 +3663,8 @@ def auth_refresh_endpoint(
 
 
 class AuthProfileUpdateRequest(BaseModel):
-    display_name: str = Field(..., max_length=80)
+    display_name: Optional[str] = Field(None, max_length=80)
+    persona: Optional[Literal["analyste", "agronome", "marche", "banque"]] = None
 
 
 class AuthChangePasswordRequest(BaseModel):
@@ -3657,7 +3696,11 @@ def auth_update_profile_endpoint(
 ):
     sub_id, _ = _require_bearer_user_id(authorization, auth_store)
     try:
-        user = auth_store.update_profile(sub_id, display_name=payload.display_name)
+        user = auth_store.update_profile(
+            sub_id,
+            display_name=payload.display_name,
+            persona=payload.persona,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"user": user}

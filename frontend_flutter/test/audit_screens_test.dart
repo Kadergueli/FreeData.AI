@@ -279,11 +279,12 @@ class _AuditFakeApiService extends ApiService {
 
   @override
   Future<Map<String, dynamic>> updateProfile(
-      {required String displayName}) async {
-    lastUpdatedDisplayName = displayName;
+      {String? displayName, String? persona}) async {
+    if (displayName != null) lastUpdatedDisplayName = displayName;
     final updated = {
       ...(authUser ?? const {}),
-      'display_name': displayName,
+      if (displayName != null) 'display_name': displayName,
+      if (persona != null) 'persona': persona,
     };
     setAuthSession(token: authToken, user: updated);
     return {'user': updated};
