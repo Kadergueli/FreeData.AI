@@ -361,7 +361,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         value: 'trial', child: Text('Essai PRO (trial)')),
                     DropdownMenuItem(
                         value: 'premium',
-                        child: Text('Partenaire PRO (premium)')),
+                        child: Text('FreeData PRO (premium)')),
                   ],
                   onChanged: (v) => planId = v ?? 'premium',
                 ),

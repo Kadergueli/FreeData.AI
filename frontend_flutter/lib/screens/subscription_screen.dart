@@ -291,11 +291,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     switch (planId.toLowerCase()) {
       case 'premium':
       case 'pro':
-        return 'Abonnement PRO';
+        return 'FreeData PRO';
       case 'trial':
         return 'Essai PRO';
       default:
-        return 'Plan Gratuit';
+        return 'Standard (Gratuit)';
     }
   }
 
@@ -667,6 +667,64 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                                       : _redeemActivationKey,
                                 ),
                               ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Comprendre nos Offres',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        FDCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                '• Standard (Gratuit) — Explorer & Simuler',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                    color: AppColors.ink),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Interrogez l’IA sur 8 secteurs, consultez les prévisions de prix et simulez vos campagnes (Plan Campagne & Exploitation).',
+                                style: TextStyle(
+                                    fontSize: 12.5, color: AppColors.muted),
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                '• Essai PRO — Valider sur vos premiers dossiers',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                    color: AppColors.blue),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Testez la génération de vos 5 premiers rapports PDF et augmentez vos quotas d’analyse et de projets.',
+                                style: TextStyle(
+                                    fontSize: 12.5, color: AppColors.muted),
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                '• FreeData PRO — Production, Certification & Alertes',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                    color: AppColors.greenDark),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Exportez jusqu’à 50 bulletins PDF certifiés/mois (QR code), recevez les alertes Watchlist, auditez des parcelles (Agronome PRO) et débloquez l’analytique avancée.',
+                                style: TextStyle(
+                                    fontSize: 12.5, color: AppColors.muted),
+                              ),
                             ],
                           ),
                         ),

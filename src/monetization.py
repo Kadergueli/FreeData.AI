@@ -36,7 +36,7 @@ def _parse_iso(val: Optional[str]) -> Optional[datetime]:
 DEFAULT_PLANS: dict[str, dict[str, Any]] = {
     "free": {
         "plan_id": "free",
-        "label": "Gratuit",
+        "label": "Standard (Gratuit)",
         "price_configured": False,
         "daily_chat_limit": 30,
         "monthly_pdf_limit": 0,
@@ -62,7 +62,7 @@ DEFAULT_PLANS: dict[str, dict[str, Any]] = {
     },
     "premium": {
         "plan_id": "premium",
-        "label": "Partenaire PRO",
+        "label": "FreeData PRO",
         "price_configured": False,
         "daily_chat_limit": 500,
         "monthly_pdf_limit": 50,

@@ -142,7 +142,7 @@ class _AuditFakeApiService extends ApiService {
           },
           {
             'plan_id': 'premium',
-            'label': 'Partenaire PRO',
+            'label': 'FreeData PRO',
             'price_xaf_month': 15000,
             'daily_chat_limit': 500,
             'monthly_pdf_limit': 50,
