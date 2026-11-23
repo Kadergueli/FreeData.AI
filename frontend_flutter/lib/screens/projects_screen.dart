@@ -11,6 +11,7 @@ import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
 import 'campaign_plan_screen.dart';
 import 'farm_operating_account_screen.dart';
+import '../core/utils/error_text.dart';
 
 class ProjectsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -104,7 +105,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       await action();
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
+      final msg = errText(e);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Action impossible : $msg')));
     }
@@ -199,7 +200,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = errText(e);
         _loading = false;
       });
     }
@@ -241,8 +242,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (!mounted) return;
       setState(() => _loadingWorkspace = false);
       if (!silent) {
+        final userError = 'Ouverture impossible : ${errText(e)}';
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+            .showSnackBar(SnackBar(content: Text(userError)));
       }
     }
   }
@@ -566,7 +568,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(content: Text(errText(e))),
       );
     }
   }
@@ -773,7 +775,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
+            .showSnackBar(SnackBar(content: Text(errText(e))));
       }
     } finally {
       capCtrl.dispose();
@@ -786,8 +788,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       full = await widget.apiService.getProject(proj['project_id'].toString());
     } catch (e) {
       if (!mounted) return;
+      final userError = 'Ouverture impossible : ${errText(e)}';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Ouverture impossible : $e')));
+          .showSnackBar(SnackBar(content: Text(userError)));
       return;
     }
     if (!mounted) return;
@@ -1008,7 +1011,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(errText(e))));
     } finally {
       if (mounted) setState(() => _uploadingDoc = false);
     }

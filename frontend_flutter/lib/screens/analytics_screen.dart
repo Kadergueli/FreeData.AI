@@ -7,6 +7,7 @@ import '../core/theme/app_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 import '../widgets/chat/data_cards.dart';
+import '../core/utils/error_text.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -151,7 +152,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     } catch (e) {
       if (!mounted || seq != _loadSeq) return;
       setState(() {
-        _error = e.toString();
+        _error = errText(e);
         _loading = false;
       });
     }

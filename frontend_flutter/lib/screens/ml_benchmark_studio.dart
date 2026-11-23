@@ -6,6 +6,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/file_picker.dart';
 import '../services/api_service.dart';
+import '../core/utils/error_text.dart';
 
 /// Phase 13 — Professional ML Benchmark Studio & AI Control Center workspace.
 ///
@@ -164,7 +165,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _historyError = e.toString();
+        _historyError = errText(e);
         _loadingHistory = false;
       });
     }
@@ -324,7 +325,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
         _submitting = false;
         _activeJob = {
           'status': 'failed',
-          'error': e.toString(),
+          'error': errText(e),
         };
       });
     }
@@ -539,7 +540,7 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(errText(e))));
     }
   }
 

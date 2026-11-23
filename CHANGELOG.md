@@ -1,5 +1,8 @@
 # Changelog
 
+## [Unreleased] — Messages d'erreur lisibles (2026-11-24)
+- Frontend : `errText()` (core/utils/error_text.dart) remplace l'affichage brut des exceptions dans ~40 messages (SnackBar et états d'erreur) : plus de « ClientException: Failed to fetch, uri=https://… », d'URL ni d'erreurs de type Dart ; délai dépassé et réponse invalide traduits. Tests unitaires ajoutés.
+
 ## [Unreleased] — Audit écrans : sécurité et UI (2026-11-23)
 - Partage de projet : l'API renvoie `name` (le titre était vide) ; ouvert dans un navigateur, le lien affiche une page de lecture seule statique, entièrement échappée (CSP `default-src 'none'`, `noindex`, `no-store`) au lieu de JSON brut.
 - Chat : les images distantes du Markdown ne sont plus chargées (pistage / exfiltration par URL).

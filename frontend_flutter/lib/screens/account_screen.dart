@@ -11,6 +11,7 @@ import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
 import 'subscription_screen.dart';
+import '../core/utils/error_text.dart';
 
 class AccountScreen extends StatefulWidget {
   final ApiService apiService;
@@ -118,8 +119,9 @@ class _AccountScreenState extends State<AccountScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final userError = 'Suppression impossible : ${errText(e)}';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Suppression impossible : $e')));
+          .showSnackBar(SnackBar(content: Text(userError)));
     }
   }
 
@@ -201,7 +203,7 @@ class _AccountScreenState extends State<AccountScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+            .showSnackBar(SnackBar(content: Text('Erreur : ${errText(e)}')));
       } finally {
         if (mounted) setState(() => _savingProfile = false);
       }
@@ -298,7 +300,7 @@ class _AccountScreenState extends State<AccountScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(errText(e))));
       } finally {
         if (mounted) setState(() => _changingPass = false);
       }
@@ -322,8 +324,9 @@ class _AccountScreenState extends State<AccountScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final userError = 'Synchro impossible : ${errText(e)}';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Synchro impossible : $e')));
+          .showSnackBar(SnackBar(content: Text(userError)));
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
@@ -347,8 +350,9 @@ class _AccountScreenState extends State<AccountScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      final userError = 'Export impossible : ${errText(e)}';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Export impossible : $e')));
+          .showSnackBar(SnackBar(content: Text(userError)));
     }
   }
 
@@ -414,7 +418,9 @@ class _AccountScreenState extends State<AccountScreen> {
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     }
   }
 
@@ -620,7 +626,7 @@ class _AccountScreenState extends State<AccountScreen> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(errText(e))));
       } finally {
         if (mounted) setState(() => _savingAgroProfile = false);
       }

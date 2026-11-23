@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../core/utils/error_text.dart';
 
 class FarmOperatingAccountScreen extends StatefulWidget {
   final ApiService apiService;
@@ -152,7 +153,7 @@ class _FarmOperatingAccountScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = errText(e);
         _loading = false;
       });
     }

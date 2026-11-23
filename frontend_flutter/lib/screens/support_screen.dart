@@ -4,6 +4,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../widgets/auth_dialog.dart';
+import '../core/utils/error_text.dart';
 
 class SupportScreen extends StatefulWidget {
   final ApiService apiService;
@@ -117,7 +118,7 @@ class _SupportScreenState extends State<SupportScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Envoi impossible : $e')),
+        SnackBar(content: Text('Envoi impossible : ${errText(e)}')),
       );
     } finally {
       if (mounted) setState(() => _submittingTicket = false);
@@ -145,7 +146,7 @@ class _SupportScreenState extends State<SupportScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Envoi impossible : $e')),
+        SnackBar(content: Text('Envoi impossible : ${errText(e)}')),
       );
     } finally {
       if (mounted) setState(() => _submittingFeedback = false);

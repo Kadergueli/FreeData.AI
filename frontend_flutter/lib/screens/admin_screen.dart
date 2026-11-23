@@ -5,6 +5,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'ml_benchmark_studio.dart';
+import '../core/utils/error_text.dart';
 
 class AdminScreen extends StatefulWidget {
   final ApiService apiService;
@@ -91,7 +92,7 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = errText(e);
         _loading = false;
       });
     }
@@ -119,7 +120,7 @@ class _AdminScreenState extends State<AdminScreen> {
       if (!mounted) return;
       setState(() {
         _probing = false;
-        _error = e.toString();
+        _error = errText(e);
       });
     }
   }
@@ -242,7 +243,7 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+          .showSnackBar(SnackBar(content: Text('Erreur : ${errText(e)}')));
     }
   }
 
@@ -314,7 +315,7 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(errText(e))));
     }
   }
 
@@ -328,7 +329,7 @@ class _AdminScreenState extends State<AdminScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+          .showSnackBar(SnackBar(content: Text(errText(e))));
     }
   }
 

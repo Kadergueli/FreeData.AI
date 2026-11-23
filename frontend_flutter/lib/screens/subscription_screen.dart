@@ -6,6 +6,7 @@ import '../core/theme/app_theme.dart';
 import '../core/utils/formatters.dart';
 import '../services/api_service.dart';
 import '../widgets/auth_dialog.dart';
+import '../core/utils/error_text.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   final ApiService apiService;
@@ -161,7 +162,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       if (!mounted) return;
       setState(() {
         if (_plans.isEmpty && _me == null) {
-          _error = e.toString();
+          _error = errText(e);
         }
         _loading = false;
         _refreshing = false;
@@ -216,7 +217,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
+        SnackBar(content: Text(errText(e))),
       );
     } finally {
       if (mounted) setState(() => _redeemingKey = false);
@@ -265,7 +266,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Envoi impossible : $e')),
+        SnackBar(content: Text('Envoi impossible : ${errText(e)}')),
       );
     } finally {
       if (mounted) setState(() => _submittingPayment = false);

@@ -4,6 +4,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'agronomist_pro_screen.dart';
+import '../core/utils/error_text.dart';
 
 /// Pré-diagnostic agro-climatique de zone (espace Grand Public, gratuit).
 ///
@@ -145,7 +146,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
   }
 
   String _friendlyError(Object e) {
-    final text = e.toString();
+    final text = errText(e);
     if (text.contains('TimeoutException')) {
       return 'Le serveur met plus de temps que prévu à répondre (démarrage en cours).';
     }
