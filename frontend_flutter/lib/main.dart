@@ -590,13 +590,18 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> _handleLogout() async {
     await _apiService.logoutAccount();
+    _apiService.setRuntimePremiumKey(null);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAuthTokenStorageKey);
+    await prefs.remove(_premiumKeyStorageKey);
     // Effacer le cache local des conversations du compte déconnecté (elles restent en sécurité dans le cloud).
     await LocalConversationStorage.instance.saveAll(const []);
     if (!mounted) return;
     setState(() {
       _activeConversationId = null;
+      _activeProject = null;
+      _watchlistAlerts = const [];
+      _triggeredWatchlistCount = 0;
       _selectedIndex = 0;
     });
     await _reloadConversations();

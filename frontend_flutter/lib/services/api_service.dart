@@ -176,6 +176,8 @@ class ApiService {
     _authToken = null;
     _authUser = null;
     _subscriptionIsPro = false;
+    _entitlements = const {'chat', 'explore', 'markets'};
+    _roles = const ['user'];
     invalidateUserBillingCache();
   }
 
