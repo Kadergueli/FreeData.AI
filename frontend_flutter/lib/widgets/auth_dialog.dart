@@ -34,10 +34,18 @@ class _AuthDialogState extends State<AuthDialog> {
   String _selectedPersona = 'analyste';
 
   static const _personas = <({String id, String label, IconData icon})>[
-    (id: 'analyste', label: 'Analyste / ONG', icon: Icons.analytics_outlined),
-    (id: 'agronome', label: 'Agronome', icon: Icons.agriculture_outlined),
-    (id: 'marche', label: 'Marchés', icon: Icons.storefront_outlined),
-    (id: 'banque', label: 'Banque / IMF', icon: Icons.account_balance_outlined),
+    (id: 'analyste', label: 'Multi-domaines & ONG', icon: Icons.hub_outlined),
+    (
+      id: 'marche',
+      label: 'Entreprise & Commerce',
+      icon: Icons.storefront_outlined
+    ),
+    (id: 'agronome', label: 'Agro & Territoires', icon: Icons.public_outlined),
+    (
+      id: 'banque',
+      label: 'Finance & Décision',
+      icon: Icons.account_balance_outlined
+    ),
   ];
 
   @override
@@ -215,13 +223,13 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 16),
           _brandFeature(
-            Icons.verified_user_outlined,
-            'Contrôle des accès',
-            'Les fonctions accessibles dépendent des autorisations associées à votre compte.',
+            Icons.description_outlined,
+            'Rapports PDF & Espace Projets',
+            'Centralisez vos dossiers, générez des synthèses exportables et passez à l’offre PRO selon vos besoins.',
           ),
           const Spacer(),
           const Text(
-            'Accès Standard & PRO',
+            'Offre Standard Gratuite & Solutions PRO',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontSize: 11.5,
@@ -577,7 +585,7 @@ class _AuthDialogState extends State<AuthDialog> {
                 SizedBox(width: 5),
                 Flexible(
                   child: Text(
-                    'Authentification par compte · Accès selon les autorisations',
+                    'Espace sécurisé · Accès Standard immédiat, évolutif vers PRO',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 11.5, color: AppColors.subtle),
                   ),
