@@ -396,6 +396,110 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     }
   }
 
+  Future<void> _openCreditPassportFromAssessment(String assessmentId) async {
+    final loanCtrl = TextEditingController(text: '500000');
+    final loanAmount = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Générer un Credit Passport Agro'),
+        content: TextField(
+          controller: loanCtrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Montant du prêt demandé (FCFA)',
+            helperText: 'Utilisé pour calculer le DSCR et l\'échéancier',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v =
+                  double.tryParse(loanCtrl.text.trim().replaceAll(',', '.'));
+              Navigator.of(ctx).pop(v != null && v > 0 ? v : 500000.0);
+            },
+            child: const Text('Calculer'),
+          ),
+        ],
+      ),
+    );
+    loanCtrl.dispose();
+    if (loanAmount == null || !mounted) return;
+
+    try {
+      final cp = await widget.apiService.createAgroCreditPassportFromAssessment(
+        assessmentId,
+        loanAmountXaf: loanAmount,
+      );
+      if (!mounted) return;
+      final scenarios = (cp['scenarios'] as List?) ?? const [];
+      final schedule = (cp['repayment_schedule'] as List?) ?? const [];
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+              'Credit Passport · ${cp['label_fr'] ?? ''} (${cp['province'] ?? ''})'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Code dossier : ${cp['report_verification_code'] ?? assessmentId} · Surface : ${cp['area_hectares']} ha',
+                    style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text('Scénarios DSCR :',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  for (final s in scenarios.whereType<Map>())
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${s['description']} : CA ${s['estimated_revenue_xaf'] ?? '—'} FCFA | DSCR ${s['dscr'] ?? '—'}',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                  if (schedule.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    const Text('Échéancier saisonnier indicatif :',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    for (final step in schedule.whereType<Map>())
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '• ${step['period']} : ${step['installment_xaf']} FCFA (${step['share_pct']}%)',
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   Future<void> _downloadPdf(String assessmentId, String code) async {
     if (_downloadingPdf) return;
     setState(() => _downloadingPdf = true);
@@ -1824,6 +1928,12 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 label: 'Comparer 2 à 3 terrains',
                 icon: Icons.compare_arrows_rounded,
                 onPressed: _openCompareParcelsDialog,
+              ),
+              FDSecondaryButton(
+                label: 'Créer Credit Passport',
+                icon: Icons.account_balance_outlined,
+                onPressed: () => _openCreditPassportFromAssessment(
+                    assessment['id'].toString()),
               ),
               if (widget.onAskAssistant != null)
                 FDSecondaryButton(

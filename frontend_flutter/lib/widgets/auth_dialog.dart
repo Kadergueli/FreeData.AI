@@ -31,6 +31,14 @@ class _AuthDialogState extends State<AuthDialog> {
   bool _obscurePassword = true;
   bool _submitting = false;
   String? _error;
+  String _selectedPersona = 'analyste';
+
+  static const _personas = <({String id, String label, IconData icon})>[
+    (id: 'analyste', label: 'Analyste / ONG', icon: Icons.analytics_outlined),
+    (id: 'agronome', label: 'Agronome', icon: Icons.agriculture_outlined),
+    (id: 'marche', label: 'Marchés', icon: Icons.storefront_outlined),
+    (id: 'banque', label: 'Banque / IMF', icon: Icons.account_balance_outlined),
+  ];
 
   @override
   void dispose() {
@@ -79,6 +87,7 @@ class _AuthDialogState extends State<AuthDialog> {
               email: email,
               password: pass,
               displayName: _nameCtrl.text.trim(),
+              persona: _selectedPersona,
             )
           : await widget.apiService.loginAccount(email: email, password: pass);
 
@@ -426,6 +435,34 @@ class _AuthDialogState extends State<AuthDialog> {
                     )
                   : const SizedBox.shrink(),
             ),
+            if (_registerMode) ...[
+              const Text(
+                'Votre profil principal',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.inkSoft,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final p in _personas)
+                    ChoiceChip(
+                      avatar: Icon(p.icon, size: 15),
+                      label:
+                          Text(p.label, style: const TextStyle(fontSize: 12)),
+                      selected: _selectedPersona == p.id,
+                      onSelected: _submitting
+                          ? null
+                          : (_) => setState(() => _selectedPersona = p.id),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: _emailCtrl,
               keyboardType: TextInputType.emailAddress,

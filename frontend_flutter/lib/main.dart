@@ -527,8 +527,19 @@ class _MainShellState extends State<MainShell> {
       ),
     );
     if (ok == true && mounted) {
+      if (reasonBanner == null) {
+        final persona = _apiService.userPersona;
+        final targetTab = switch (persona) {
+          'agronome' => 5,
+          'marche' || 'banque' => 4,
+          _ => 0,
+        };
+        _selectedIndex = targetTab;
+        _visitedTabs.add(targetTab);
+      }
       setState(() {});
       _apiService.prefetchBillingCatalog();
+      _refreshWatchlistNotifications();
       await _syncCloudConversations();
       final email = _apiService.authUser?['email']?.toString() ?? '';
       _showSnackBar(

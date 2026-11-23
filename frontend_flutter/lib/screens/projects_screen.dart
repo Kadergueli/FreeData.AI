@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
@@ -443,6 +444,68 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       });
     } finally {
       ctrl.dispose();
+    }
+  }
+
+  Future<void> _shareProject(Map<String, dynamic> proj) async {
+    final pid = proj['project_id']?.toString() ?? '';
+    if (pid.isEmpty) return;
+    try {
+      final res = await widget.apiService.createProjectShareLink(pid);
+      if (!mounted) return;
+      final sharePath = res['share_path']?.toString() ?? '';
+      final fullUrl = '${ApiService.baseUrl}$sharePath';
+      final exp = res['expires_at_utc']?.toString() ?? '';
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Lien de partage (lecture seule)'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ce lien donne un accès en lecture seule au projet « ${proj['name'] ?? ''} » jusqu\'au $exp.',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                const SizedBox(height: 10),
+                SelectableText(
+                  fullUrl,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Fermer'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: fullUrl));
+                if (!ctx.mounted) return;
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Lien de partage copié dans le presse-papiers.')),
+                );
+              },
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copier le lien'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
     }
   }
 
@@ -1475,9 +1538,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                     );
                                     await _load();
                                   }
+                                  if (act == 'share') await _shareProject(p);
                                   if (act == 'delete') await _confirmDelete(p);
                                 }),
                                 itemBuilder: (_) => [
+                                  const PopupMenuItem(
+                                      value: 'share',
+                                      child: Text('Partager (lecture seule)')),
                                   const PopupMenuItem(
                                       value: 'rename', child: Text('Renommer')),
                                   PopupMenuItem(

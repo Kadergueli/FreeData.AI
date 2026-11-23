@@ -66,6 +66,32 @@ class ApiService {
 
   Map<String, dynamic>? get authUser => _authUser;
 
+  String get userPersona {
+    final p = _authUser?['persona']?.toString().trim().toLowerCase() ?? '';
+    return const {'analyste', 'agronome', 'marche', 'banque'}.contains(p)
+        ? p
+        : 'analyste';
+  }
+
+  Set<String> _entitlements = const {'chat', 'explore', 'markets'};
+  List<String> _roles = const ['user'];
+
+  Set<String> get entitlements => _entitlements;
+  List<String> get roles => _roles;
+
+  bool can(String capability) {
+    if (_entitlements.contains(capability)) return true;
+    const proCaps = {
+      'agro_pdf',
+      'credit_passport',
+      'projects',
+      'ml_studio',
+      'watchlists',
+    };
+    if (proCaps.contains(capability)) return hasPremiumKey;
+    return const {'chat', 'explore', 'markets'}.contains(capability);
+  }
+
   String get userId => _userId;
 
   static String generateUserId() {
@@ -121,6 +147,8 @@ class ApiService {
     String? token,
     Map<String, dynamic>? user,
     bool? isPro,
+    Iterable<String>? entitlements,
+    Iterable<String>? roles,
   }) {
     final cleanTok = (token ?? '').trim();
     final nextTok = cleanTok.isEmpty ? null : cleanTok;
@@ -130,6 +158,16 @@ class ApiService {
     _authToken = nextTok;
     _authUser = user;
     if (isPro != null) _subscriptionIsPro = isPro;
+    if (entitlements != null) {
+      _entitlements = entitlements.map((e) => e.toString()).toSet();
+    } else if (nextTok == null) {
+      _entitlements = const {'chat', 'explore', 'markets'};
+    }
+    if (roles != null) {
+      _roles = roles.map((e) => e.toString()).toList();
+    } else if (nextTok == null) {
+      _roles = const ['user'];
+    }
     // L'identifiant du compte n'est plus recopié dans _userId : l'API ne l'accepte qu'avec le jeton Bearer
     // (un X-User-Id seul ne donne accès qu'à un espace anonyme distinct).
   }
@@ -658,6 +696,49 @@ class ApiService {
     }
     throw ApiHttpException(resp.statusCode,
         _extractErrorDetail(resp, 'Diagnostic de terrain impossible'));
+  }
+
+  Future<Map<String, dynamic>> createAgroCreditPassportFromAssessment(
+    String assessmentId, {
+    double loanAmountXaf = 500000,
+    String? cropId,
+  }) async {
+    final uri = Uri.parse(
+        '$baseUrl/api/v1/agro/field-assessment/$assessmentId/credit-passport');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'loan_amount_xaf': loanAmountXaf,
+            if (cropId != null && cropId.trim().isNotEmpty)
+              'crop_id': cropId.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Génération Credit Passport impossible'));
+  }
+
+  Future<Map<String, dynamic>> createProjectShareLink(
+    String projectId, {
+    int ttlHours = 72,
+  }) async {
+    final uri = Uri.parse(
+        '$baseUrl/api/v1/projects/$projectId/share-link?ttl_hours=$ttlHours');
+    final resp = await _client
+        .post(uri, headers: _projectHeaders(includeJson: true), body: '{}')
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Création du lien de partage impossible'));
   }
 
   Future<List<Map<String, dynamic>>> listAgroFieldAssessments(
@@ -1853,6 +1934,7 @@ class ApiService {
     required String email,
     required String password,
     String displayName = '',
+    String persona = 'analyste',
   }) async {
     final uri = Uri.parse('$baseUrl/api/v1/auth/register');
     final resp = await _client
@@ -1863,6 +1945,7 @@ class ApiService {
             'email': email.trim(),
             'password': password,
             'display_name': displayName.trim(),
+            'persona': persona,
           }),
         )
         .timeout(const Duration(seconds: 25));
@@ -1874,7 +1957,13 @@ class ApiService {
         user: data['user'] is Map
             ? Map<String, dynamic>.from(data['user'] as Map)
             : null,
-        isPro: false,
+        isPro: data['is_pro'] == true,
+        entitlements: data['entitlements'] is List
+            ? (data['entitlements'] as List).map((e) => e.toString())
+            : null,
+        roles: data['roles'] is List
+            ? (data['roles'] as List).map((e) => e.toString())
+            : null,
       );
       return data;
     }
@@ -1904,6 +1993,12 @@ class ApiService {
             ? Map<String, dynamic>.from(data['user'] as Map)
             : null,
         isPro: hasInlinePro ? data['is_pro'] == true : null,
+        entitlements: data['entitlements'] is List
+            ? (data['entitlements'] as List).map((e) => e.toString())
+            : null,
+        roles: data['roles'] is List
+            ? (data['roles'] as List).map((e) => e.toString())
+            : null,
       );
       if (!hasInlinePro) {
         try {
@@ -1931,6 +2026,12 @@ class ApiService {
             ? Map<String, dynamic>.from(data['user'] as Map)
             : null,
         isPro: data['is_pro'] == true,
+        entitlements: data['entitlements'] is List
+            ? (data['entitlements'] as List).map((e) => e.toString())
+            : null,
+        roles: data['roles'] is List
+            ? (data['roles'] as List).map((e) => e.toString())
+            : null,
       );
       return data;
     }
@@ -1973,13 +2074,16 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> updateProfile(
-      {required String displayName}) async {
+      {String? displayName, String? persona}) async {
     final uri = Uri.parse('$baseUrl/api/v1/auth/profile');
     final resp = await _client
         .patch(
           uri,
           headers: _projectHeaders(includeJson: true),
-          body: jsonEncode({'display_name': displayName.trim()}),
+          body: jsonEncode({
+            if (displayName != null) 'display_name': displayName.trim(),
+            if (persona != null) 'persona': persona.trim().toLowerCase(),
+          }),
         )
         .timeout(const Duration(seconds: 20));
     if (resp.statusCode == 200) {
