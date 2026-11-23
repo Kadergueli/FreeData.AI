@@ -66,10 +66,12 @@
       animation: fdPulse 2s ease-in-out infinite;
     }
     .fd-boot-badge {
-      position: relative; width: 58px; height: 58px; border-radius: 16px;
-      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-      color: #ffffff; display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 12px 28px rgba(2, 132, 199, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      position: relative; width: 64px; height: 64px; border-radius: 16px; overflow: hidden;
+      background: #ffffff; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 12px 28px rgba(2, 132, 199, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.06);
+    }
+    .fd-boot-badge img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
     }
     .fd-boot-title {
       font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: #0f172a; margin-bottom: 4px;
@@ -108,11 +110,8 @@
   <div id="fd-boot-splash" role="status" aria-live="polite" aria-label="Chargement FreeData.AI">
     <div class="fd-boot-card">
       <div class="fd-boot-ring">
-        <div class="fd-boot-badge" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M5 7.5C5 6.119 6.119 5 7.5 5H15.5V8.6H8.8V12.4H14.5V15.9H8.8V23H5V7.5Z" fill="white"/>
-            <path d="M16.5 11.5H19.5C22.261 11.5 24.5 13.739 24.5 16.5V18C24.5 20.761 22.261 23 19.5 23H16.5V11.5ZM19.5 19.6C20.384 19.6 21.1 18.884 21.1 18V16.5C21.1 15.616 20.384 14.9 19.5 14.9V19.6Z" fill="white" fill-opacity="0.92"/>
-          </svg>
+        <div class="fd-boot-badge">
+          <img src="icons/Icon-192.png" alt="Logo FreeData.AI" width="64" height="64" />
         </div>
       </div>
       <div class="fd-boot-title">FreeData.AI</div>
