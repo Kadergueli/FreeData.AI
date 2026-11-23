@@ -30,7 +30,7 @@ from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import assess_dataset_freshness, filter_fresh
 from src.reports import build_market_study_dossier, render_market_study_pdf
-from src.reports.jobs import ReportJobManager
+from src.reports.jobs import ReportJobManager, ReportJobQueueFull
 from src.anomalies import detect_anomalies, recent_anomalies
 from src.season_study import StudyBook, study_markdown, with_storage_cost
 from src.study_context import StudyContext
@@ -187,9 +187,26 @@ def check_rate_limit(request: Request, max_per_minute: int = 20, scope: str = "c
     """`max_per_minute` requêtes par minute et par IP et par catégorie, plus un plafond global indépendant de l'IP."""
     client_ip = _client_ip(request)
     now = time.time()
+    # Redis est un service réseau : ne jamais le contacter sous le verrou global mémoire.
+    # Sinon une latence Redis bloque toutes les requêtes qui passent par le rate limiter.
+    global_shared = _hit_shared_redis(
+        "*global*", settings.global_rate_limit_per_min, now,
+        "Service très sollicité. Réessayez dans un instant.",
+    )
+    scope_shared = (
+        _hit_shared_redis(
+            f"{scope}:{client_ip}", max_per_minute, now,
+            "Trop de requêtes. Réessayez dans une minute.",
+        )
+        if global_shared else False
+    )
+    if global_shared and scope_shared:
+        return
+
+    # Repli local protégé : la section critique ne contient que des opérations mémoire.
     with _RATE_LIMIT_LOCK:
-        _hit("*global*", settings.global_rate_limit_per_min, now, "Service très sollicité. Réessayez dans un instant.")
-        _hit(f"{scope}:{client_ip}", max_per_minute, now, "Trop de requêtes. Réessayez dans une minute.")
+        _hit_memory("*global*", settings.global_rate_limit_per_min, now, "Service très sollicité. Réessayez dans un instant.")
+        _hit_memory(f"{scope}:{client_ip}", max_per_minute, now, "Trop de requêtes. Réessayez dans une minute.")
         if len(_RATE_LIMIT_BUCKET) > 1000:
             stale = [k for k, ts in _RATE_LIMIT_BUCKET.items() if k != "*global*" and (not ts or now - ts[-1] >= 60.0)]
             for k in stale:
@@ -2593,7 +2610,14 @@ def create_report_job_endpoint(
             "version_number": ver_info.get("version_number"),
         }
 
-    return jobs.submit(owner_id, _task)
+    try:
+        return jobs.submit(owner_id, _task)
+    except ReportJobQueueFull as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
 
 
 @app.get("/api/v1/reports/jobs/{job_id}", dependencies=[Depends(_data_rate_limit_dependency)])
