@@ -798,6 +798,12 @@ void main() {
     expect(find.text('Accès Partenaire & Clé Pro'), findsNothing);
     expect(find.textContaining('Abonnement'), findsWidgets);
 
+    // Isoler le scénario ForecastScreen du viewport desktop utilisé par MainShell.
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
     // ForecastScreen sans accès PRO : l'onglet Saisonnalité & Stockage est masqué
     final forecastApi = _ReducedForecastFakeApi();
     await tester.pumpWidget(
