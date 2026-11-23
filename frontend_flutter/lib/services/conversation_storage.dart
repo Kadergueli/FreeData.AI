@@ -47,10 +47,9 @@ class LocalConversationStorage implements ConversationRepository {
 
     if (api.isAuthenticated) {
       final user = api.authUser ?? const <String, dynamic>{};
-      final id = (user['id'] ?? user['uid'] ?? user['user_id'])
-              ?.toString()
-              .trim() ??
-          '';
+      final id =
+          (user['id'] ?? user['uid'] ?? user['user_id'])?.toString().trim() ??
+              '';
       final email = user['email']?.toString().trim().toLowerCase() ?? '';
       final token = api.authToken?.trim() ?? '';
       final tokenSubject = _tokenSubject(token);
@@ -72,11 +71,13 @@ class LocalConversationStorage implements ConversationRepository {
     if (separator <= 0) return null;
     try {
       final encodedPayload = token.substring(0, separator);
-      final payloadBytes =
-          base64Url.decode(base64Url.normalize(encodedPayload));
+      final payloadBytes = base64Url.decode(
+        base64Url.normalize(encodedPayload),
+      );
       final payload = jsonDecode(utf8.decode(payloadBytes));
-      final subject =
-          payload is Map ? payload['sub']?.toString().trim() ?? '' : '';
+      final subject = payload is Map
+          ? payload['sub']?.toString().trim() ?? ''
+          : '';
       return subject.isEmpty ? null : subject;
     } catch (_) {
       return null;
