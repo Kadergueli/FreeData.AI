@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/fd_theme.dart';
+import 'core/utils/clean_url.dart';
 import 'services/api_service.dart';
 import 'services/conversation_storage.dart';
 import 'screens/chat_screen.dart';
@@ -130,6 +131,8 @@ class _MainShellState extends State<MainShell> {
     final urlKey =
         (uri.queryParameters['key'] ?? uri.queryParameters['premium_key'])
             ?.trim();
+    // La clé ne doit pas rester dans l'historique ni la barre d'adresse.
+    removeSensitiveQueryParams(const ['key', 'premium_key']);
     final prefs = await SharedPreferences.getInstance();
     var uid = prefs.getString('fd_pref_user_id');
     if (uid == null || !ApiService.isStrongUserId(uid)) {

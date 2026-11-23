@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] — Audit écrans : sécurité et UI (2026-11-23)
+- Partage de projet : l'API renvoie `name` (le titre était vide) ; ouvert dans un navigateur, le lien affiche une page de lecture seule statique, entièrement échappée (CSP `default-src 'none'`, `noindex`, `no-store`) au lieu de JSON brut.
+- Chat : les images distantes du Markdown ne sont plus chargées (pistage / exfiltration par URL).
+- Clé PRO : retirée de la barre d'adresse (`?key=`, `?premium_key=`) dès sa lecture.
+- Agronome PRO : pH (3–10) et matière organique (0–40 %) validés dans l'interface avant l'envoi.
+
 ## [Unreleased] — Réparation de main (2026-11-22)
 - Fix critique : `api/server.py` ne se chargeait plus (SyntaxError, bloc « share-link » inséré 35 fois dont au milieu de fonctions). Fichier reconstruit avec une seule copie des 3 ajouts (credit-passport depuis un audit agro, rapport de benchmark, liens de partage de projet).
 - Sécurité : le secret des liens de partage n'a plus de valeur de repli publique ; sans `AUTH_SECRET` (16 car. min.), le partage répond 503.

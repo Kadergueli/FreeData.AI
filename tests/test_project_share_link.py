@@ -10,7 +10,7 @@ class _Store:
     def get_project(self, owner_id, project_id):
         if project_id != "p1":
             raise KeyError("introuvable")
-        return {"project_id": "p1", "title": "T", "description": "d", "domain": "agro", "created_at": "x", "studies": []}
+        return {"project_id": "p1", "name": "T", "description": "d", "created_at": "x", "studies": []}
 
 
 def test_routes_registered_once():
@@ -51,3 +51,42 @@ def test_share_link_requires_secret(monkeypatch):
     with pytest.raises(HTTPException) as e:
         server.create_project_share_link_endpoint("p1", ttl_hours=1, owner_id="u1", store=_Store())
     assert e.value.status_code == 503
+
+
+class _StoreWithXss:
+    def get_project(self, owner_id, project_id):
+        return {
+            "project_id": "p1",
+            "name": "<script>alert(1)</script>Maïs",
+            "description": "d & <b>x</b>",
+            "created_at": "x",
+            "studies": [{"study_id": "s1", "title": "<img src=x onerror=1>", "commodity": "Mil", "latest_version": 2}],
+        }
+
+
+def test_shared_project_returns_name_and_title(monkeypatch):
+    monkeypatch.setenv("AUTH_SECRET", "x" * 32)
+    token = server.create_project_share_link_endpoint("p1", ttl_hours=1, owner_id="u1", store=_Store())["share_token"]
+    out = server.get_shared_project_endpoint(token, store=_Store())
+    assert out["name"] == "T" and out["title"] == "T"
+    assert "domain" not in out
+
+
+def test_shared_project_html_view_is_escaped_and_locked_down(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("AUTH_SECRET", "x" * 32)
+    server.app.dependency_overrides[server.get_project_store] = lambda: _StoreWithXss()
+    try:
+        token = server.create_project_share_link_endpoint("p1", ttl_hours=1, owner_id="u1", store=_Store())["share_token"]
+        c = TestClient(server.app)
+        html_resp = c.get(f"/api/v1/shared/projects/{token}", headers={"Accept": "text/html"})
+        assert html_resp.status_code == 200
+        assert html_resp.headers["content-type"].startswith("text/html")
+        assert "default-src 'none'" in html_resp.headers["content-security-policy"]
+        assert "<script>" not in html_resp.text and "<img" not in html_resp.text
+        assert "&lt;script&gt;" in html_resp.text
+        json_resp = c.get(f"/api/v1/shared/projects/{token}", headers={"Accept": "application/json"})
+        assert json_resp.json()["read_only"] is True
+    finally:
+        server.app.dependency_overrides.clear()
