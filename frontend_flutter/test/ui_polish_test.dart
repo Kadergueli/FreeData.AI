@@ -758,7 +758,7 @@ void main() {
   });
 
   testWidgets(
-      'MainShell Clé Pro dialog rejects user-invented key, accepts Render key, and unlocks Saisonnalité & Stockage',
+      'MainShell plan badge opens SubscriptionScreen cleanly without legacy Clé Pro popup',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -773,7 +773,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Clé Pro'), findsNothing);
 
-    // Une fois connecté, la clé partenaire s'active depuis le menu du compte ('Clé partenaire PRO')
+    // Une fois connecté, le badge ouvre directement l'écran unifié Abonnement & Activation PRO
     shellApi.setAuthSession(
       token: 'jwt-test-session',
       user: {
@@ -793,37 +793,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Une fausse clé saisie manuellement par l'utilisateur connecté est refusée
     await tester.tap(find.text('Tchad · Marchés et Prix'));
     await tester.pumpAndSettle();
-    expect(find.text('Accès Partenaire & Clé Pro'), findsOneWidget);
-    await tester.enterText(
-      find.descendant(
-          of: find.byType(AlertDialog), matching: find.byType(TextField)),
-      'cle-inventee-par-utilisateur',
-    );
-    await tester.tap(find.text('Activer'));
-    await tester.pumpAndSettle();
+    expect(find.text('Accès Partenaire & Clé Pro'), findsNothing);
+    expect(find.textContaining('Abonnement'), findsWidgets);
 
-    expect(find.text('Tchad · Marchés et Prix'), findsOneWidget);
-    expect(find.text('Tchad · Accès Partenaire'), findsNothing);
-    expect(shellApi.hasPremiumKey, isFalse);
-
-    // Saisie de la vraie clé configurée sur Render -> activée après vérification serveur
-    await tester.tap(find.text('Tchad · Marchés et Prix'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.descendant(
-          of: find.byType(AlertDialog), matching: find.byType(TextField)),
-      'FD-RENDER-SECRET-2026',
-    );
-    await tester.tap(find.text('Activer'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
-    expect(shellApi.hasPremiumKey, isTrue);
-
-    // ForecastScreen sans clé : l'onglet Saisonnalité & Stockage est masqué
+    // ForecastScreen sans accès PRO : l'onglet Saisonnalité & Stockage est masqué
     final forecastApi = _ReducedForecastFakeApi();
     await tester.pumpWidget(
       MaterialApp(

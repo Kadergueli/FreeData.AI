@@ -232,7 +232,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
         if (e.statusCode == 403 || e.statusCode == 503) {
           setState(
             () => _error =
-                '${e.message}\nVérifiez votre clé d’accès Partenaire via « Clé Pro » ou utilisez l’Assistant IA.',
+                '${e.message}\nPassez à l’abonnement PRO depuis « Abonnement » pour débloquer cette étude, ou utilisez l’Assistant IA.',
           );
         } else {
           setState(() => _error = e.message);

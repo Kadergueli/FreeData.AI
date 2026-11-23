@@ -231,80 +231,6 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  Future<void> _configurePremiumKey() async {
-    final action = await showDialog<String>(
-      context: context,
-      builder: (_) => _PremiumKeyDialog(
-        initialKey: _apiService.activePremiumKey,
-        hasActiveKey: _apiService.hasPremiumKey,
-      ),
-    );
-    if (action == null) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    if (action.isEmpty) {
-      await prefs.remove(_premiumKeyStorageKey);
-      _apiService.setRuntimePremiumKey(null);
-      if (!mounted) return;
-      setState(() {});
-      _showSnackBar(
-        const SnackBar(
-          content: Text('Accès standard rétabli'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    try {
-      final isValid = await _apiService.verifyPremiumKey(action);
-      if (!mounted) return;
-      if (isValid) {
-        await prefs.setString(_premiumKeyStorageKey, action);
-        _apiService.setRuntimePremiumKey(action);
-        if (!mounted) return;
-        setState(() {});
-        _showSnackBar(
-          const SnackBar(
-            backgroundColor: FDTheme.greenDark,
-            content: Text('Clé vérifiée : Accès Partenaire activé'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        _showSnackBar(
-          const SnackBar(
-            backgroundColor: FDTheme.danger,
-            content: Text(
-              'Clé d’accès refusée : seule la clé configurée sur le serveur est valide.',
-            ),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    } on ApiHttpException catch (e) {
-      if (!mounted) return;
-      _showSnackBar(
-        SnackBar(
-          backgroundColor: FDTheme.danger,
-          content: Text(e.message),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      _showSnackBar(
-        const SnackBar(
-          backgroundColor: FDTheme.danger,
-          content: Text(
-            'Impossible de vérifier la clé auprès du serveur. Réessayez dans quelques instants.',
-          ),
-          duration: Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
   void _selectTab(int index) {
     setState(() {
       _selectedIndex = index;
@@ -569,7 +495,7 @@ class _MainShellState extends State<MainShell> {
       MaterialPageRoute(
         builder: (_) => AccountScreen(
           apiService: _apiService,
-          onConfigureKey: _configurePremiumKey,
+          onConfigureKey: _openSubscriptionScreen,
           onSessionChanged: () {
             if (mounted) {
               setState(() {
@@ -597,22 +523,24 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
-  void _openSubscriptionScreen() {
-    Navigator.of(context)
-        .push(
+  Future<void> _openSubscriptionScreen() async {
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SubscriptionScreen(
           apiService: _apiService,
-          onConfigureKey: _configurePremiumKey,
           onSessionChanged: () {
-            if (mounted) setState(() {});
+            if (mounted) {
+              setState(() {});
+              _refreshWatchlistNotifications();
+            }
           },
         ),
       ),
-    )
-        .then((_) {
-      if (mounted) setState(() {});
-    });
+    );
+    if (mounted) {
+      setState(() {});
+      _refreshWatchlistNotifications();
+    }
   }
 
   void _openSupportScreen() {
@@ -632,7 +560,7 @@ class _MainShellState extends State<MainShell> {
         .push(MaterialPageRoute(
             builder: (_) => SettingsScreen(
                   apiService: _apiService,
-                  onConfigureKey: _configurePremiumKey,
+                  onConfigureKey: _openSubscriptionScreen,
                   onSessionChanged: () {
                     if (!mounted) return;
                     setState(() {
@@ -750,135 +678,163 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _openWatchlistNotificationsDialog() async {
-    await _refreshWatchlistNotifications();
-    if (!mounted) return;
-    final triggeredItems =
-        _watchlistAlerts.where(_isWatchlistTriggered).toList();
-    final activeItems =
-        _watchlistAlerts.where((w) => !_isWatchlistTriggered(w)).toList();
+    bool refreshing = _apiService.hasPremiumKey;
+    bool refreshStarted = false;
 
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.notifications_active_outlined,
-                color: FDTheme.blue),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Alertes Watchlist (${triggeredItems.length} déclenchée${triggeredItems.length > 1 ? 's' : ''})',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 440,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          if (refreshing && !refreshStarted) {
+            refreshStarted = true;
+            _refreshWatchlistNotifications().whenComplete(() {
+              if (ctx.mounted) {
+                setDlgState(() => refreshing = false);
+              }
+            });
+          }
+          final triggeredItems =
+              _watchlistAlerts.where(_isWatchlistTriggered).toList();
+          final activeItems =
+              _watchlistAlerts.where((w) => !_isWatchlistTriggered(w)).toList();
+
+          return AlertDialog(
+            title: Row(
               children: [
-                if (!_apiService.hasPremiumKey)
-                  const Text(
-                    'Activez un accès PRO pour créer des watchlists et recevoir les alertes de seuils de prix en temps réel.',
-                    style: TextStyle(fontSize: 13, color: FDTheme.muted),
-                  )
-                else if (_watchlistAlerts.isEmpty)
-                  const Text(
-                    'Aucune watchlist configurée pour le moment. Ajoutez des seuils dans l\'onglet Marchés pour recevoir des alertes.',
-                    style: TextStyle(fontSize: 13, color: FDTheme.muted),
-                  )
-                else ...[
-                  if (triggeredItems.isNotEmpty) ...[
-                    const Text(
-                      'Seuils franchis',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: FDTheme.danger,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    for (final w in triggeredItems)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF2F2),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFFECACA)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                                color: FDTheme.ink,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Prix prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'} FCFA/kg · Seuil : ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (${w['direction'] == 'above' ? '≥' : '≤'})',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: FDTheme.muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                  if (activeItems.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Surveillances actives',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: FDTheme.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    for (final w in activeItems)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: FDTheme.canvas,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: FDTheme.line),
-                        ),
-                        child: Text(
-                          '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'} — Seuil ${w['direction'] == 'above' ? '≥' : '≤'} ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'})',
-                          style: const TextStyle(
-                              fontSize: 12.5, color: FDTheme.ink),
-                        ),
-                      ),
-                  ],
-                ],
+                const Icon(Icons.notifications_active_outlined,
+                    color: FDTheme.blue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Alertes Watchlist (${triggeredItems.length} déclenchée${triggeredItems.length > 1 ? 's' : ''})',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+                if (refreshing)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
               ],
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Fermer'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _selectTab(4);
-            },
-            icon: const Icon(Icons.show_chart_rounded, size: 16),
-            label: const Text('Ouvrir Marchés'),
-          ),
-        ],
+            content: SizedBox(
+              width: 440,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_apiService.hasPremiumKey)
+                      const Text(
+                        'Activez un accès PRO pour créer des watchlists et recevoir les alertes de seuils de prix en temps réel.',
+                        style: TextStyle(fontSize: 13, color: FDTheme.muted),
+                      )
+                    else if (_watchlistAlerts.isEmpty && refreshing)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Text(
+                          'Chargement de vos alertes Watchlist…',
+                          style: TextStyle(fontSize: 13, color: FDTheme.muted),
+                        ),
+                      )
+                    else if (_watchlistAlerts.isEmpty)
+                      const Text(
+                        'Aucune watchlist configurée pour le moment. Ajoutez des seuils dans l\'onglet Marchés pour recevoir des alertes.',
+                        style: TextStyle(fontSize: 13, color: FDTheme.muted),
+                      )
+                    else ...[
+                      if (triggeredItems.isNotEmpty) ...[
+                        const Text(
+                          'Seuils franchis',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: FDTheme.danger,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        for (final w in triggeredItems)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(10),
+                              border:
+                                  Border.all(color: const Color(0xFFFECACA)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    color: FDTheme.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Prix prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'} FCFA/kg · Seuil : ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (${w['direction'] == 'above' ? '≥' : '≤'})',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: FDTheme.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                      if (activeItems.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Surveillances actives',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: FDTheme.muted,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        for (final w in activeItems)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: FDTheme.canvas,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: FDTheme.line),
+                            ),
+                            child: Text(
+                              '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'} — Seuil ${w['direction'] == 'above' ? '≥' : '≤'} ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'})',
+                              style: const TextStyle(
+                                  fontSize: 12.5, color: FDTheme.ink),
+                            ),
+                          ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Fermer'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  _selectTab(4);
+                },
+                icon: const Icon(Icons.show_chart_rounded, size: 16),
+                label: const Text('Ouvrir Marchés'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1095,7 +1051,7 @@ class _MainShellState extends State<MainShell> {
                 hasPremiumKey: _apiService.hasPremiumKey,
                 isAuthenticated: _apiService.isAuthenticated,
                 authUser: _apiService.authUser,
-                onConfigurePremiumKey: _configurePremiumKey,
+                onConfigurePremiumKey: _openSubscriptionScreen,
                 onLogin: () => _openAuthDialog(register: false),
                 onRegister: () => _openAuthDialog(register: true),
                 onOpenAccount: _openAccountScreen,
@@ -1156,7 +1112,7 @@ class _MainShellState extends State<MainShell> {
                           child: InkWell(
                             onTap: (_apiService.isAuthenticated ||
                                     _apiService.hasPremiumKey)
-                                ? _configurePremiumKey
+                                ? _openSubscriptionScreen
                                 : null,
                             borderRadius: BorderRadius.circular(99),
                             child: Container(
@@ -1366,7 +1322,7 @@ class _MainShellState extends State<MainShell> {
                 button: true,
                 label: 'Accès Partenaire actif',
                 child: InkWell(
-                  onTap: _configurePremiumKey,
+                  onTap: _openSubscriptionScreen,
                   borderRadius: BorderRadius.circular(99),
                   child: Container(
                     padding:
@@ -1434,7 +1390,7 @@ class _MainShellState extends State<MainShell> {
             authUser: _apiService.authUser,
             onConfigurePremiumKey: () {
               Navigator.of(context).pop();
-              _configurePremiumKey();
+              _openSubscriptionScreen();
             },
             onLogin: () {
               Navigator.of(context).pop();
@@ -2248,71 +2204,6 @@ class _SidebarContentState extends State<_SidebarContent> {
         ),
         onTap: () => widget.onSelectNavigation(index),
       ),
-    );
-  }
-}
-
-class _PremiumKeyDialog extends StatefulWidget {
-  final String initialKey;
-  final bool hasActiveKey;
-
-  const _PremiumKeyDialog({
-    required this.initialKey,
-    required this.hasActiveKey,
-  });
-
-  @override
-  State<_PremiumKeyDialog> createState() => _PremiumKeyDialogState();
-}
-
-class _PremiumKeyDialogState extends State<_PremiumKeyDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialKey);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Accès Partenaire & Clé Pro'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Saisissez votre clé d’accès FreeData.AI pour activer l’assistant conversationnel avancé et les études de saisonnalité & stockage.',
-            style: TextStyle(fontSize: 13, color: FDTheme.muted, height: 1.4),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _controller,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'Clé d’accès FreeData.AI',
-              hintText: 'Ex. FD-PRO-...',
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler')),
-        if (widget.hasActiveKey)
-          TextButton(
-            onPressed: () => Navigator.pop(context, ''),
-            child: const Text('Désactiver la clé',
-                style: TextStyle(color: FDTheme.danger)),
-          ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
-          child: const Text('Activer'),
-        ),
-      ],
     );
   }
 }
