@@ -16,6 +16,8 @@ class MarkdownRenderer extends StatelessWidget {
       data: content,
       selectable: true,
       onTapLink: (text, href, title) => openExternalUrl(href),
+      // Aucune image distante : évite le pistage et l'exfiltration par URL.
+      imageBuilder: (uri, title, alt) => const SizedBox.shrink(),
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: const TextStyle(
           color: FDTheme.ink,

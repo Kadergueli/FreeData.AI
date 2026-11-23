@@ -192,6 +192,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     return double.tryParse(t);
   }
 
+  bool _invalidNumber(TextEditingController ctrl, double min, double max) {
+    if (ctrl.text.trim().isEmpty) return false;
+    final v = _parseOpt(ctrl);
+    return v == null || !v.isFinite || v < min || v > max;
+  }
+
+  String? _labInputError() {
+    if (_invalidNumber(_phCtrl, 3, 10)) {
+      return 'pH invalide : saisissez une valeur entre 3 et 10.';
+    }
+    if (_invalidNumber(_omCtrl, 0, 40)) {
+      return 'Matière organique invalide : valeur entre 0 et 40 %.';
+    }
+    return null;
+  }
+
   static const Map<String, List<double>> _chadHubCoords = {
     "N'Djamena": [12.1348, 15.0557],
     'Moundou': [8.5667, 16.0833],
@@ -357,6 +373,13 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
             content: Text(
                 'Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
       );
+      return;
+    }
+
+    final labError = _labInputError();
+    if (labError != null) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(SnackBar(content: Text(labError)));
       return;
     }
 

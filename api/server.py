@@ -2638,6 +2638,7 @@ def create_project_share_link_endpoint(
 @app.get("/api/v1/shared/projects/{token}", dependencies=[Depends(_data_rate_limit_dependency)])
 def get_shared_project_endpoint(
     token: str,
+    request: Request = None,  # type: ignore[assignment]
     store: ProjectStore = Depends(get_project_store),
 ):
     """Accès public en lecture seule à un projet partagé via jeton signé."""
@@ -2660,15 +2661,60 @@ def get_shared_project_endpoint(
         proj = store.get_project(str(data["o"]), str(data["p"]))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Projet partagé introuvable.") from exc
-    return {
+    payload = {
         "read_only": True,
         "project_id": proj.get("project_id"),
-        "title": proj.get("title"),
+        "name": proj.get("name"),
+        "title": proj.get("name"),
         "description": proj.get("description"),
-        "domain": proj.get("domain"),
         "created_at": proj.get("created_at"),
         "studies": proj.get("studies") or [],
     }
+    accept = (request.headers.get("accept", "") if request is not None else "").lower()
+    if "text/html" in accept and "application/json" not in accept:
+        return _render_shared_project_html(payload)
+    return payload
+
+
+def _render_shared_project_html(payload: dict) -> Response:
+    """Page de lecture seule (HTML statique, entièrement échappé) pour un projet partagé."""
+    import html as _html
+
+    def esc(value: object) -> str:
+        return _html.escape(str(value if value is not None else ""), quote=True)
+
+    rows = "".join(
+        "<li><strong>{t}</strong> — {c} · {o} → {d} (v{v})</li>".format(
+            t=esc(st.get("title") or st.get("study_id")),
+            c=esc(st.get("commodity") or "—"),
+            o=esc(st.get("origin_province") or "—"),
+            d=esc(st.get("dest_province") or "—"),
+            v=esc(st.get("latest_version") or 1),
+        )
+        for st in payload.get("studies") or []
+    ) or "<li>Aucune étude pour l'instant.</li>"
+    body = (
+        "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<meta name=\"robots\" content=\"noindex,nofollow\">"
+        f"<title>{esc(payload.get('name'))} — FreeData.AI</title>"
+        "<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;"
+        "color:#1b2a22;line-height:1.5}h1{font-size:1.4rem}.tag{display:inline-block;background:#e8f1ec;"
+        "border-radius:6px;padding:2px 8px;font-size:.8rem}li{margin:.4rem 0}</style></head><body>"
+        f"<p class=\"tag\">Lecture seule · FreeData.AI</p><h1>{esc(payload.get('name'))}</h1>"
+        f"<p>{esc(payload.get('description'))}</p><h2>Études</h2><ul>{rows}</ul>"
+        "<p><small>Lien de partage temporaire. Les chiffres sont indicatifs.</small></p></body></html>"
+    )
+    return Response(
+        content=body,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
