@@ -63,7 +63,8 @@ class AuthTokenStorage {
   static Future<void> delete() => _backend.delete();
 
   /// One-time migration from the legacy plaintext SharedPreferences entry.
-  /// The old value is removed only after secure storage confirms the write.
+  /// The plaintext value is always removed; if secure storage is unavailable,
+  /// the user must sign in again rather than retaining an exposed credential.
   static Future<void> migrateLegacy(SharedPreferences preferences) async {
     final legacyToken = preferences.getString(kAuthTokenStorageKey);
     if (legacyToken == null || legacyToken.trim().isEmpty) {
@@ -72,10 +73,13 @@ class AuthTokenStorage {
       }
       return;
     }
-    final secureToken = await _backend.read();
-    if (secureToken == null || secureToken.trim().isEmpty) {
-      await _backend.write(legacyToken.trim());
+    try {
+      final secureToken = await _backend.read();
+      if (secureToken == null || secureToken.trim().isEmpty) {
+        await _backend.write(legacyToken.trim());
+      }
+    } finally {
+      await preferences.remove(kAuthTokenStorageKey);
     }
-    await preferences.remove(kAuthTokenStorageKey);
   }
 }
