@@ -140,6 +140,8 @@ class _MainShellState extends State<MainShell> {
       await prefs.setString('fd_pref_user_id', uid);
     }
     _apiService.setUserId(uid);
+    // Recharge le bon espace anonyme après restauration de son identifiant persistant.
+    await _reloadConversations();
     // Pré-chauffage parallèle des caches (métadonnées & catalogue plans) sans bloquer l'affichage.
     _apiService.prefetchBillingCatalog();
     _apiService.getMetadata().catchError((_) => <String, dynamic>{});
@@ -592,13 +594,13 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _handleLogout() async {
+    // Effacer le cache du compte tant que son identité est encore active.
+    await LocalConversationStorage.instance.clearCurrentUserCache();
     await _apiService.logoutAccount();
     _apiService.setRuntimePremiumKey(null);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAuthTokenStorageKey);
     await prefs.remove(_premiumKeyStorageKey);
-    // Effacer le cache local des conversations du compte déconnecté (elles restent en sécurité dans le cloud).
-    await LocalConversationStorage.instance.saveAll(const []);
     if (!mounted) return;
     setState(() {
       _activeConversationId = null;
