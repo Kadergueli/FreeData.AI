@@ -168,8 +168,18 @@ def test_operational_warnings_generation_and_clean_state(monkeypatch):
     assert "HIGH_LATENCY" in codes
     assert "STALE_MARKET_DATA" in codes
     assert "UNSIGNED_AUTH_ENABLED" in codes
-    assert "AUTH_SECRET_MISSING_OR_WEAK" in codes
     assert "EPHEMERAL_APP_STORAGE" in codes
+
+    # Si l'authentification signée est activée mais que le secret est faible,
+    # l'alerte doit apparaître indépendamment de l'alerte d'auth non signée.
+    weak_secret_ph = {**bad_ph, "require_signed_user_auth": True}
+    weak_secret_codes = {
+        w["code"]
+        for w in server._build_operational_warnings(
+            weak_secret_ph, clean_metrics, clean_fresh
+        )
+    }
+    assert "AUTH_SECRET_MISSING_OR_WEAK" in weak_secret_codes
 
     # Une configuration Render correcte ne doit pas générer ces alertes.
     monkeypatch.setenv("AUTH_SECRET", "s" * 40)
