@@ -167,6 +167,25 @@ def test_operational_warnings_generation_and_clean_state(monkeypatch):
     assert "HIGH_LATENCY" in codes
     assert "STALE_MARKET_DATA" in codes
     assert "UNSIGNED_AUTH_ENABLED" in codes
+    assert "AUTH_SECRET_MISSING_OR_WEAK" in codes
+    assert "EPHEMERAL_APP_STORAGE" in codes
+
+    # Une configuration Render correcte ne doit pas générer ces alertes.
+    monkeypatch.setenv("AUTH_SECRET", "s" * 40)
+    secure_ph = {
+        "services": {"supabase": "CONNECTED"},
+        "require_signed_user_auth": True,
+        "supabase_pg_active": True,
+    }
+    secure_codes = {
+        w["code"]
+        for w in server._build_operational_warnings(
+            secure_ph, clean_metrics, clean_fresh
+        )
+    }
+    assert "UNSIGNED_AUTH_ENABLED" not in secure_codes
+    assert "AUTH_SECRET_MISSING_OR_WEAK" not in secure_codes
+    assert "EPHEMERAL_APP_STORAGE" not in secure_codes
 
 
 def test_http_error_classification_categories():
