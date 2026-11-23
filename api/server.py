@@ -1709,6 +1709,22 @@ def list_agro_field_assessments_endpoint(
     return {"count": len(items), "assessments": items}
 
 
+@app.delete("/api/v1/agro/field-assessment/{assessment_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def delete_agro_field_assessment_endpoint(
+    assessment_id: str,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    assess_store: AgroFieldAssessmentStore = Depends(get_agro_assessment_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Suppression diagnostic Agronome PRO")
+    try:
+        assess_store.delete_assessment(owner_id, assessment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True, "id": assessment_id}
+
+
 @app.post("/api/v1/agro/field-assessment/{assessment_id}/pdf", dependencies=[Depends(_chat_rate_limit_dependency)])
 def agro_field_assessment_pdf_endpoint(
     assessment_id: str,

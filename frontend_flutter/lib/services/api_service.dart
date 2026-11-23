@@ -791,6 +791,17 @@ class ApiService {
         _extractErrorDetail(resp, 'Génération du PDF agronomique refusée'));
   }
 
+  Future<void> deleteAgroFieldAssessment(String assessmentId) async {
+    final uri =
+        Uri.parse('$baseUrl/api/v1/agro/field-assessment/$assessmentId');
+    final resp = await _client
+        .delete(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode == 200) return;
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Suppression du diagnostic impossible'));
+  }
+
   Future<Map<String, dynamic>> compareAgroAssessments({
     List<String> assessmentIds = const [],
     List<Map<String, dynamic>> candidates = const [],

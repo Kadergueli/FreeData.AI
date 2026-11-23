@@ -501,6 +501,76 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     }
   }
 
+  void _openSavedAssessment(Map<String, dynamic> item) {
+    final scores = item['computed_scores'] is Map
+        ? Map<String, dynamic>.from(item['computed_scores'] as Map)
+        : const <String, dynamic>{};
+    final area = (item['area_hectares'] as num?)?.toDouble();
+    final hasArea = area != null && area > 0;
+    setState(() {
+      _result = {
+        'assessment': item,
+        'qa': {
+          'can_deliver_pdf': hasArea,
+          'blocking_reasons': hasArea
+              ? const <String>[]
+              : const <String>['Superficie parcellaire manquante.'],
+          'has_lab_measurements': scores['has_lab_measurements'] == true,
+        },
+      };
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            'Diagnostic ${item['report_verification_code'] ?? ''} ouvert pour lecture.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteAssessment(Map<String, dynamic> item) async {
+    final code = item['report_verification_code']?.toString() ?? '';
+    final id = item['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer ce diagnostic ?'),
+        content: Text(
+            'Voulez-vous supprimer définitivement le diagnostic $code (${item['province_hub'] ?? ''}) ?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Annuler')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await widget.apiService.deleteAgroFieldAssessment(id);
+      if (!mounted) return;
+      setState(() {
+        _history = _history.where((e) => e['id']?.toString() != id).toList();
+        if (_result?['assessment']?['id']?.toString() == id) {
+          _result = null;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Diagnostic $code supprimé.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
   Future<void> _downloadPdf(String assessmentId, String code) async {
     if (_downloadingPdf) return;
     setState(() => _downloadingPdf = true);
@@ -1519,12 +1589,13 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      ..._history.take(8).map((item) {
+                      ..._history.take(15).map((item) {
                         final code =
                             item['report_verification_code']?.toString() ?? '';
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
+                          onTap: () => _openSavedAssessment(item),
                           title: Text(
                             '${item['province_hub']} · Code $code',
                             style: const TextStyle(fontWeight: FontWeight.w600),
@@ -1534,10 +1605,25 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             style: const TextStyle(
                                 fontSize: 12, color: AppColors.muted),
                           ),
-                          trailing: TextButton(
-                            onPressed: () =>
-                                _downloadPdf(item['id'].toString(), code),
-                            child: const Text('PDF'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextButton(
+                                onPressed: () => _openSavedAssessment(item),
+                                child: const Text('Ouvrir'),
+                              ),
+                              TextButton(
+                                onPressed: () =>
+                                    _downloadPdf(item['id'].toString(), code),
+                                child: const Text('PDF'),
+                              ),
+                              IconButton(
+                                tooltip: 'Supprimer ce diagnostic',
+                                icon: const Icon(Icons.delete_outline_rounded,
+                                    size: 19, color: AppColors.danger),
+                                onPressed: () => _confirmDeleteAssessment(item),
+                              ),
+                            ],
                           ),
                         );
                       }),

@@ -154,6 +154,20 @@ class AgroFieldAssessmentStore:
             raise KeyError("Diagnostic de terrain introuvable ou accès non autorisé.")
         return self._row_to_dict(row)
 
+    def delete_assessment(self, owner_id: str, assessment_id: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM table_agro_field_assessments WHERE id = ? AND owner_id = ?",
+                (assessment_id, owner_id),
+            ).fetchone()
+            if not row:
+                raise KeyError("Diagnostic de terrain introuvable ou accès non autorisé.")
+            conn.execute(
+                "DELETE FROM table_agro_field_assessments WHERE id = ? AND owner_id = ?",
+                (assessment_id, owner_id),
+            )
+        return True
+
     def list_assessments(
         self,
         owner_id: str,
