@@ -50,7 +50,9 @@ void main() {
     expect(prefs.getString(kAuthTokenStorageKey), isNull);
   });
 
-  test('does not overwrite an existing secure token during migration', () async {
+  test(
+      'does not overwrite an existing secure token during migration',
+      () async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kAuthTokenStorageKey, 'legacy-token');
     final secure = MemoryAuthTokenStorage()..token = 'current-secure-token';
