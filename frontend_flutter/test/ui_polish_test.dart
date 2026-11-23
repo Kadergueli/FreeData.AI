@@ -812,6 +812,8 @@ void main() {
     // est ainsi testé indépendamment du cycle de vie de l'écran précédent.
     final unlockedForecastApi = _ReducedForecastFakeApi()
       ..setRuntimePremiumKey('FD-RENDER-SECRET-2026');
+    expect(unlockedForecastApi.activePremiumKey, 'FD-RENDER-SECRET-2026');
+    expect(unlockedForecastApi.hasPremiumKey, isTrue);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
