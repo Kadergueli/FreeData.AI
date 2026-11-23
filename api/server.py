@@ -62,6 +62,7 @@ from src.market_pro import (
     build_validated_forecasts_overview,
     compute_agro_credit_passport,
     compute_campaign_investment_plan,
+    compute_farm_operating_account,
     compute_inter_province_arbitrage,
     compute_spatial_arbitrage_detailed,
     evaluate_watchlists,
@@ -2087,6 +2088,54 @@ def markets_campaign_plan_endpoint(
             storage_per_bag_month_xaf=payload.storage_per_bag_month_xaf,
             bag_cost_xaf=payload.bag_cost_xaf,
             loss_pct=payload.loss_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class FarmOperatingAccountRequest(BaseModel):
+    province: str = Field(..., min_length=2, max_length=80)
+    crop_id: str = Field(..., min_length=2, max_length=40)
+    area_hectares: float = Field(..., gt=0, le=500_000)
+    target_yield_kg_ha: Optional[float] = Field(None, gt=0, le=50_000)
+    farmgate_discount_pct: float = Field(8.0, ge=0.0, le=50.0)
+    seed_cost_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    fertilizer_cost_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    labor_cost_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    land_prep_irrigation_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    harvest_postharvest_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    other_opex_per_ha_xaf: float = Field(0.0, ge=0.0, le=50_000_000)
+    capex_total_xaf: float = Field(0.0, ge=0.0, le=5_000_000_000)
+    loan_amount_xaf: float = Field(0.0, ge=0.0, le=5_000_000_000)
+    interest_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
+
+
+@app.post("/api/v1/markets/farm-operating-account", dependencies=[Depends(_data_rate_limit_dependency)])
+def markets_farm_operating_account_endpoint(
+    payload: FarmOperatingAccountRequest,
+    state: dict = Depends(get_state),
+):
+    """Compte d'exploitation agricole prévisionnel (OPEX/CAPEX saisis + prix WFP/FEWS NET vérifiés)."""
+    try:
+        return compute_farm_operating_account(
+            province=payload.province,
+            crop_id=payload.crop_id,
+            area_hectares=payload.area_hectares,
+            hist_df=state.get("hist_df"),
+            forecast_df=state.get("forecast_df"),
+            track_record=state.get("track_record"),
+            national_agro_rows=state.get("agro_national_rows") or [],
+            target_yield_kg_ha=payload.target_yield_kg_ha,
+            farmgate_discount_pct=payload.farmgate_discount_pct,
+            seed_cost_per_ha_xaf=payload.seed_cost_per_ha_xaf,
+            fertilizer_cost_per_ha_xaf=payload.fertilizer_cost_per_ha_xaf,
+            labor_cost_per_ha_xaf=payload.labor_cost_per_ha_xaf,
+            land_prep_irrigation_per_ha_xaf=payload.land_prep_irrigation_per_ha_xaf,
+            harvest_postharvest_per_ha_xaf=payload.harvest_postharvest_per_ha_xaf,
+            other_opex_per_ha_xaf=payload.other_opex_per_ha_xaf,
+            capex_total_xaf=payload.capex_total_xaf,
+            loan_amount_xaf=payload.loan_amount_xaf,
+            interest_rate_pct=payload.interest_rate_pct,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

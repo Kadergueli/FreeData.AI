@@ -5,6 +5,7 @@ import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'analytics_screen.dart';
 import 'campaign_plan_screen.dart';
+import 'farm_operating_account_screen.dart';
 import 'forecast_screen.dart';
 import 'passport_screen.dart';
 
@@ -33,7 +34,7 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -133,6 +134,10 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                           text: 'Plan Campagne',
                         ),
                         const Tab(
+                          icon: Icon(Icons.assessment_outlined, size: 18),
+                          text: 'Exploitation',
+                        ),
+                        const Tab(
                           icon: Icon(Icons.shield_outlined, size: 18),
                           text: 'Credit Passport',
                         ),
@@ -161,6 +166,7 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                   onSelectPrompt: widget.onSelectPrompt,
                 ),
                 CampaignPlanScreen(apiService: widget.apiService),
+                FarmOperatingAccountScreen(apiService: widget.apiService),
                 PassportScreen(
                   apiService: widget.apiService,
                   onSelectPrompt: widget.onSelectPrompt,

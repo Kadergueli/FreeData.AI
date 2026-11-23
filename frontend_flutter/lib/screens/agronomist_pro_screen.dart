@@ -8,6 +8,7 @@ import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../widgets/auth_dialog.dart';
 import 'account_screen.dart';
+import 'farm_operating_account_screen.dart';
 
 /// Espace Agronome PRO — Diagnostic de terrain (pré-achat) & Rapport PDF co-brandé.
 class AgronomistProScreen extends StatefulWidget {
@@ -1942,6 +1943,65 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 icon: Icons.account_balance_outlined,
                 onPressed: () => _openCreditPassportFromAssessment(
                     assessment['id'].toString()),
+              ),
+              FDSecondaryButton(
+                label: 'Compte d’Exploitation',
+                icon: Icons.assessment_outlined,
+                onPressed: () {
+                  final prov = assessment['province']?.toString() ??
+                      assessment['province_hub']?.toString() ??
+                      _hub;
+                  final topId = crops.isNotEmpty
+                      ? crops.first['crop_id']?.toString()
+                      : null;
+                  final areaVal =
+                      (assessment['area_hectares'] as num?)?.toDouble() ?? 2.0;
+                  final discVal =
+                      (gps['farmgate_discount_pct'] as num?)?.toDouble() ?? 8.0;
+                  showDialog<void>(
+                    context: context,
+                    builder: (ctx) => Dialog(
+                      insetPadding: const EdgeInsets.all(16),
+                      child: ConstrainedBox(
+                        constraints:
+                            const BoxConstraints(maxWidth: 960, maxHeight: 760),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+                              child: Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Simulateur Compte d’Exploitation (OPEX / CAPEX)',
+                                      style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w800),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    icon: const Icon(Icons.close_rounded),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            Expanded(
+                              child: FarmOperatingAccountScreen(
+                                apiService: widget.apiService,
+                                initialProvince: prov,
+                                initialCropId: topId,
+                                initialAreaHectares: areaVal,
+                                initialDiscountPct: discVal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
               if (widget.onAskAssistant != null)
                 FDSecondaryButton(

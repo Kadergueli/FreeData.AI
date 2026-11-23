@@ -861,6 +861,54 @@ class ApiService {
 
   // --- Marché PRO : Watchlists, Arbitrage & Export CSV ---------------------
 
+  Future<Map<String, dynamic>> computeFarmOperatingAccount({
+    required String province,
+    required String cropId,
+    required double areaHectares,
+    double? targetYieldKgHa,
+    double farmgateDiscountPct = 8.0,
+    double seedCostPerHaXaf = 0,
+    double fertilizerCostPerHaXaf = 0,
+    double laborCostPerHaXaf = 0,
+    double landPrepIrrigationPerHaXaf = 0,
+    double harvestPostharvestPerHaXaf = 0,
+    double otherOpexPerHaXaf = 0,
+    double capexTotalXaf = 0,
+    double loanAmountXaf = 0,
+    double interestRatePct = 0,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/markets/farm-operating-account');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'province': province,
+            'crop_id': cropId,
+            'area_hectares': areaHectares,
+            if (targetYieldKgHa != null && targetYieldKgHa > 0)
+              'target_yield_kg_ha': targetYieldKgHa,
+            'farmgate_discount_pct': farmgateDiscountPct,
+            'seed_cost_per_ha_xaf': seedCostPerHaXaf,
+            'fertilizer_cost_per_ha_xaf': fertilizerCostPerHaXaf,
+            'labor_cost_per_ha_xaf': laborCostPerHaXaf,
+            'land_prep_irrigation_per_ha_xaf': landPrepIrrigationPerHaXaf,
+            'harvest_postharvest_per_ha_xaf': harvestPostharvestPerHaXaf,
+            'other_opex_per_ha_xaf': otherOpexPerHaXaf,
+            'capex_total_xaf': capexTotalXaf,
+            'loan_amount_xaf': loanAmountXaf,
+            'interest_rate_pct': interestRatePct,
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Calcul compte d\'exploitation impossible'));
+  }
+
   Future<Map<String, dynamic>> computeCampaignPlan({
     required double capitalXaf,
     required String originProvince,

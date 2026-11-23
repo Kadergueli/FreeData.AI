@@ -832,3 +832,185 @@ def compute_campaign_investment_plan(
         "license": "CC BY-IGO 3.0 / Attribution Required (FreeData.td)",
     }
 
+
+def compute_farm_operating_account(
+    *,
+    province: str,
+    crop_id: str,
+    area_hectares: float,
+    hist_df: Any,
+    forecast_df: Any,
+    track_record: Optional[dict[str, Any]] = None,
+    national_agro_rows: Optional[list[dict[str, Any]]] = None,
+    target_yield_kg_ha: Optional[float] = None,
+    farmgate_discount_pct: float = 8.0,
+    seed_cost_per_ha_xaf: float = 0.0,
+    fertilizer_cost_per_ha_xaf: float = 0.0,
+    labor_cost_per_ha_xaf: float = 0.0,
+    land_prep_irrigation_per_ha_xaf: float = 0.0,
+    harvest_postharvest_per_ha_xaf: float = 0.0,
+    other_opex_per_ha_xaf: float = 0.0,
+    capex_total_xaf: float = 0.0,
+    loan_amount_xaf: float = 0.0,
+    interest_rate_pct: float = 0.0,
+) -> dict[str, Any]:
+    """Compte d'exploitation agricole (OPEX/CAPEX saisis + prix WFP/FEWS NET vérifiés)."""
+    from src.agro_indicators import HUB_PROVINCE, canonical_region, national_indicator_key
+
+    cid = _normalize_crop_id(crop_id)
+    meta = SUPPORTED_AGRO_CROPS[cid]
+    comm = meta["commodity_std"]
+
+    hub = canonical_region(province)
+    prov_name = HUB_PROVINCE.get(hub, province) if (hub and hub != "national") else province.strip()
+    area = max(0.01, float(area_hectares))
+    disc_ratio = max(0.0, min(0.5, float(farmgate_discount_pct) / 100.0))
+
+    # Rendement : saisi par l'opérateur ou proxy World Bank 2020-2024
+    yield_is_proxy = not (target_yield_kg_ha is not None and target_yield_kg_ha > 0)
+    if not yield_is_proxy:
+        y_ha = float(target_yield_kg_ha)
+        y_source = "Rendement cible saisi par l'opérateur / agronome"
+    else:
+        wb_vals = [
+            float(r["value"])
+            for r in (national_agro_rows or [])
+            if national_indicator_key(r["indicator"]) == "cereal_yield" and 2020 <= int(r["reference_date"][:4]) <= 2024
+        ]
+        y_ha = round(sum(wb_vals) / len(wb_vals), 1) if wb_vals else 834.6
+        y_source = f"Proxy céréalier national World Bank 2020–2024 ({y_ha:.1f} kg/ha)"
+
+    production_kg = round(area * y_ha, 1)
+
+    # OPEX & CAPEX
+    opex_items = {
+        "Semences": max(0.0, float(seed_cost_per_ha_xaf)),
+        "Engrais & intrants": max(0.0, float(fertilizer_cost_per_ha_xaf)),
+        "Main-d'œuvre": max(0.0, float(labor_cost_per_ha_xaf)),
+        "Préparation sol & irrigation": max(0.0, float(land_prep_irrigation_per_ha_xaf)),
+        "Récolte & sacs": max(0.0, float(harvest_postharvest_per_ha_xaf)),
+        "Autres frais": max(0.0, float(other_opex_per_ha_xaf)),
+    }
+    opex_per_ha = round(sum(opex_items.values()), 1)
+    opex_total = round(opex_per_ha * area)
+    capex_total = round(max(0.0, float(capex_total_xaf)))
+    total_investment = opex_total + capex_total
+
+    loan_val = max(0.0, float(loan_amount_xaf))
+    rate_val = max(0.0, float(interest_rate_pct))
+    debt_service = round(loan_val * (1.0 + rate_val / 100.0))
+
+    # Prix vérifiés (WFP/FEWS NET + ML t+1)
+    stress_px: Optional[float] = None
+    central_px: Optional[float] = None
+    storage_px: Optional[float] = None
+    if hist_df is not None and not getattr(hist_df, "empty", True):
+        h_comm = hist_df[hist_df["commodity_std"] == comm]
+        h_prov = h_comm[h_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in h_comm.columns else h_comm
+        h_scope = h_prov if not h_prov.empty else h_comm
+        if not h_scope.empty and "value" in h_scope.columns and not h_scope["value"].dropna().empty:
+            storage_px = round(float(h_scope["value"].dropna().median()), 1)
+            if "year_month" in h_scope.columns:
+                recent = h_scope[h_scope["year_month"].astype(str) >= "2024-01"]
+                if not recent.empty and not recent["value"].dropna().empty:
+                    stress_px = round(float(recent["value"].dropna().min()), 1)
+            if stress_px is None:
+                stress_px = round(float(h_scope["value"].dropna().min()), 1)
+
+    if forecast_df is not None and not getattr(forecast_df, "empty", True):
+        f_comm = forecast_df[forecast_df["commodity_std"] == comm]
+        f_prov = f_comm[f_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in f_comm.columns else f_comm
+        f_scope = f_prov if not f_prov.empty else f_comm
+        if not f_scope.empty and "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
+            central_px = round(float(f_scope["forecast_t1"].dropna().mean()), 1)
+
+    if central_px is not None and stress_px is not None:
+        stress_px = min(stress_px, central_px)
+
+    def _build_pnl(sid: str, label: str, mkt_px: Optional[float]) -> dict[str, Any]:
+        if mkt_px is None or mkt_px <= 0:
+            return {
+                "id": sid,
+                "label": label,
+                "market_price_xaf_kg": None,
+                "farmgate_price_xaf_kg": None,
+                "gross_revenue_xaf": None,
+                "ebitda_margin_xaf": None,
+                "net_profit_after_capex_xaf": None,
+                "roi_on_opex_pct": None,
+                "roi_on_total_pct": None,
+                "dscr": None,
+            }
+        fg_px = round(mkt_px * (1.0 - disc_ratio), 1)
+        ca = round(production_kg * fg_px)
+        ebitda = round(ca - opex_total)
+        net_after_capex = round(ca - total_investment)
+        roi_opex = round((ebitda / opex_total) * 100.0, 1) if opex_total > 0 else None
+        roi_total = round((net_after_capex / total_investment) * 100.0, 1) if total_investment > 0 else None
+        dscr = round(ebitda / debt_service, 2) if debt_service > 0 else None
+        return {
+            "id": sid,
+            "label": label,
+            "market_price_xaf_kg": round(mkt_px, 1),
+            "farmgate_price_xaf_kg": fg_px,
+            "gross_revenue_xaf": ca,
+            "ebitda_margin_xaf": ebitda,
+            "net_profit_after_capex_xaf": net_after_capex,
+            "roi_on_opex_pct": roi_opex,
+            "roi_on_total_pct": roi_total,
+            "dscr": dscr,
+        }
+
+    scenarios = [
+        _build_pnl("stress_floor", "Plancher Stress (min. 2024–2026)", stress_px),
+        _build_pnl("central_ml", "Scénario Central (Prévision ML t+1)", central_px),
+        _build_pnl("storage_median", "Médiane Historique (Stockage)", storage_px),
+    ]
+
+    be_opex_px = round(opex_total / production_kg, 1) if production_kg > 0 else None
+    be_total_px = round(total_investment / production_kg, 1) if production_kg > 0 else None
+    central_fg = scenarios[1].get("farmgate_price_xaf_kg")
+    be_yield_ha = round((opex_per_ha / central_fg), 1) if (central_fg and central_fg > 0 and opex_per_ha > 0) else None
+
+    rec_tr = (track_record or {}).get(comm) or {}
+    mape = rec_tr.get("mape_pct") if rec_tr.get("mape_pct") is not None else rec_tr.get("MAPE_pct")
+
+    notes: list[str] = []
+    if opex_total == 0 and capex_total == 0:
+        notes.append("Aucun coût OPEX/CAPEX saisi : renseignez vos coûts réels (semences, engrais, main-d'œuvre, aménagement) pour obtenir la marge nette.")
+    if yield_is_proxy:
+        notes.append(f"Rendement basé sur le proxy céréalier national World Bank ({y_ha:.1f} kg/ha) : saisir un rendement parcellaire cible pour un dossier investisseur.")
+    if isinstance(mape, (int, float)):
+        notes.append(f"Incertitude prix ML hors-temps : ±{round(float(mape), 1)}% MAPE historique sur {meta['label_fr']}.")
+
+    return {
+        "province": prov_name,
+        "crop_id": cid,
+        "commodity_std": comm,
+        "label_fr": meta["label_fr"],
+        "area_hectares": round(area, 2),
+        "yield_kg_ha": round(y_ha, 1),
+        "yield_source": y_source,
+        "yield_is_proxy": yield_is_proxy,
+        "production_kg": production_kg,
+        "farmgate_discount_pct": round(float(farmgate_discount_pct), 1),
+        "opex_per_ha_xaf": opex_per_ha,
+        "opex_total_xaf": opex_total,
+        "opex_breakdown": [
+            {"category": k, "per_ha_xaf": round(v), "total_xaf": round(v * area)}
+            for k, v in opex_items.items()
+            if v > 0
+        ],
+        "capex_total_xaf": capex_total,
+        "total_investment_xaf": total_investment,
+        "loan_amount_xaf": round(loan_val),
+        "debt_service_xaf": debt_service,
+        "breakeven_price_opex_xaf_kg": be_opex_px,
+        "breakeven_price_total_xaf_kg": be_total_px,
+        "breakeven_yield_kg_ha": be_yield_ha,
+        "scenarios": scenarios,
+        "investor_readiness_notes": notes,
+        "sources": ["WFP", "FEWS NET", "World Bank"],
+        "license": "CC BY-IGO 3.0 / CC BY 4.0 / Attribution Required (FreeData.td)",
+    }
+
