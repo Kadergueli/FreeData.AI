@@ -1052,8 +1052,7 @@ void main() {
     await _attachApiToPersistedAnonymousWorkspace(api);
     await LocalConversationStorage.instance.saveAll([conv]);
 
-    await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: api)));
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
     expect(find.text('Question unique'), findsOneWidget);
 
