@@ -4683,12 +4683,26 @@ def _build_operational_warnings(
             "code": "STALE_MARKET_DATA",
             "message": f"Données marché non fraîches (statut : {freshness.get('freshness_status')}).",
         })
-    if os.getenv("RENDER") and not providers_health.get("require_signed_user_auth"):
-        warnings.append({
-            "severity": "high",
-            "code": "UNSIGNED_AUTH_ENABLED",
-            "message": "REQUIRE_SIGNED_USER_AUTH=1 n'est pas activé sur Render.",
-        })
+    if os.getenv("RENDER"):
+        strict_auth = bool(providers_health.get("require_signed_user_auth"))
+        if not strict_auth:
+            warnings.append({
+                "severity": "high",
+                "code": "UNSIGNED_AUTH_ENABLED",
+                "message": "REQUIRE_SIGNED_USER_AUTH=1 n'est pas activé sur Render.",
+            })
+        elif len(os.getenv("AUTH_SECRET", "").strip()) < 32:
+            warnings.append({
+                "severity": "high",
+                "code": "AUTH_SECRET_MISSING_OR_WEAK",
+                "message": "AUTH_SECRET absent ou trop court : définir un secret aléatoire d'au moins 32 caractères.",
+            })
+        if not providers_health.get("supabase_pg_active"):
+            warnings.append({
+                "severity": "high",
+                "code": "EPHEMERAL_APP_STORAGE",
+                "message": "SUPABASE_DB_URL absent : les données applicatives utilisent SQLite local et risquent d'être perdues au redéploiement.",
+            })
     return warnings
 
 
