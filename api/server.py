@@ -30,7 +30,7 @@ from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
 from src.freshness import assess_dataset_freshness, filter_fresh
 from src.reports import build_market_study_dossier, render_market_study_pdf
-from src.reports.jobs import ReportJobManager
+from src.reports.jobs import ReportJobManager, ReportJobQueueFull
 from src.anomalies import detect_anomalies, recent_anomalies
 from src.season_study import StudyBook, study_markdown, with_storage_cost
 from src.study_context import StudyContext
@@ -2606,7 +2606,14 @@ def create_report_job_endpoint(
             "version_number": ver_info.get("version_number"),
         }
 
-    return jobs.submit(owner_id, _task)
+    try:
+        return jobs.submit(owner_id, _task)
+    except ReportJobQueueFull as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
 
 
 @app.get("/api/v1/reports/jobs/{job_id}", dependencies=[Depends(_data_rate_limit_dependency)])
