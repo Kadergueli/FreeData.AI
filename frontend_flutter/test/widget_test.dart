@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freedata_ai/main.dart';
+import 'package:freedata_ai/services/auth_token_storage.dart';
+import 'helpers/memory_auth_token_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    AuthTokenStorage.setBackendForTesting(MemoryAuthTokenStorage());
     SharedPreferences.setMockInitialValues({});
   });
 
