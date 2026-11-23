@@ -271,6 +271,24 @@ class AuthStore:
             updated = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
         return self._public_user(updated)
 
+    def prepare_account_deletion(self, user_id: str, *, password: str) -> bool:
+        """Verify the password and invalidate every existing session before data purging."""
+        clean = (user_id or "").strip().removeprefix("user:")
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM user_accounts WHERE user_id = ?", (clean,)).fetchone()
+            if not row:
+                raise KeyError("Compte introuvable.")
+            actual = _hash_password(password or "", row["password_salt"])
+            if not hmac.compare_digest(row["password_hash"], actual):
+                raise PermissionError("Mot de passe incorrect.")
+            # A future cutoff also handles tokens issued in the same second as this operation.
+            cutoff = max(int(time.time()) + 1, int(row["tokens_valid_after"] or 0) + 1)
+            conn.execute(
+                "UPDATE user_accounts SET tokens_valid_after = ? WHERE user_id = ?",
+                (cutoff, clean),
+            )
+        return True
+
     def delete_account(self, user_id: str, *, password: str) -> bool:
         clean = (user_id or "").strip().removeprefix("user:")
         with self._connect() as conn:
