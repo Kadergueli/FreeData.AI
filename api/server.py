@@ -3944,6 +3944,12 @@ def auth_delete_account_endpoint(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     sub_id, tok = _require_bearer_user_id(authorization, auth_store)
+    # Keep direct service-level invocation (outside FastAPI dependency injection)
+    # safe by resolving the same stores when their Depends placeholders are present.
+    if not callable(getattr(doc_store, "purge_owner", None)):
+        doc_store = get_user_document_store()
+    if not callable(getattr(sub_store, "purge_user", None)):
+        sub_store = get_subscription_store()
     try:
         # Password verification and a per-account cutoff happen before any purge.
         # This immediately invalidates sessions on every device while preserving
