@@ -16,7 +16,9 @@ import 'package:freedata_ai/screens/forecast_screen.dart';
 import 'package:freedata_ai/screens/library_screen.dart';
 import 'package:freedata_ai/screens/passport_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
+import 'package:freedata_ai/services/auth_token_storage.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
+import 'helpers/memory_auth_token_storage.dart';
 import 'package:freedata_ai/widgets/chat/assistant_message.dart';
 import 'package:freedata_ai/widgets/chat/data_cards.dart';
 import 'package:freedata_ai/widgets/chat/loading_indicator.dart';
@@ -87,6 +89,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    AuthTokenStorage.setBackendForTesting(MemoryAuthTokenStorage());
     SharedPreferences.setMockInitialValues({});
     LocalConversationStorage.instance.attachCloudApi(null);
   });
