@@ -53,15 +53,34 @@ class LocalConversationStorage implements ConversationRepository {
           '';
       final email = user['email']?.toString().trim().toLowerCase() ?? '';
       final token = api.authToken?.trim() ?? '';
+      final tokenSubject = _tokenSubject(token);
       final identity = id.isNotEmpty
           ? 'id:$id'
-          : email.isNotEmpty
-              ? 'email:$email'
-              : 'token:$token';
+          : tokenSubject != null
+              ? 'id:$tokenSubject'
+              : email.isNotEmpty
+                  ? 'email:$email'
+                  : 'token:$token';
       return '${_scopedStoragePrefix}_account_${_scopeHash(identity)}';
     }
 
     return '${_scopedStoragePrefix}_anonymous_${_scopeHash(api.userId)}';
+  }
+
+  static String? _tokenSubject(String token) {
+    final separator = token.indexOf('.');
+    if (separator <= 0) return null;
+    try {
+      final encodedPayload = token.substring(0, separator);
+      final payloadBytes =
+          base64Url.decode(base64Url.normalize(encodedPayload));
+      final payload = jsonDecode(utf8.decode(payloadBytes));
+      final subject =
+          payload is Map ? payload['sub']?.toString().trim() ?? '' : '';
+      return subject.isEmpty ? null : subject;
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _scopeHash(String value) {
@@ -99,9 +118,14 @@ class LocalConversationStorage implements ConversationRepository {
 
   Future<List<ConversationThread>> syncWithCloud(ApiService api) async {
     if (!api.isAuthenticated) return loadConversations();
-    final localAll = await _loadInternal(includeDeleted: true);
+    final key = activeStorageKey;
+    final localAll = await _loadInternal(
+      includeDeleted: true,
+      storageKeyOverride: key,
+    );
     final mergedRaw = await api
         .syncCloudConversations(localAll.map((c) => c.toJson()).toList());
+    if (activeStorageKey != key) return loadConversations();
     final mergedThreads = <ConversationThread>[];
     for (final raw in mergedRaw) {
       try {
@@ -109,8 +133,8 @@ class LocalConversationStorage implements ConversationRepository {
         if (t.messages.isNotEmpty) mergedThreads.add(t);
       } catch (_) {}
     }
-    await saveAll(mergedThreads);
-    return loadConversations();
+    await _saveAllInternal(mergedThreads, storageKeyOverride: key);
+    return _loadInternal(storageKeyOverride: key);
   }
 
   Future<T> _synchronized<T>(Future<T> Function() action) {
@@ -133,10 +157,12 @@ class LocalConversationStorage implements ConversationRepository {
     return completer.future;
   }
 
-  Future<List<ConversationThread>> _loadInternal(
-      {bool includeDeleted = false}) async {
+  Future<List<ConversationThread>> _loadInternal({
+    bool includeDeleted = false,
+    String? storageKeyOverride,
+  }) async {
+    final key = storageKeyOverride ?? activeStorageKey;
     final prefs = await SharedPreferences.getInstance();
-    final key = activeStorageKey;
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return [];
 
@@ -155,7 +181,11 @@ class LocalConversationStorage implements ConversationRepository {
     }
   }
 
-  Future<void> _saveAllInternal(List<ConversationThread> threads) async {
+  Future<void> _saveAllInternal(
+    List<ConversationThread> threads, {
+    String? storageKeyOverride,
+  }) async {
+    final key = storageKeyOverride ?? activeStorageKey;
     final prefs = await SharedPreferences.getInstance();
     final nonEmpty = threads.where((c) => c.messages.isNotEmpty).toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -171,7 +201,7 @@ class LocalConversationStorage implements ConversationRepository {
       ...others.take(remainingSlots),
     ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final payload = kept.map((c) => c.toJson()).toList();
-    await prefs.setString(activeStorageKey, jsonEncode(payload));
+    await prefs.setString(key, jsonEncode(payload));
   }
 
   @override
