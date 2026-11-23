@@ -205,3 +205,22 @@ def test_auth_refresh_revokes_old_token_and_strict_401_message(tmp_path, monkeyp
         )
     assert exc_revoked.value.status_code == 401
 
+
+
+def test_owner_resolution_fails_closed_when_account_registry_is_unavailable(monkeypatch):
+    """A DB outage must never turn a registered account ID into a writable user namespace."""
+    monkeypatch.delenv("REQUIRE_SIGNED_USER_AUTH", raising=False)
+
+    def unavailable_auth_store():
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(server, "get_auth_store", unavailable_auth_store)
+    uid = "u" + "a" * 32
+
+    with pytest.raises(HTTPException) as direct:
+        server._is_registered_account_id(uid)
+    assert direct.value.status_code == 503
+
+    with pytest.raises(HTTPException) as resolved:
+        server._resolve_owner_id_optional(x_user_id=uid, x_premium_key=None, authorization=None)
+    assert resolved.value.status_code == 503
