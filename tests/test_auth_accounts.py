@@ -112,3 +112,105 @@ def test_active_pro_subscription_grants_pro_access_without_premium_key(tmp_path,
     assert billing["is_pro"] is True
     assert billing["quotas"]["monthly_pdf"]["limit"] == 50
 
+def test_account_deletion_invalidates_all_sessions_before_any_purge(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTH_SECRET", "account-delete-test-secret-123456789")
+    monkeypatch.setenv("REQUIRE_SIGNED_USER_AUTH", "1")
+    auth_store = AuthStore(db_path=str(tmp_path / "auth.db"))
+    user = auth_store.register("delete@example.td", "StrongPassword123!", "Delete User")
+    first = auth_store.issue_session(user)["token"]
+    second = auth_store.issue_session(user)["token"]
+
+    assert auth_store.prepare_account_deletion(
+        user["user_id"], password="StrongPassword123!"
+    ) is True
+    assert auth_store.is_token_stale(first, user["user_id"])
+    assert auth_store.is_token_stale(second, user["user_id"])
+    assert auth_store.get_user(user["user_id"]) is not None
+
+    with pytest.raises(PermissionError):
+        auth_store.prepare_account_deletion(
+            user["user_id"], password="wrong-password"
+        )
+    assert auth_store.get_user(user["user_id"]) is not None
+
+
+def test_account_deletion_keeps_account_when_a_data_purge_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTH_SECRET", "account-delete-test-secret-123456789")
+    monkeypatch.setenv("REQUIRE_SIGNED_USER_AUTH", "1")
+    auth_store = AuthStore(db_path=str(tmp_path / "auth.db"))
+    user = auth_store.register("retry-delete@example.td", "StrongPassword123!", "Retry User")
+    token = auth_store.issue_session(user)["token"]
+
+    class PurgeStore:
+        def purge_owner(self, owner_id):
+            assert owner_id == f"user:{user['user_id']}"
+            return 0
+
+    class BillingStore:
+        def purge_user(self, owner_id):
+            assert owner_id == f"user:{user['user_id']}"
+            return 0
+
+    class FailingProjectStore:
+        def purge_owner(self, owner_id):
+            raise OSError("artifact volume unavailable")
+
+    purge_store = PurgeStore()
+    monkeypatch.setattr(server, "get_support_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_agro_assessment_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_agro_profile_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_market_watch_store", lambda: purge_store)
+
+    with pytest.raises(HTTPException) as exc:
+        server.auth_delete_account_endpoint(
+            server.AuthDeleteAccountRequest(password="StrongPassword123!"),
+            authorization=f"Bearer {token}",
+            auth_store=auth_store,
+            conv_store=purge_store,
+            project_store=FailingProjectStore(),
+            doc_store=purge_store,
+            sub_store=BillingStore(),
+        )
+    assert exc.value.status_code == 503
+    assert auth_store.get_user(user["user_id"]) is not None
+    with pytest.raises(HTTPException) as stale:
+        server._require_bearer_user_id(f"Bearer {token}", auth_store)
+    assert stale.value.status_code == 401
+
+
+def test_account_deletion_removes_account_only_after_all_purges(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTH_SECRET", "account-delete-test-secret-123456789")
+    monkeypatch.setenv("REQUIRE_SIGNED_USER_AUTH", "1")
+    auth_store = AuthStore(db_path=str(tmp_path / "auth.db"))
+    user = auth_store.register("complete-delete@example.td", "StrongPassword123!", "Complete User")
+    token = auth_store.issue_session(user)["token"]
+    calls = []
+
+    class PurgeStore:
+        def purge_owner(self, owner_id):
+            calls.append(("owner", owner_id))
+            return 0
+
+    class BillingStore:
+        def purge_user(self, owner_id):
+            calls.append(("billing", owner_id))
+            return 0
+
+    purge_store = PurgeStore()
+    monkeypatch.setattr(server, "get_support_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_agro_assessment_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_agro_profile_store", lambda: purge_store)
+    monkeypatch.setattr(server, "get_market_watch_store", lambda: purge_store)
+
+    result = server.auth_delete_account_endpoint(
+        server.AuthDeleteAccountRequest(password="StrongPassword123!"),
+        authorization=f"Bearer {token}",
+        auth_store=auth_store,
+        conv_store=purge_store,
+        project_store=purge_store,
+        doc_store=purge_store,
+        sub_store=BillingStore(),
+    )
+    assert result == {"deleted": True}
+    assert auth_store.get_user(user["user_id"]) is None
+    assert len(calls) == 8
