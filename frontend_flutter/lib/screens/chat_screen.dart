@@ -11,6 +11,7 @@ import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/chat/chat_widgets.dart';
+import '../core/utils/error_text.dart';
 
 class ChatScreen extends StatefulWidget {
   final ApiService apiService;
@@ -160,7 +161,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (e is TimeoutException) {
       return 'Envoi trop long (réseau lent). Réessayez avec une meilleure connexion ou un fichier plus léger.';
     }
-    final msg = e.toString().replaceFirst('Exception: ', '');
+    final msg = errText(e);
     if (msg.contains('SocketException') ||
         msg.contains('ClientException') ||
         msg.contains('Failed to fetch')) {
@@ -293,7 +294,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(e.toString())));
+        ..showSnackBar(SnackBar(content: Text(errText(e))));
     }
   }
 
@@ -1035,7 +1036,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(e.toString())));
+        ..showSnackBar(SnackBar(content: Text(errText(e))));
     }
   }
 

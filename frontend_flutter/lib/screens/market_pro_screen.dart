@@ -5,6 +5,7 @@ import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
+import '../core/utils/error_text.dart';
 
 /// Espace Marché PRO (P3) : Prévisions 4 cultures avec MAPE, Arbitrage inter-provinces,
 /// Watchlists & Alertes de prix, et Export CSV institutionnel.
@@ -87,7 +88,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = errText(e);
         _loading = false;
       });
     }
@@ -116,7 +117,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     } finally {
       if (mounted) setState(() => _creatingWatch = false);
     }
@@ -128,7 +131,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     }
   }
 
@@ -148,7 +153,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     } finally {
       if (mounted) setState(() => _exportingCsv = false);
     }
@@ -171,7 +178,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(errText(e))));
       }
     } finally {
       if (mounted) setState(() => _loadingArb = false);
@@ -334,7 +341,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                         });
                       } catch (e) {
                         setDialogState(() {
-                          err = '$e';
+                          err = errText(e);
                           loading = false;
                         });
                       }

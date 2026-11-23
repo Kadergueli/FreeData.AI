@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../widgets/auth_dialog.dart';
 import 'account_screen.dart';
 import 'farm_operating_account_screen.dart';
+import '../core/utils/error_text.dart';
 
 /// Espace Agronome PRO — Diagnostic de terrain (pré-achat) & Rapport PDF co-brandé.
 class AgronomistProScreen extends StatefulWidget {
@@ -414,7 +415,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       await _loadHistory();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -519,7 +522,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(content: Text(errText(e))),
       );
     }
   }
@@ -589,7 +592,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        SnackBar(content: Text(errText(e))),
       );
     }
   }
@@ -613,7 +616,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      final userError = errText(e);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(userError)));
     } finally {
       if (mounted) setState(() => _downloadingPdf = false);
     }
@@ -1082,7 +1087,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           });
                         } catch (e) {
                           setDlg(() {
-                            cmpErr = '$e';
+                            cmpErr = errText(e);
                             comparing = false;
                           });
                         }
@@ -1114,7 +1119,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                             triggerPdfDownload(
                                 bytes, 'freedata_comparatif_agro.pdf');
                           } catch (e) {
-                            setDlg(() => cmpErr = '$e');
+                            setDlg(() => cmpErr = errText(e));
                           } finally {
                             setDlg(() => downloading = false);
                           }
