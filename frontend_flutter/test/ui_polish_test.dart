@@ -1161,8 +1161,7 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
     });
 
-    await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: api)));
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
@@ -1183,8 +1182,7 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
-    await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: api)));
+    await tester.pumpWidget(MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
