@@ -71,7 +71,8 @@ class LocalConversationStorage implements ConversationRepository {
       first = ((first ^ byte) * 0x01000193) & 0xffffffff;
       second = ((second ^ byte) * 0x85ebca6b) & 0xffffffff;
     }
-    return '${first.toRadixString(16).padLeft(8, '0')}${second.toRadixString(16).padLeft(8, '0')}';
+    return '${first.toRadixString(16).padLeft(8, '0')}' +
+        '${second.toRadixString(16).padLeft(8, '0')}';
   }
 
   Future<void> clearCurrentUserCache() {
