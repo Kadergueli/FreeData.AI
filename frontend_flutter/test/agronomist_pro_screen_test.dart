@@ -100,6 +100,47 @@ class _AgroProFakeApi extends ApiService {
 
 void main() {
   testWidgets(
+      'AgronomistProScreen keeps the parcel map usable on a narrow mobile screen',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _AgroProFakeApi()
+      ..setAuthSession(
+        token: 'jwt-pro',
+        user: {'user_id': 'u123', 'email': 'agro@tchad.td'},
+        isPro: true,
+      );
+    await tester.pumpWidget(
+      MaterialApp(home: AgronomistProScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    final mapButton = find.text('Choisir sur la carte');
+    await tester.scrollUntilVisible(
+      mapButton,
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(mapButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Pointer la parcelle (Carte Tchad — 12 pôles)'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
       'AgronomistProScreen gates guest users and runs field diagnostic when PRO',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 1600);

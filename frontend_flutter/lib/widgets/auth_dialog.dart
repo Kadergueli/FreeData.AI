@@ -216,12 +216,12 @@ class _AuthDialogState extends State<AuthDialog> {
           const SizedBox(height: 16),
           _brandFeature(
             Icons.verified_user_outlined,
-            'Isolation & Confidentialité RGPD',
-            'Espaces de travail cloisonnés, chiffrement et maîtrise totale de vos données.',
+            'Contrôle des accès',
+            'Les fonctions accessibles dépendent des autorisations associées à votre compte.',
           ),
           const Spacer(),
           const Text(
-            'Plateforme sécurisée · Accès Standard & PRO',
+            'Accès Standard & PRO',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontSize: 11.5,
@@ -577,7 +577,7 @@ class _AuthDialogState extends State<AuthDialog> {
                 SizedBox(width: 5),
                 Flexible(
                   child: Text(
-                    'Données isolées · Chiffrement JWT · Contrôle RGPD',
+                    'Authentification par compte · Accès selon les autorisations',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 11.5, color: AppColors.subtle),
                   ),
