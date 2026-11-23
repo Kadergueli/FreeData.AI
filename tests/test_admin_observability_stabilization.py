@@ -148,6 +148,7 @@ def test_operational_warnings_generation_and_clean_state(monkeypatch):
     assert server._build_operational_warnings(clean_ph, clean_metrics, clean_fresh) == []
 
     monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("AUTH_SECRET", raising=False)
     bad_ph = {
         "services": {
             "supabase": "UNAVAILABLE",
