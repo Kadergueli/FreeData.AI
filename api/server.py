@@ -927,12 +927,34 @@ def _assert_not_suspended(owner_id: Optional[str], *, skip_auth_store_check: boo
             raise HTTPException(status_code=403, detail=msg)
     except HTTPException:
         raise
-    except Exception as exc:  # base admin indisponible : ne pas bloquer tout le trafic
+    except Exception as exc:
         logger.warning("Vérification de suspension (admin_accounts) impossible : %s", exc)
+        # En production, une panne du registre administratif ne doit jamais
+        # transformer une vérification d'accès en autorisation implicite.
+        strict_production = (
+            os.getenv("RENDER")
+            and os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower()
+            in ("1", "true", "yes")
+        )
+        if strict_production:
+            raise HTTPException(
+                status_code=503,
+                detail="Vérification des autorisations temporairement indisponible. Réessayez.",
+            ) from exc
     if not skip_auth_store_check and owner_id.startswith("user:"):
         try:
             u = get_auth_store().get_user(owner_id)
-        except HTTPException:
+        except HTTPException as exc:
+            strict_production = (
+                os.getenv("RENDER")
+                and os.getenv("REQUIRE_SIGNED_USER_AUTH", "0").strip().lower()
+                in ("1", "true", "yes")
+            )
+            if strict_production:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Vérification du compte temporairement indisponible. Réessayez.",
+                ) from exc
             u = None
         if u and u.get("status") == "suspended":
             raise HTTPException(status_code=403, detail=msg)
@@ -4661,12 +4683,26 @@ def _build_operational_warnings(
             "code": "STALE_MARKET_DATA",
             "message": f"Données marché non fraîches (statut : {freshness.get('freshness_status')}).",
         })
-    if os.getenv("RENDER") and not providers_health.get("require_signed_user_auth"):
-        warnings.append({
-            "severity": "high",
-            "code": "UNSIGNED_AUTH_ENABLED",
-            "message": "REQUIRE_SIGNED_USER_AUTH=1 n'est pas activé sur Render.",
-        })
+    if os.getenv("RENDER"):
+        strict_auth = bool(providers_health.get("require_signed_user_auth"))
+        if not strict_auth:
+            warnings.append({
+                "severity": "high",
+                "code": "UNSIGNED_AUTH_ENABLED",
+                "message": "REQUIRE_SIGNED_USER_AUTH=1 n'est pas activé sur Render.",
+            })
+        elif len(os.getenv("AUTH_SECRET", "").strip()) < 32:
+            warnings.append({
+                "severity": "high",
+                "code": "AUTH_SECRET_MISSING_OR_WEAK",
+                "message": "AUTH_SECRET absent ou trop court : définir un secret aléatoire d'au moins 32 caractères.",
+            })
+        if not providers_health.get("supabase_pg_active"):
+            warnings.append({
+                "severity": "high",
+                "code": "EPHEMERAL_APP_STORAGE",
+                "message": "SUPABASE_DB_URL absent : les données applicatives utilisent SQLite local et risquent d'être perdues au redéploiement.",
+            })
     return warnings
 
 

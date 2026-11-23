@@ -798,6 +798,12 @@ void main() {
     expect(find.text('Accès Partenaire & Clé Pro'), findsNothing);
     expect(find.textContaining('Abonnement'), findsWidgets);
 
+    // Isoler le scénario ForecastScreen du viewport desktop utilisé par MainShell.
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
     // ForecastScreen sans accès PRO : l'onglet Saisonnalité & Stockage est masqué
     final forecastApi = _ReducedForecastFakeApi();
     await tester.pumpWidget(
@@ -808,11 +814,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Saisonnalité & Stockage'), findsNothing);
 
-    // Avec la clé serveur active : l'onglet et le simulateur de frais de stockage apparaissent
-    forecastApi.setRuntimePremiumKey('FD-RENDER-SECRET-2026');
+    // La clé serveur est activée avant la création de l'écran : le rendu PRO
+    // est ainsi testé indépendamment du cycle de vie de l'écran précédent.
+    final unlockedForecastApi = _ReducedForecastFakeApi()
+      ..setRuntimePremiumKey('FD-RENDER-SECRET-2026');
+    expect(unlockedForecastApi.activePremiumKey, 'FD-RENDER-SECRET-2026');
+    expect(unlockedForecastApi.hasPremiumKey, isTrue);
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: ForecastScreen(apiService: forecastApi)),
+        home: Scaffold(
+          body: ForecastScreen(
+            key: const ValueKey('pro-forecast'),
+            apiService: unlockedForecastApi,
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -825,7 +840,7 @@ void main() {
 
     await tester.tap(find.text('Stockage 1,5%/mois'));
     await tester.pumpAndSettle();
-    expect(forecastApi.requestedStorageCostPctMonth, 1.5);
+    expect(unlockedForecastApi.requestedStorageCostPctMonth, 1.5);
     expect(
         find.textContaining(
             'Rendement net après frais de stockage (1.5 %/mois)'),

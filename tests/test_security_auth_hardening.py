@@ -139,6 +139,33 @@ def test_admin_privilege_escalation_and_quota_bypass_blocked(tmp_path, monkeypat
     assert exc_pro.value.status_code == 403
 
 
+def test_suspension_checks_fail_closed_when_production_stores_are_unavailable(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("REQUIRE_SIGNED_USER_AUTH", "1")
+
+    def unavailable_admin():
+        raise RuntimeError("admin database unavailable")
+
+    monkeypatch.setattr(server, "get_admin_service", unavailable_admin)
+    with pytest.raises(HTTPException) as admin_error:
+        server._assert_not_suspended("user:u" + "a" * 32)
+    assert admin_error.value.status_code == 503
+
+    class AvailableAdmin:
+        def is_user_suspended(self, _owner_id):
+            return False
+
+    monkeypatch.setattr(server, "get_admin_service", lambda: AvailableAdmin())
+
+    def unavailable_auth():
+        raise HTTPException(status_code=503, detail="auth database unavailable")
+
+    monkeypatch.setattr(server, "get_auth_store", unavailable_auth)
+    with pytest.raises(HTTPException) as auth_error:
+        server._assert_not_suspended("user:u" + "b" * 32)
+    assert auth_error.value.status_code == 503
+
+
 def test_auth_refresh_revokes_old_token_and_strict_401_message(tmp_path, monkeypatch):
     from src.auth import AuthStore
 
