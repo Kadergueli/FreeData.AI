@@ -70,11 +70,25 @@ class _PolishFakeApiService extends ApiService {
       ];
 }
 
+Future<void> _attachApiToPersistedAnonymousWorkspace(
+  ApiService api,
+) async {
+  final prefs = await SharedPreferences.getInstance();
+  var userId = prefs.getString('fd_pref_user_id');
+  if (userId == null || !ApiService.isStrongUserId(userId)) {
+    userId = ApiService.generateUserId();
+    await prefs.setString('fd_pref_user_id', userId);
+  }
+  api.setUserId(userId);
+  LocalConversationStorage.instance.attachCloudApi(api);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    LocalConversationStorage.instance.attachCloudApi(null);
   });
 
   test('formatXaf and stripMarkdown format cleanly', () {
@@ -926,6 +940,8 @@ void main() {
       updatedAt: DateTime(2025, 1, 2),
       messages: [ChatMessage.user('Bonjour')],
     );
+    final api = _ReducedForecastFakeApi();
+    await _attachApiToPersistedAnonymousWorkspace(api);
     await LocalConversationStorage.instance.saveAll([conv]);
 
     await tester.pumpWidget(
@@ -934,7 +950,7 @@ void main() {
           data: MediaQuery.of(context).copyWith(accessibleNavigation: true),
           child: child!,
         ),
-        home: MainShell(apiService: _ReducedForecastFakeApi()),
+        home: MainShell(apiService: api),
       ),
     );
     await tester.pumpAndSettle();
@@ -1032,10 +1048,12 @@ void main() {
         ChatMessage.assistant(text: 'Réponse associée'),
       ],
     );
+    final api = _ReducedForecastFakeApi();
+    await _attachApiToPersistedAnonymousWorkspace(api);
     await LocalConversationStorage.instance.saveAll([conv]);
 
     await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+        MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
     expect(find.text('Question unique'), findsOneWidget);
 
@@ -1132,6 +1150,8 @@ void main() {
         ChatMessage.assistant(text: 'Réponse historique Moundou.'),
       ],
     );
+    final api = _ReducedForecastFakeApi();
+    await _attachApiToPersistedAnonymousWorkspace(api);
     await LocalConversationStorage.instance.saveAll([existing]);
 
     // 1. Desktop : bouton "Nouvelle conversation" dans la barre latérale
@@ -1143,7 +1163,7 @@ void main() {
     });
 
     await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+        MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
@@ -1165,7 +1185,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await tester.pumpWidget(
-        MaterialApp(home: MainShell(apiService: _ReducedForecastFakeApi())));
+        MaterialApp(home: MainShell(apiService: api)));
     await tester.pumpAndSettle();
 
     expect(find.text('Prix du mil à Moundou ?'), findsOneWidget);
@@ -1279,8 +1299,6 @@ void main() {
         ChatMessage.assistant(text: 'Réponse précédente'),
       ],
     );
-    await LocalConversationStorage.instance.saveAll([existing]);
-
     final mockClient = MockClient((request) async {
       if (request.url.path == '/api/v1/metadata') {
         return http.Response(
@@ -1308,9 +1326,13 @@ void main() {
       return http.Response('{}', 404);
     });
 
+    final api = ApiService(client: mockClient);
+    await _attachApiToPersistedAnonymousWorkspace(api);
+    await LocalConversationStorage.instance.saveAll([existing]);
+
     await tester.pumpWidget(MaterialApp(
         home: MainShell(
-            apiService: ApiService(client: mockClient),
+            apiService: api,
             requireAuthOnChat: false)));
     await tester.pumpAndSettle();
     expect(find.text('Question précédente'), findsOneWidget);
