@@ -9,6 +9,8 @@ import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
+import 'campaign_plan_screen.dart';
+import 'farm_operating_account_screen.dart';
 
 class ProjectsScreen extends StatefulWidget {
   final ApiService apiService;
@@ -58,13 +60,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Map<String, dynamic>? _selectedProject;
   List<ConversationThread> _projectConversations = [];
   List<Map<String, dynamic>> _projectDocuments = [];
+  List<Map<String, dynamic>> _projectAgroAssessments = [];
   bool _uploadingDoc = false;
   bool _loadingWorkspace = false;
   final TextEditingController _workspacePromptCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void dispose() {
     _workspacePromptCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -216,6 +222,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         widget.apiService
             .listUserDocuments(projectId: pid)
             .catchError((_) => <Map<String, dynamic>>[]),
+        widget.apiService
+            .listAgroFieldAssessments(projectId: pid)
+            .catchError((_) => <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
       final liveConvs = widget.conversations != null
@@ -225,6 +234,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         _selectedProject = results[0] as Map<String, dynamic>;
         _projectConversations = liveConvs;
         _projectDocuments = results[2] as List<Map<String, dynamic>>;
+        _projectAgroAssessments = results[3] as List<Map<String, dynamic>>;
         _loadingWorkspace = false;
       });
     } catch (e) {
@@ -445,6 +455,58 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } finally {
       ctrl.dispose();
     }
+  }
+
+  Widget _kpiChip(String label, String value) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: FDTheme.blueSoft,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '$label : $value',
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: FDTheme.blueDark,
+          ),
+        ),
+      );
+
+  void _openToolDialog(String title, Widget child) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960, maxHeight: 760),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(child: child),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _shareProject(Map<String, dynamic> proj) async {
@@ -1004,6 +1066,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 ),
                 const Spacer(),
                 TextButton.icon(
+                  icon: const Icon(Icons.share_outlined,
+                      size: 18, color: FDTheme.blue),
+                  label: const Text('Partager'),
+                  onPressed: () => _guard(() => _shareProject(proj)),
+                ),
+                TextButton.icon(
                   icon: const Icon(Icons.picture_as_pdf_outlined,
                       size: 18, color: FDTheme.green),
                   label: const Text('Étude PDF'),
@@ -1047,6 +1115,75 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                               Text(desc,
                                   style: const TextStyle(
                                       fontSize: 13.5, color: AppColors.muted)),
+                            ],
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _kpiChip('Études PDF', '${studies.length}'),
+                                _kpiChip(
+                                    'Documents', '${_projectDocuments.length}'),
+                                _kpiChip('Discussions',
+                                    '${_projectConversations.length}'),
+                                _kpiChip('Audits Agro',
+                                    '${_projectAgroAssessments.length}'),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: () => _openToolDialog(
+                                    'Plan de Campagne & Investissement',
+                                    CampaignPlanScreen(
+                                        apiService: widget.apiService),
+                                  ),
+                                  icon: const Icon(Icons.calculate_outlined,
+                                      size: 16),
+                                  label: const Text('Simuler Plan Campagne'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () {
+                                    final originProv = geo is Map
+                                        ? geo['origin_province']?.toString()
+                                        : null;
+                                    _openToolDialog(
+                                      'Compte d’Exploitation (OPEX / CAPEX)',
+                                      FarmOperatingAccountScreen(
+                                        apiService: widget.apiService,
+                                        initialProvince: originProv,
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.assessment_outlined,
+                                      size: 16),
+                                  label: const Text('Compte d’Exploitation'),
+                                ),
+                              ],
+                            ),
+                            if (_projectAgroAssessments.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Audits parcellaires rattachés',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              for (final a in _projectAgroAssessments.take(4))
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    '• ${a['report_verification_code'] ?? a['id']} · ${a['province_hub'] ?? ''} (${a['area_hectares'] ?? '—'} ha) — Score ${a['computed_scores']?['weighted_score']?['total_score'] ?? '—'}/100',
+                                    style: const TextStyle(
+                                        fontSize: 12.5, color: AppColors.muted),
+                                  ),
+                                ),
                             ],
                             if (summaryChips.isNotEmpty) ...[
                               const SizedBox(height: 10),
@@ -1503,113 +1640,197 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       ),
                     ),
                   )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _projects.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (_, i) {
-                      final p = _projects[i];
-                      final isArchived = p['status'] == 'archived';
-                      return FDCard(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        child: Column(
-                          children: [
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              onTap: () => _openWorkspace(p),
-                              title: Text(p['name']?.toString() ?? 'Projet',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.ink)),
-                              subtitle: Text(
-                                'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
-                                style: const TextStyle(
-                                    fontSize: 12.5, color: AppColors.muted),
-                              ),
-                              trailing: PopupMenuButton<String>(
-                                onSelected: (act) => _guard(() async {
-                                  if (act == 'rename') await _renameProject(p);
-                                  if (act == 'archive') {
-                                    await widget.apiService.updateProject(
-                                      p['project_id'].toString(),
-                                      status:
-                                          isArchived ? 'active' : 'archived',
-                                    );
-                                    await _load();
-                                  }
-                                  if (act == 'share') await _shareProject(p);
-                                  if (act == 'delete') await _confirmDelete(p);
-                                }),
-                                itemBuilder: (_) => [
-                                  const PopupMenuItem(
-                                      value: 'share',
-                                      child: Text('Partager (lecture seule)')),
-                                  const PopupMenuItem(
-                                      value: 'rename', child: Text('Renommer')),
-                                  PopupMenuItem(
-                                      value: 'archive',
-                                      child: Text(isArchived
-                                          ? 'Restaurer'
-                                          : 'Archiver')),
-                                  const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Text('Supprimer')),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 4,
-                              runSpacing: 0,
-                              children: [
-                                TextButton.icon(
-                                  icon: const Icon(
-                                      Icons.picture_as_pdf_outlined,
-                                      color: FDTheme.green,
-                                      size: 18),
-                                  label: const Text('Étude PDF'),
-                                  onPressed: () =>
-                                      _guard(() => _generateStudyDialog(p)),
-                                ),
-                                TextButton.icon(
-                                  icon: const Icon(Icons.folder_open_rounded,
-                                      color: FDTheme.blue, size: 18),
-                                  label: const Text('Ouvrir'),
-                                  onPressed: () => _openWorkspace(p),
-                                ),
-                                TextButton.icon(
-                                  icon: const Icon(Icons.play_arrow_rounded,
-                                      color: FDTheme.blue, size: 18),
-                                  label: const Text('Reprendre'),
-                                  onPressed: () => _guard(() async {
-                                    final full = await widget.apiService
-                                        .getProject(p['project_id'].toString());
-                                    final existingConvs =
-                                        await LocalConversationStorage.instance
-                                            .listProjectConversations(
-                                                p['project_id'].toString());
-                                    if (!mounted) return;
-                                    _triggerProjectChat(
-                                      full,
-                                      conversationId: existingConvs.isNotEmpty
-                                          ? existingConvs.first.id
-                                          : null,
-                                    );
-                                  }),
-                                ),
-                                TextButton.icon(
-                                  icon: const Icon(Icons.history_rounded,
-                                      size: 18),
-                                  label: const Text('Versions'),
-                                  onPressed: () => _openStudiesAndVersions(p),
-                                ),
-                              ],
-                            ),
-                          ],
+                : Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: TextField(
+                          controller: _searchCtrl,
+                          onChanged: (v) => setState(
+                              () => _searchQuery = v.trim().toLowerCase()),
+                          decoration: InputDecoration(
+                            hintText:
+                                'Rechercher un projet par nom ou description…',
+                            prefixIcon:
+                                const Icon(Icons.search_rounded, size: 19),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear_rounded,
+                                        size: 18),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  )
+                                : null,
+                            isDense: true,
+                          ),
                         ),
-                      );
-                    },
+                      ),
+                      Expanded(
+                        child: Builder(builder: (context) {
+                          final filtered = _searchQuery.isEmpty
+                              ? _projects
+                              : _projects.where((p) {
+                                  final n = (p['name'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  final d = (p['description'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  return n.contains(_searchQuery) ||
+                                      d.contains(_searchQuery);
+                                }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text(
+                                'Aucun projet ne correspond à votre recherche.',
+                                style: TextStyle(
+                                    fontSize: 13, color: AppColors.muted),
+                              ),
+                            );
+                          }
+                          return ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, i) {
+                              final p = filtered[i];
+                              final isArchived = p['status'] == 'archived';
+                              return FDCard(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                                child: Column(
+                                  children: [
+                                    ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      onTap: () => _openWorkspace(p),
+                                      title: Text(
+                                          p['name']?.toString() ?? 'Projet',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.ink)),
+                                      subtitle: Text(
+                                        'Statut : ${isArchived ? 'Archivé' : 'Actif'} · Études : ${p['studies_count'] ?? 0} · Maj : ${p['updated_at']}',
+                                        style: const TextStyle(
+                                            fontSize: 12.5,
+                                            color: AppColors.muted),
+                                      ),
+                                      trailing: PopupMenuButton<String>(
+                                        onSelected: (act) => _guard(() async {
+                                          if (act == 'rename') {
+                                            await _renameProject(p);
+                                          }
+                                          if (act == 'archive') {
+                                            await widget.apiService
+                                                .updateProject(
+                                              p['project_id'].toString(),
+                                              status: isArchived
+                                                  ? 'active'
+                                                  : 'archived',
+                                            );
+                                            await _load();
+                                          }
+                                          if (act == 'share') {
+                                            await _shareProject(p);
+                                          }
+                                          if (act == 'delete') {
+                                            await _confirmDelete(p);
+                                          }
+                                        }),
+                                        itemBuilder: (_) => [
+                                          const PopupMenuItem(
+                                              value: 'share',
+                                              child: Text(
+                                                  'Partager (lecture seule)')),
+                                          const PopupMenuItem(
+                                              value: 'rename',
+                                              child: Text('Renommer')),
+                                          PopupMenuItem(
+                                              value: 'archive',
+                                              child: Text(isArchived
+                                                  ? 'Restaurer'
+                                                  : 'Archiver')),
+                                          const PopupMenuItem(
+                                              value: 'delete',
+                                              child: Text('Supprimer')),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 4,
+                                      runSpacing: 0,
+                                      children: [
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                              Icons.picture_as_pdf_outlined,
+                                              color: FDTheme.green,
+                                              size: 18),
+                                          label: const Text('Étude PDF'),
+                                          onPressed: () => _guard(
+                                              () => _generateStudyDialog(p)),
+                                        ),
+                                        TextButton.icon(
+                                          icon: const Icon(Icons.share_outlined,
+                                              color: FDTheme.blue, size: 17),
+                                          label: const Text('Partager'),
+                                          onPressed: () =>
+                                              _guard(() => _shareProject(p)),
+                                        ),
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                              Icons.folder_open_rounded,
+                                              color: FDTheme.blue,
+                                              size: 18),
+                                          label: const Text('Ouvrir'),
+                                          onPressed: () => _openWorkspace(p),
+                                        ),
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                              Icons.play_arrow_rounded,
+                                              color: FDTheme.blue,
+                                              size: 18),
+                                          label: const Text('Reprendre'),
+                                          onPressed: () => _guard(() async {
+                                            final full = await widget.apiService
+                                                .getProject(
+                                                    p['project_id'].toString());
+                                            final existingConvs =
+                                                await LocalConversationStorage
+                                                    .instance
+                                                    .listProjectConversations(
+                                                        p['project_id']
+                                                            .toString());
+                                            if (!mounted) return;
+                                            _triggerProjectChat(
+                                              full,
+                                              conversationId:
+                                                  existingConvs.isNotEmpty
+                                                      ? existingConvs.first.id
+                                                      : null,
+                                            );
+                                          }),
+                                        ),
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                              Icons.history_rounded,
+                                              size: 18),
+                                          label: const Text('Versions'),
+                                          onPressed: () =>
+                                              _openStudiesAndVersions(p),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        }),
+                      ),
+                    ],
                   );
   }
 }
