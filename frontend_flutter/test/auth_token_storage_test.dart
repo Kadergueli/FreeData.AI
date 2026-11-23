@@ -55,7 +55,8 @@ void main() {
       () async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kAuthTokenStorageKey, 'legacy-token');
-    final secure = MemoryAuthTokenStorage()..token = 'current-secure-token';
+    final secure = MemoryAuthTokenStorage()
+      ..token = 'current-secure-token';
     AuthTokenStorage.setBackendForTesting(secure);
 
     await AuthTokenStorage.migrateLegacy(prefs);
