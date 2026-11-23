@@ -16,7 +16,11 @@ class AuthTokenStorage {
   static Future<void> write(String token) async {
     final clean = token.trim();
     if (clean.isEmpty) {
-      throw ArgumentError.value(token, 'token', 'A non-empty token is required.');
+      throw ArgumentError.value(
+        token,
+        'token',
+        'A non-empty token is required.',
+      );
     }
     await _storage.write(key: kAuthTokenStorageKey, value: clean);
   }
