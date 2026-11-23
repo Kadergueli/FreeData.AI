@@ -73,23 +73,7 @@ class AssistantMessage extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: FDTheme.blue,
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'FD',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 9.5,
-                  ),
-                ),
-              ),
+              const FDLogoBadge(size: 20, radius: 5),
               const SizedBox(width: 8),
               const Text(
                 'FreeData.AI',

@@ -161,23 +161,7 @@ class _AuthDialogState extends State<AuthDialog> {
         children: [
           Row(
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: AppColors.blue,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'FD',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
+              const FDLogoBadge(size: 38, radius: 10),
               const SizedBox(width: 10),
               const Text(
                 'FreeData.AI',
@@ -301,23 +285,7 @@ class _AuthDialogState extends State<AuthDialog> {
             Row(
               children: [
                 if (showBrandHeader) ...[
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.blue,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text(
-                      'FD',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
+                  const FDLogoBadge(size: 36, radius: 10),
                   const SizedBox(width: 12),
                 ],
                 Expanded(

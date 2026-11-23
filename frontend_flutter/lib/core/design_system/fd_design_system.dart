@@ -421,3 +421,45 @@ class FDSectionTitle extends StatelessWidget {
     );
   }
 }
+
+class FDLogoBadge extends StatelessWidget {
+  final double size;
+  final double radius;
+
+  const FDLogoBadge({
+    super.key,
+    this.size = 28,
+    this.radius = 8,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.asset(
+        'assets/images/logo.png',
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        semanticLabel: 'Logo FreeData.AI',
+        errorBuilder: (_, __, ___) => Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: AppColors.blue,
+            borderRadius: BorderRadius.circular(radius),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            'FD',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: size * 0.44,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

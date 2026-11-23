@@ -1291,23 +1291,7 @@ class _MainShellState extends State<MainShell> {
           children: [
             Semantics(
               label: 'Logo FreeData.AI',
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: FDTheme.blue,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'FD',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
+              child: const FDLogoBadge(size: 28, radius: 8),
             ),
             const SizedBox(width: 10),
             Flexible(
@@ -2106,23 +2090,7 @@ class _SidebarContentState extends State<_SidebarContent> {
                   children: [
                     Semantics(
                       label: 'Logo FreeData.AI',
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: FDTheme.blue,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          'FD',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
+                      child: const FDLogoBadge(size: 34, radius: 8),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
