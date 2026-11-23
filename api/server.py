@@ -187,9 +187,26 @@ def check_rate_limit(request: Request, max_per_minute: int = 20, scope: str = "c
     """`max_per_minute` requêtes par minute et par IP et par catégorie, plus un plafond global indépendant de l'IP."""
     client_ip = _client_ip(request)
     now = time.time()
+    # Redis est un service réseau : ne jamais le contacter sous le verrou global mémoire.
+    # Sinon une latence Redis bloque toutes les requêtes qui passent par le rate limiter.
+    global_shared = _hit_shared_redis(
+        "*global*", settings.global_rate_limit_per_min, now,
+        "Service très sollicité. Réessayez dans un instant.",
+    )
+    scope_shared = (
+        _hit_shared_redis(
+            f"{scope}:{client_ip}", max_per_minute, now,
+            "Trop de requêtes. Réessayez dans une minute.",
+        )
+        if global_shared else False
+    )
+    if global_shared and scope_shared:
+        return
+
+    # Repli local protégé : la section critique ne contient que des opérations mémoire.
     with _RATE_LIMIT_LOCK:
-        _hit("*global*", settings.global_rate_limit_per_min, now, "Service très sollicité. Réessayez dans un instant.")
-        _hit(f"{scope}:{client_ip}", max_per_minute, now, "Trop de requêtes. Réessayez dans une minute.")
+        _hit_memory("*global*", settings.global_rate_limit_per_min, now, "Service très sollicité. Réessayez dans un instant.")
+        _hit_memory(f"{scope}:{client_ip}", max_per_minute, now, "Trop de requêtes. Réessayez dans une minute.")
         if len(_RATE_LIMIT_BUCKET) > 1000:
             stale = [k for k, ts in _RATE_LIMIT_BUCKET.items() if k != "*global*" and (not ts or now - ts[-1] >= 60.0)]
             for k in stale:
