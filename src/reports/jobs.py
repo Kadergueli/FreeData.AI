@@ -13,17 +13,50 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class ReportJobManager:
-    """Thread-pool background job runner with owner-scoped status, idempotency deduplication,
-    timeout tracking, retry policies, and operational visibility.
-    """
+class ReportJobQueueFull(RuntimeError):
+    """Raised when the bounded report-job queue has no remaining capacity."""
 
-    def __init__(self, max_workers: int = 2, default_timeout_seconds: float = 120.0) -> None:
+
+class ReportJobManager:
+    """Thread-pool background job runner with bounded admission and owner-scoped status."""
+
+    def __init__(
+        self,
+        max_workers: int = 2,
+        default_timeout_seconds: float = 120.0,
+        max_active_jobs: int = 50,
+        max_retained_jobs: int = 200,
+    ) -> None:
         self.max_workers = max(1, int(max_workers))
         self.default_timeout_seconds = max(1.0, float(default_timeout_seconds))
+        self.max_active_jobs = max(self.max_workers, int(max_active_jobs))
+        self.max_retained_jobs = max(self.max_active_jobs, int(max_retained_jobs))
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="fd-pdf-job")
         self._lock = threading.Lock()
         self._jobs: dict[str, dict[str, Any]] = {}
+
+    @staticmethod
+    def _public_record(record: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in record.items() if k not in ("pdf_bytes", "owner_id", "_fn")}
+
+    def _prune_terminal_jobs_locked(self) -> None:
+        """Prune only completed/failed records; never evict a queued or running job."""
+        terminal = [
+            (job_id, record)
+            for job_id, record in self._jobs.items()
+            if record.get("status") in ("completed", "failed")
+        ]
+        excess = len(self._jobs) - self.max_retained_jobs
+        if excess <= 0:
+            return
+        terminal.sort(key=lambda item: item[1].get("updated_at", item[1].get("created_at", "")))
+        for job_id, _ in terminal[:excess]:
+            self._jobs.pop(job_id, None)
+
+    def _ensure_capacity_locked(self) -> None:
+        active = sum(1 for record in self._jobs.values() if record.get("status") in ("queued", "running"))
+        if active >= self.max_active_jobs:
+            raise ReportJobQueueFull("La file de génération PDF est temporairement saturée. Réessayez plus tard.")
 
     def submit(
         self,
@@ -34,17 +67,6 @@ class ReportJobManager:
         idempotency_key: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
     ) -> dict[str, Any]:
-        # Duplicate execution prevention: reuse active queued/running job with same (owner_id, idempotency_key)
-        if idempotency_key:
-            with self._lock:
-                for existing in self._jobs.values():
-                    if (
-                        existing["owner_id"] == owner_id
-                        and existing.get("idempotency_key") == idempotency_key
-                        and existing["status"] in ("queued", "running")
-                    ):
-                        return {k: v for k, v in existing.items() if k not in ("pdf_bytes", "owner_id", "_fn")}
-
         job_id = f"JOB-{uuid.uuid4().hex[:10].upper()}"
         now = _utc_now()
         eff_timeout = float(timeout_seconds) if timeout_seconds is not None else self.default_timeout_seconds
@@ -55,7 +77,7 @@ class ReportJobManager:
             "status": "queued",
             "progress_pct": 0,
             "attempts": 0,
-            "max_retries": max_retries,
+            "max_retries": max(0, int(max_retries)),
             "timeout_seconds": eff_timeout,
             "error": None,
             "validation": None,
@@ -67,12 +89,29 @@ class ReportJobManager:
             "_fn": fn,
         }
         with self._lock:
-            if len(self._jobs) > 200:
-                oldest = sorted(self._jobs.items(), key=lambda kv: kv[1]["created_at"])[:50]
-                for k, _ in oldest:
-                    self._jobs.pop(k, None)
+            # Deduplication and insertion share one critical section: concurrent submits cannot race.
+            if idempotency_key:
+                for existing in self._jobs.values():
+                    if (
+                        existing["owner_id"] == owner_id
+                        and existing.get("idempotency_key") == idempotency_key
+                        and existing["status"] in ("queued", "running")
+                    ):
+                        return self._public_record(existing)
+            self._prune_terminal_jobs_locked()
+            self._ensure_capacity_locked()
             self._jobs[job_id] = record
-        self._dispatch(job_id, fn, eff_timeout)
+
+        try:
+            self._dispatch(job_id, fn, eff_timeout)
+        except Exception as exc:
+            with self._lock:
+                current = self._jobs.get(job_id)
+                if current:
+                    current["status"] = "failed"
+                    current["error"] = f"Impossible de planifier le job : {exc}"
+                    current["updated_at"] = _utc_now()
+            raise
         return self.get_status(owner_id, job_id)
 
     def _dispatch(
@@ -127,6 +166,7 @@ class ReportJobManager:
                 raise ValueError("Seul un job en échec peut être relancé.")
             if rec["attempts"] > rec["max_retries"]:
                 raise OverflowError("Nombre maximal de tentatives atteint.")
+            self._ensure_capacity_locked()
             rec["status"] = "queued"
             rec["progress_pct"] = 0
             rec["updated_at"] = _utc_now()
@@ -140,7 +180,7 @@ class ReportJobManager:
             rec = self._jobs.get(job_id)
             if not rec or rec["owner_id"] != owner_id:
                 raise KeyError(f"Job introuvable : {job_id}")
-            return {k: v for k, v in rec.items() if k not in ("pdf_bytes", "owner_id", "_fn")}
+            return self._public_record(rec)
 
     def get_pdf(self, owner_id: str, job_id: str) -> bytes:
         with self._lock:
@@ -161,6 +201,7 @@ class ReportJobManager:
             total = len(self._jobs)
         return {
             "max_workers": self.max_workers,
+            "max_active_jobs": self.max_active_jobs,
             "default_timeout_seconds": self.default_timeout_seconds,
             "total_tracked_jobs": total,
             "by_status": counts,
