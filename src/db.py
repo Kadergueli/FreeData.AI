@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 from typing import Any, Iterable, Optional
 
 DEFAULT_SCHEMA = "freedata_app"
@@ -146,28 +147,60 @@ def _get_pool(url: str, schema: str):
         return pool
 
 
+def _pool_acquire_timeout() -> float:
+    try:
+        return max(0.0, float(os.getenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", "5")))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _acquire_pool_connection(pool: Any) -> Any:
+    """Attend brièvement une connexion libre au lieu d'échouer immédiatement à saturation du pool."""
+    from psycopg2.pool import PoolError
+
+    timeout = _pool_acquire_timeout()
+    poll_interval = 0.05
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return pool.getconn()
+        except PoolError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Pool PostgreSQL saturé : aucune connexion libre après {timeout:.1f}s."
+                ) from exc
+            time.sleep(min(poll_interval, remaining))
+
+
 class PgConnection:
     def __init__(self, url: str, schema: str) -> None:
         validate_schema(schema)
         self._pool = _get_pool(url, schema)
-        self._conn = self._pool.getconn()
+        self._conn = _acquire_pool_connection(self._pool)
         self._released = False
-        self._conn.autocommit = False
-        # PgBouncer Transaction Pooler (port 6543) réinitialise search_path entre transactions.
-        # En mode Direct / Session Pooler (port 5432), search_path persiste sur la session physique
-        # identifiée par backend_pid (lu localement en C par libpq sans aller-retour réseau).
-        is_tx_pooler = ":6543" in url
-        backend_pid = getattr(getattr(self._conn, "info", None), "backend_pid", None) or id(self._conn)
-        conn_key = (int(backend_pid), schema)
-        with _POOLS_LOCK:
-            needs_sp = is_tx_pooler or conn_key not in _SEARCH_PATH_READY or getattr(self._conn, "closed", 0) != 0
-        if needs_sp:
-            with self._conn.cursor() as cur:
-                cur.execute(f'SET search_path TO "{schema}", public')
-            self._conn.commit()
-            if not is_tx_pooler:
-                with _POOLS_LOCK:
-                    _SEARCH_PATH_READY.add(conn_key)
+        try:
+            self._conn.autocommit = False
+            # PgBouncer Transaction Pooler (port 6543) réinitialise search_path entre transactions.
+            # En mode Direct / Session Pooler (port 5432), search_path persiste sur la session physique
+            # identifiée par backend_pid (lu localement en C par libpq sans aller-retour réseau).
+            is_tx_pooler = ":6543" in url
+            backend_pid = getattr(getattr(self._conn, "info", None), "backend_pid", None) or id(self._conn)
+            conn_key = (int(backend_pid), schema)
+            with _POOLS_LOCK:
+                needs_sp = is_tx_pooler or conn_key not in _SEARCH_PATH_READY or getattr(self._conn, "closed", 0) != 0
+            if needs_sp:
+                with self._conn.cursor() as cur:
+                    cur.execute(f'SET search_path TO "{schema}", public')
+                self._conn.commit()
+                if not is_tx_pooler:
+                    with _POOLS_LOCK:
+                        _SEARCH_PATH_READY.add(conn_key)
+        except Exception:
+            # Une erreur d'initialisation ne doit pas immobiliser une connexion du pool.
+            self._released = True
+            self._pool.putconn(self._conn, close=True)
+            raise
 
     # --- API compatible sqlite3 -------------------------------------------------
     def execute(self, sql: str, params: Iterable[Any] = ()) -> PgCursor:
@@ -206,11 +239,10 @@ class PgConnection:
             return
         self._released = True
         try:
-            # Ne pas envoyer un ROLLBACK réseau inutile si la connexion est déjà idle (STATUS_READY == 1).
             if getattr(self._conn, "closed", 0) == 0 and getattr(self._conn, "status", 0) != 1:
                 self._conn.rollback()
         finally:
-            self._pool.putconn(self._conn)
+            self._pool.putconn(self._conn, close=bool(getattr(self._conn, "closed", 0)))
 
     def __enter__(self) -> "PgConnection":
         return self
@@ -269,7 +301,9 @@ def harden_tables(conn: PgConnection) -> None:
     """
     with _HARDEN_LOCK:
         cur = conn._conn.cursor()
-        cur.execute("SELECT pg_advisory_xact_lock(hashtext('harden_' || current_schema()))")
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext('harden_' || current_schema()))"
+        )
         cur.execute(
             "SELECT tablename FROM pg_tables "
             "WHERE schemaname = current_schema() AND rowsecurity = false "
