@@ -1328,9 +1328,7 @@ void main() {
     await LocalConversationStorage.instance.saveAll([existing]);
 
     await tester.pumpWidget(MaterialApp(
-        home: MainShell(
-            apiService: api,
-            requireAuthOnChat: false)));
+        home: MainShell(apiService: api, requireAuthOnChat: false)));
     await tester.pumpAndSettle();
     expect(find.text('Question précédente'), findsOneWidget);
 
