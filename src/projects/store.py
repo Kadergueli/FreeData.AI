@@ -290,10 +290,19 @@ class ProjectStore:
         root = self.artifacts_dir.resolve()
         candidate = Path(os.path.abspath(artifact_path))
         try:
-            candidate.relative_to(root)
+            # Check the resolved parent to prevent a symlinked directory inside
+            # artifacts_dir from redirecting deletion outside the managed tree.
+            candidate.parent.resolve().relative_to(root)
         except ValueError as exc:
             raise ValueError("Chemin d'artefact hors du répertoire autorisé.") from exc
-        if candidate.is_file() or candidate.is_symlink():
+        if candidate.is_symlink():
+            candidate.unlink()
+            return
+        try:
+            candidate.resolve(strict=False).relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Cible d'artefact hors du répertoire autorisé.") from exc
+        if candidate.is_file():
             candidate.unlink()
 
     def delete_project(self, owner_id: str, project_id: str) -> None:
