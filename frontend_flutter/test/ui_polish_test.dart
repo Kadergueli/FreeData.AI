@@ -704,7 +704,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Tchad · Marchés et Prix'), findsOneWidget);
-    expect(find.text('Tchad · Accès Partenaire'), findsNothing);
+    expect(find.text('FreeData PRO · Tchad'), findsNothing);
     expect(forgedUrlApi.hasPremiumKey, isFalse);
     final prefsAfterForged = await SharedPreferences.getInstance();
     expect(prefsAfterForged.getString('fd_ai_premium_key_v1'), isNull);
@@ -738,8 +738,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
-    expect(find.text('Accès Partenaire actif · Tchad'), findsOneWidget);
+    expect(find.text('FreeData PRO · Tchad'), findsOneWidget);
+    expect(find.text('Abonnement PRO actif · Tchad'), findsOneWidget);
     expect(find.text('PRO'), findsOneWidget);
     expect(prefsAfterForged.getString('fd_ai_premium_key_v1'),
         'FD-RENDER-SECRET-2026');
@@ -752,8 +752,8 @@ void main() {
         .pumpWidget(MaterialApp(home: MainShell(apiService: persistedApi)));
     await tester.pumpAndSettle();
 
-    expect(find.text('Tchad · Accès Partenaire'), findsOneWidget);
-    expect(find.text('Accès Partenaire actif · Tchad'), findsOneWidget);
+    expect(find.text('FreeData PRO · Tchad'), findsOneWidget);
+    expect(find.text('Abonnement PRO actif · Tchad'), findsOneWidget);
     expect(persistedApi.hasPremiumKey, isTrue);
   });
 

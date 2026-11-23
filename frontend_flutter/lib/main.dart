@@ -1107,7 +1107,7 @@ class _MainShellState extends State<MainShell> {
                           button: _apiService.isAuthenticated ||
                               _apiService.hasPremiumKey,
                           label: _apiService.hasPremiumKey
-                              ? 'Accès Partenaire actif'
+                              ? 'Abonnement PRO actif'
                               : 'Tchad · Marchés et Prix',
                           child: InkWell(
                             onTap: (_apiService.isAuthenticated ||
@@ -1139,7 +1139,7 @@ class _MainShellState extends State<MainShell> {
                                   const SizedBox(width: 6),
                                   Text(
                                     _apiService.hasPremiumKey
-                                        ? 'Tchad · Accès Partenaire'
+                                        ? 'FreeData PRO · Tchad'
                                         : 'Tchad · Marchés et Prix',
                                     style: TextStyle(
                                       fontSize: 11.5,
@@ -1320,7 +1320,7 @@ class _MainShellState extends State<MainShell> {
               const SizedBox(width: 8),
               Semantics(
                 button: true,
-                label: 'Accès Partenaire actif',
+                label: 'Abonnement PRO actif',
                 child: InkWell(
                   onTap: _openSubscriptionScreen,
                   borderRadius: BorderRadius.circular(99),
@@ -1858,7 +1858,7 @@ class _SidebarContentState extends State<_SidebarContent> {
     final displayTitle =
         name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Mon compte');
     final displaySubtitle = widget.hasPremiumKey
-        ? 'Partenaire PRO · Cloud sync'
+        ? 'FreeData PRO · Cloud sync'
         : (name.isNotEmpty && email.isNotEmpty
             ? email
             : 'Plan Gratuit · Cloud sync');
@@ -2136,7 +2136,7 @@ class _SidebarContentState extends State<_SidebarContent> {
                           const SizedBox(height: 2),
                           Text(
                             widget.hasPremiumKey
-                                ? 'Accès Partenaire actif · Tchad'
+                                ? 'Abonnement PRO actif · Tchad'
                                 : 'Intelligence des Marchés · Tchad',
                             style: TextStyle(
                               fontSize: 12.0,

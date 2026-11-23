@@ -1230,7 +1230,7 @@ class ApiService {
     }
     if (resp.statusCode == 403 || resp.statusCode == 503) {
       throw ApiHttpException(
-          resp.statusCode, 'Accès Partenaire PRO requis pour générer le PDF.');
+          resp.statusCode, 'Abonnement PRO requis pour générer le PDF.');
     }
     if (resp.statusCode == 422) {
       try {
