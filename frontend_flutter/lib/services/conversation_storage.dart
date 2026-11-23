@@ -27,7 +27,10 @@ abstract class ConversationRepository {
 }
 
 class LocalConversationStorage implements ConversationRepository {
+  // Legacy shared key is retained only for compatibility with old tests/data inspection.
+  // Runtime storage uses a distinct namespace per authenticated account or anonymous workspace.
   static const String storageKey = 'fd_ai_conversations_v1';
+  static const String _scopedStoragePrefix = 'fd_ai_conversations_v2';
   static const int maxStoredConversations = 100;
   static final LocalConversationStorage instance = LocalConversationStorage();
 
@@ -36,6 +39,49 @@ class LocalConversationStorage implements ConversationRepository {
 
   void attachCloudApi(ApiService? api) {
     _cloudApi = api;
+  }
+
+  String get activeStorageKey {
+    final api = _cloudApi;
+    if (api == null) return storageKey;
+
+    if (api.isAuthenticated) {
+      final user = api.authUser ?? const <String, dynamic>{};
+      final id = (user['id'] ?? user['uid'] ?? user['user_id'])
+              ?.toString()
+              .trim() ??
+          '';
+      final email = user['email']?.toString().trim().toLowerCase() ?? '';
+      final token = api.authToken?.trim() ?? '';
+      final identity = id.isNotEmpty
+          ? 'id:$id'
+          : email.isNotEmpty
+              ? 'email:$email'
+              : 'token:$token';
+      return '${_scopedStoragePrefix}_account_${_scopeHash(identity)}';
+    }
+
+    return '${_scopedStoragePrefix}_anonymous_${_scopeHash(api.userId)}';
+  }
+
+  static String _scopeHash(String value) {
+    var first = 0x811c9dc5;
+    var second = 0x9e3779b9;
+    for (final byte in utf8.encode(value)) {
+      first = ((first ^ byte) * 0x01000193) & 0xffffffff;
+      second = ((second ^ byte) * 0x85ebca6b) & 0xffffffff;
+    }
+    return '${first.toRadixString(16).padLeft(8, '0')}${second.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  Future<void> clearCurrentUserCache() {
+    final key = activeStorageKey;
+    return clearStorageKey(key);
+  }
+
+  Future<void> clearStorageKey(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(key);
   }
 
   void _pushThreadInBackground(ConversationThread thread) {
@@ -89,7 +135,8 @@ class LocalConversationStorage implements ConversationRepository {
   Future<List<ConversationThread>> _loadInternal(
       {bool includeDeleted = false}) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(storageKey);
+    final key = activeStorageKey;
+    final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return [];
 
     try {
@@ -102,7 +149,7 @@ class LocalConversationStorage implements ConversationRepository {
       if (includeDeleted) return all;
       return all.where((c) => !c.isDeleted).toList();
     } catch (_) {
-      await prefs.setString('${storageKey}_corrupted_backup', raw);
+      await prefs.setString('${key}_corrupted_backup', raw);
       return [];
     }
   }
@@ -123,7 +170,7 @@ class LocalConversationStorage implements ConversationRepository {
       ...others.take(remainingSlots),
     ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final payload = kept.map((c) => c.toJson()).toList();
-    await prefs.setString(storageKey, jsonEncode(payload));
+    await prefs.setString(activeStorageKey, jsonEncode(payload));
   }
 
   @override
