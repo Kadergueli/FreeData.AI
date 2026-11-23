@@ -11,6 +11,7 @@ from src.monetization import SubscriptionStore
 from src.projects.store import ProjectStore
 from src.support_feedback import SupportFeedbackStore
 
+
 PG = os.getenv("TEST_PG_URL", "").strip()
 needs_pg = pytest.mark.skipif(not PG, reason="TEST_PG_URL non défini")
 
@@ -45,12 +46,14 @@ def _schema() -> str:
 @needs_pg
 def test_quota_is_atomic_under_concurrency():
     st = SubscriptionStore(database_url=PG, schema=_schema())
+
     def hit(_):
         try:
             st.consume_usage_atomic("user:a", "chat_daily", 5, period_key="2026-11-19")
             return 1
         except OverflowError:
             return 0
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         ok = sum(pool.map(hit, range(30)))
     assert ok == 5
@@ -66,6 +69,7 @@ def test_data_survives_a_new_store_instance_and_is_locked_down():
     with pytest.raises(KeyError):
         p2.get_project("user:bob", proj["project_id"])  # isolation entre propriétaires conservée
     import psycopg2
+
     with psycopg2.connect(PG) as c, c.cursor() as cur:
         cur.execute("SELECT count(*) FROM pg_tables WHERE schemaname=%s AND NOT rowsecurity", (schema,))
         assert cur.fetchone()[0] == 0  # RLS active sur toutes les tables
@@ -76,8 +80,14 @@ def test_pdf_is_stored_in_database_and_deleted_with_project():
     store = ProjectStore(database_url=PG, schema=_schema(), artifacts_dir="/tmp/_unused_art")
     proj = store.create_project("user:alice", "PDF")
     dossier = {"study_context": {}, "validation": {}, "data_traceability": {}, "title": "T"}
-    v = store.create_study_version("user:alice", proj["project_id"], study_id=None, dossier=dossier,
-                                   generation_params={}, pdf_bytes=b"%PDF-1.4 hello")
+    v = store.create_study_version(
+        "user:alice",
+        proj["project_id"],
+        study_id=None,
+        dossier=dossier,
+        generation_params={},
+        pdf_bytes=b"%PDF-1.4 hello",
+    )
     assert v["artifact_available"] is True
     # Le PDF est régénéré à partir du dossier stocké (stockage sans BLOB) : on vérifie un vrai PDF, pas les octets d'origine.
     assert store.get_study_version_pdf("user:alice", proj["project_id"], v["study_id"], 1).startswith(b"%PDF-")
@@ -104,3 +114,36 @@ def test_support_admin_and_billing_roundtrip():
     bill.admin_update_subscription(actor="root", target_user_id="user:alice", plan_id="premium")
     assert bill.get_subscription("user:alice")["effective_plan_id"] == "premium"
     assert bill.get_audit_logs()[0]["target_user_id"] == "user:alice"
+
+
+def test_pool_acquisition_waits_for_a_released_connection(monkeypatch):
+    from psycopg2.pool import PoolError
+
+    class FakePool:
+        def __init__(self):
+            self.calls = 0
+
+        def getconn(self):
+            self.calls += 1
+            if self.calls < 3:
+                raise PoolError("connection pool exhausted")
+            return "connection"
+
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr(db.time, "sleep", lambda _seconds: None)
+    pool = FakePool()
+
+    assert db._acquire_pool_connection(pool) == "connection"
+    assert pool.calls == 3
+
+
+def test_pool_acquisition_fails_with_a_clear_timeout(monkeypatch):
+    from psycopg2.pool import PoolError
+
+    class FullPool:
+        def getconn(self):
+            raise PoolError("connection pool exhausted")
+
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", "0")
+    with pytest.raises(TimeoutError, match="Pool PostgreSQL saturé"):
+        db._acquire_pool_connection(FullPool())
