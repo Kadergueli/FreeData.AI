@@ -581,3 +581,254 @@ def compute_agro_credit_passport(
         "disclaimer": disclaimer,
     }
 
+
+_MONTH_NAMES_FR = {
+    1: "Janv.", 2: "Fév.", 3: "Mars", 4: "Avr.", 5: "Mai", 6: "Juin",
+    7: "Juil.", 8: "Août", 9: "Sept.", 10: "Oct.", 11: "Nov.", 12: "Déc.",
+}
+
+_ENTREPRENEUR_PROFILES: dict[str, dict[str, Any]] = {
+    "petit_commercant": {
+        "label": "Petit commerçant / Débutant",
+        "default_holding_months": 1,
+        "advice": [
+            "Rotation courte (1–2 mois) : évitez d'immobiliser tout votre capital dans du stockage long ; privilégiez l'achat-revente rapide.",
+            "Conservez au moins 15 % de trésorerie de sécurité pour les imprévus de transport ou de manutention.",
+            "Surveillez le prix au coro et au sac de 100 kg pour protéger votre marge nette au détail.",
+        ],
+    },
+    "stockeur_saisonnier": {
+        "label": "Stockeur / Collecteur saisonnier",
+        "default_holding_months": 6,
+        "advice": [
+            "Stratégie temporelle : achetez uniquement lorsque le prix est dans le bas de son cycle historique (post-récolte) et visez la fenêtre de soudure.",
+            "Anticipez le coût cumulé du magasinage et des pertes de conservation (charançons/humidité) sur toute la durée d'immobilisation.",
+            "Fractionnez vos ventes par paliers (ex. 50 % au début de la hausse, 50 % au pic saisonnier) pour sécuriser le capital.",
+        ],
+    },
+    "grossiste_arbitragiste": {
+        "label": "Grossiste / Coopérative",
+        "default_holding_months": 2,
+        "advice": [
+            "Optimisez par volume (tonnes / camions) entre zones excédentaires et pôles déficitaires.",
+            "Vérifiez que l'écart brut entre provinces dépasse le coût réel du fret et des taxes routières avant affrètement.",
+            "Diversifiez sur 2 cultures complémentaires (ex. une céréale + une légumineuse/oléagineux) pour lisser le risque.",
+        ],
+    },
+    "investisseur": {
+        "label": "Investisseur / Co-financeur",
+        "default_holding_months": 6,
+        "advice": [
+            "Évaluez la rentabilité sur le scénario Prudent (Plancher) avant de vous fier au pic saisonnier.",
+            "Formalisez la traçabilité du stock (magasin, qualité des sacs, calendrier de sortie) et exigez un seuil de point mort clair.",
+            "Comparez le ROI annualisé sur 6 mois aux autres placements disponibles avant d'engager le capital.",
+        ],
+    },
+}
+
+
+def compute_campaign_investment_plan(
+    *,
+    hist_df: Any,
+    forecast_df: Any,
+    track_record: Optional[dict[str, Any]] = None,
+    capital_xaf: float,
+    origin_province: str,
+    entrepreneur_status: str = "petit_commercant",
+    crop_id: Optional[str] = None,
+    holding_months: Optional[int] = None,
+    coro_weight_kg: float = 2.5,
+    bag_weight_kg: float = 100.0,
+    transport_per_bag_xaf: float = 0.0,
+    storage_per_bag_month_xaf: float = 0.0,
+    bag_cost_xaf: float = 0.0,
+    loss_pct: float = 0.0,
+) -> dict[str, Any]:
+    """Simulateur temporel tchadien : dimensionne capital, sacs/coros, timing historique et ROI selon le statut."""
+    status_key = (entrepreneur_status or "petit_commercant").strip().lower()
+    if status_key not in _ENTREPRENEUR_PROFILES:
+        status_key = "petit_commercant"
+    profile = _ENTREPRENEUR_PROFILES[status_key]
+    months_hold = int(holding_months) if (holding_months and 1 <= int(holding_months) <= 12) else int(profile["default_holding_months"])
+    coro_kg = max(0.5, float(coro_weight_kg or 2.5))
+    bag_kg = max(10.0, float(bag_weight_kg or 100.0))
+    cap = max(1.0, float(capital_xaf))
+    loss_ratio = max(0.0, min(0.4, float(loss_pct or 0.0) / 100.0))
+
+    candidates = [_normalize_crop_id(crop_id)] if (crop_id and crop_id.strip()) else list(SUPPORTED_AGRO_CROPS.keys())
+    evaluated: list[dict[str, Any]] = []
+
+    for cid in candidates:
+        meta = SUPPORTED_AGRO_CROPS[cid]
+        comm = meta["commodity_std"]
+
+        # Données historiques province (ou repli national sur la denrée)
+        h_scope = None
+        if hist_df is not None and not getattr(hist_df, "empty", True):
+            h_comm = hist_df[hist_df["commodity_std"] == comm]
+            if not h_comm.empty:
+                h_prov = h_comm[h_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if "province" in h_comm.columns else h_comm
+                h_scope = h_prov if not h_prov.empty else h_comm
+
+        f_scope = None
+        if forecast_df is not None and not getattr(forecast_df, "empty", True):
+            f_comm = forecast_df[forecast_df["commodity_std"] == comm]
+            if not f_comm.empty:
+                f_prov = f_comm[f_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if "province" in f_comm.columns else f_comm
+                f_scope = f_prov if not f_prov.empty else f_comm
+
+        buy_px: Optional[float] = None
+        pred_t1: Optional[float] = None
+        cur_month = 11
+        if f_scope is not None and not f_scope.empty:
+            if "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
+                pred_t1 = float(f_scope["forecast_t1"].dropna().mean())
+            obs_col = "last_observed_price" if "last_observed_price" in f_scope.columns else ("value" if "value" in f_scope.columns else None)
+            if obs_col and not f_scope[obs_col].dropna().empty:
+                buy_px = float(f_scope[obs_col].dropna().mean())
+            if "last_observed_month" in f_scope.columns and not f_scope["last_observed_month"].dropna().empty:
+                try:
+                    cur_month = int(str(f_scope["last_observed_month"].dropna().iloc[0])[5:7])
+                except Exception:
+                    pass
+
+        hist_vals = h_scope["value"].dropna().astype(float) if (h_scope is not None and not h_scope.empty and "value" in h_scope.columns) else None
+        if buy_px is None and hist_vals is not None and not hist_vals.empty:
+            buy_px = float(hist_vals.iloc[-1])
+        if buy_px is None or buy_px <= 0:
+            continue
+
+        # Positionnement historique (percentile 2020-2026) & saisonnalité mensuelle
+        percentile_pct = 50.0
+        floor_px = buy_px * 0.85
+        peak_px = buy_px * 1.25
+        cheapest_months: list[str] = []
+        peak_months: list[str] = []
+        target_seasonal_px = pred_t1 or buy_px
+
+        if hist_vals is not None and not hist_vals.empty:
+            percentile_pct = round(float((hist_vals <= buy_px).mean() * 100.0), 1)
+            recent_h = h_scope[h_scope["year_month"].astype(str) >= "2024-01"]["value"].dropna().astype(float) if "year_month" in h_scope.columns else hist_vals
+            if recent_h.empty:
+                recent_h = hist_vals
+            floor_px = float(recent_h.quantile(0.15))
+            peak_px = float(recent_h.quantile(0.90))
+
+            if "year_month" in h_scope.columns:
+                tmp = h_scope[["year_month", "value"]].dropna().copy()
+                tmp["m"] = tmp["year_month"].astype(str).str.slice(5, 7)
+                tmp = tmp[tmp["m"].str.isdigit()]
+                if not tmp.empty:
+                    tmp["m_int"] = tmp["m"].astype(int)
+                    by_m = tmp.groupby("m_int")["value"].mean().sort_values()
+                    cheapest_months = [_MONTH_NAMES_FR.get(int(m), str(m)) for m in by_m.head(2).index]
+                    peak_months = [_MONTH_NAMES_FR.get(int(m), str(m)) for m in by_m.tail(2).index[::-1]]
+                    target_m = ((cur_month - 1 + months_hold) % 12) + 1
+                    if months_hold > 1 and target_m in by_m.index:
+                        # Ajuste la référence saisonnière par le ratio historique entre le mois cible et le mois actuel
+                        cur_m_avg = float(by_m.get(cur_month, buy_px))
+                        tgt_m_avg = float(by_m.loc[target_m])
+                        if cur_m_avg > 0:
+                            target_seasonal_px = buy_px * (tgt_m_avg / cur_m_avg)
+
+        if percentile_pct <= 30.0:
+            timing_signal, timing_label = "fenetre_achat", "Fenêtre d'achat favorable (prix historiquement bas)"
+        elif percentile_pct >= 70.0:
+            timing_signal, timing_label = "pic_eleve", "Prix historiquement élevé (prudence sur le stockage)"
+        else:
+            timing_signal, timing_label = "neutre", "Zone de prix intermédiaire (marge dépendante des frais)"
+
+        # Dimensionnement capital & coûts réels déclarés
+        unit_buy_bag = (buy_px * bag_kg) + float(bag_cost_xaf or 0.0) + float(transport_per_bag_xaf or 0.0) + (float(storage_per_bag_month_xaf or 0.0) * months_hold)
+        bags_count = int(cap // unit_buy_bag) if unit_buy_bag > 0 else 0
+        if bags_count <= 0:
+            bags_count = 0
+        invested_xaf = round(bags_count * unit_buy_bag)
+        reserve_xaf = round(max(0.0, cap - invested_xaf))
+        gross_kg = bags_count * bag_kg
+        sellable_kg = gross_kg * (1.0 - loss_ratio)
+        coros_equiv = round(gross_kg / coro_kg, 1)
+        breakeven_px = round(invested_xaf / sellable_kg, 1) if sellable_kg > 0 else round(buy_px, 1)
+
+        central_px = (pred_t1 if (months_hold == 1 and pred_t1) else target_seasonal_px)
+        # En horizon court (1 mois), central = ML t+1 ; sinon ratio saisonnier historique
+        def _build_scen(sid: str, label: str, px: float) -> dict[str, Any]:
+            rev = round(sellable_kg * px)
+            profit = round(rev - invested_xaf)
+            roi = round((profit / invested_xaf) * 100.0, 1) if invested_xaf > 0 else 0.0
+            ann_roi = round(roi * (12.0 / months_hold), 1) if months_hold > 0 else roi
+            return {
+                "id": sid,
+                "label": label,
+                "sell_price_xaf_kg": round(px, 1),
+                "sell_price_bag_100kg_xaf": round(px * bag_kg),
+                "gross_revenue_xaf": rev,
+                "net_profit_xaf": profit,
+                "roi_pct": roi,
+                "annualized_roi_pct": ann_roi,
+            }
+
+        scenarios = [
+            _build_scen("prudent_floor", "Scénario Prudent (Plancher 2024–2026)", floor_px),
+            _build_scen("central_horizon", f"Scénario Central (Horizon {months_hold} mois)", central_px),
+            _build_scen("peak_soudure", "Scénario Pic Soudure historique", peak_px),
+        ]
+        central_roi = scenarios[1]["roi_pct"]
+        # Score d'opportunité (timing + ROI central)
+        opp_score = round(max(0.0, min(100.0, (100.0 - percentile_pct) * 0.5 + max(-20.0, min(50.0, central_roi)) )), 1)
+        rec_tr = (track_record or {}).get(comm) or {}
+        mape = rec_tr.get("mape_pct") if rec_tr.get("mape_pct") is not None else rec_tr.get("MAPE_pct")
+
+        target_m_name = _MONTH_NAMES_FR.get(((cur_month - 1 + months_hold) % 12) + 1, "")
+        whatsapp_summary = (
+            f"Plan Campagne FreeData.td ({profile['label']})\n"
+            f"• Produit : {meta['label_fr']} | Ville : {origin_province}\n"
+            f"• Capital : {round(cap):,} FCFA → {bags_count} sacs ({bag_kg:g} kg) ≈ {coros_equiv} coros\n"
+            f"• Prix achat : {round(buy_px, 1)} F/kg ({round(buy_px * bag_kg):,} F/sac | {round(buy_px * coro_kg):,} F/coro)\n"
+            f"• Signal marché : {timing_label} (percentile {percentile_pct}%)\n"
+            f"• Point mort : {breakeven_px} F/kg | Horizon : {months_hold} mois ({target_m_name})\n"
+            f"• Gain estimé (Central) : {scenarios[1]['net_profit_xaf']:+,} FCFA ({scenarios[1]['roi_pct']}%)"
+        ).replace(",", " ")
+
+        evaluated.append({
+            "crop_id": cid,
+            "commodity_std": comm,
+            "label_fr": meta["label_fr"],
+            "opportunity_score": opp_score,
+            "buy_price_xaf_kg": round(buy_px, 1),
+            "buy_price_bag_100kg_xaf": round(buy_px * bag_kg),
+            "buy_price_coro_xaf": round(buy_px * coro_kg),
+            "percentile_rank_pct": percentile_pct,
+            "timing_signal": timing_signal,
+            "timing_label": timing_label,
+            "bags_count": bags_count,
+            "bag_weight_kg": bag_kg,
+            "coros_equiv": coros_equiv,
+            "coro_weight_kg": coro_kg,
+            "invested_xaf": invested_xaf,
+            "cash_reserve_xaf": reserve_xaf,
+            "breakeven_price_xaf_kg": breakeven_px,
+            "holding_months": months_hold,
+            "target_exit_month": target_m_name,
+            "cheapest_months": cheapest_months,
+            "peak_months": peak_months,
+            "historical_mape_pct": round(float(mape), 2) if isinstance(mape, (int, float)) else None,
+            "scenarios": scenarios,
+            "whatsapp_summary": whatsapp_summary,
+        })
+
+    evaluated.sort(key=lambda x: x["opportunity_score"], reverse=True)
+    best = evaluated[0] if evaluated else None
+    return {
+        "entrepreneur_status": status_key,
+        "entrepreneur_label": profile["label"],
+        "origin_province": origin_province,
+        "capital_xaf": round(cap),
+        "holding_months": months_hold,
+        "strategic_advice": profile["advice"],
+        "recommended_plan": best,
+        "all_opportunities": evaluated,
+        "sources": ["WFP", "FEWS NET"],
+        "license": "CC BY-IGO 3.0 / Attribution Required (FreeData.td)",
+    }
+

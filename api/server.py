@@ -61,6 +61,7 @@ from src.market_pro import (
     MarketWatchlistStore,
     build_validated_forecasts_overview,
     compute_agro_credit_passport,
+    compute_campaign_investment_plan,
     compute_inter_province_arbitrage,
     compute_spatial_arbitrage_detailed,
     evaluate_watchlists,
@@ -2048,6 +2049,47 @@ def market_pro_export_csv_endpoint(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="freedata_market_pro.csv"'},
     )
+
+
+class CampaignPlanRequest(BaseModel):
+    capital_xaf: float = Field(..., gt=0, le=5_000_000_000)
+    origin_province: str = Field(..., min_length=2, max_length=80)
+    entrepreneur_status: Literal["petit_commercant", "stockeur_saisonnier", "grossiste_arbitragiste", "investisseur"] = "petit_commercant"
+    crop_id: Optional[str] = Field(None, max_length=40)
+    holding_months: Optional[int] = Field(None, ge=1, le=12)
+    coro_weight_kg: float = Field(2.5, ge=0.5, le=10.0)
+    bag_weight_kg: float = Field(100.0, ge=10.0, le=200.0)
+    transport_per_bag_xaf: float = Field(0.0, ge=0.0, le=100_000.0)
+    storage_per_bag_month_xaf: float = Field(0.0, ge=0.0, le=50_000.0)
+    bag_cost_xaf: float = Field(0.0, ge=0.0, le=10_000.0)
+    loss_pct: float = Field(0.0, ge=0.0, le=40.0)
+
+
+@app.post("/api/v1/markets/campaign-plan", dependencies=[Depends(_data_rate_limit_dependency)])
+def markets_campaign_plan_endpoint(
+    payload: CampaignPlanRequest,
+    state: dict = Depends(get_state),
+):
+    """Simulateur temporel tchadien : plan d'achat/stockage/revente adapté au statut de l'entrepreneur."""
+    try:
+        return compute_campaign_investment_plan(
+            hist_df=state.get("hist_df"),
+            forecast_df=state.get("forecast_df"),
+            track_record=state.get("track_record"),
+            capital_xaf=payload.capital_xaf,
+            origin_province=payload.origin_province,
+            entrepreneur_status=payload.entrepreneur_status,
+            crop_id=payload.crop_id,
+            holding_months=payload.holding_months,
+            coro_weight_kg=payload.coro_weight_kg,
+            bag_weight_kg=payload.bag_weight_kg,
+            transport_per_bag_xaf=payload.transport_per_bag_xaf,
+            storage_per_bag_month_xaf=payload.storage_per_bag_month_xaf,
+            bag_cost_xaf=payload.bag_cost_xaf,
+            loss_pct=payload.loss_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/markets/spatial-arbitrage", dependencies=[Depends(_data_rate_limit_dependency)])

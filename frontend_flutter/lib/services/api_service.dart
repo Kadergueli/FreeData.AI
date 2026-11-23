@@ -861,6 +861,43 @@ class ApiService {
 
   // --- Marché PRO : Watchlists, Arbitrage & Export CSV ---------------------
 
+  Future<Map<String, dynamic>> computeCampaignPlan({
+    required double capitalXaf,
+    required String originProvince,
+    String entrepreneurStatus = 'petit_commercant',
+    String? cropId,
+    int? holdingMonths,
+    double coroWeightKg = 2.5,
+    double transportPerBagXaf = 0,
+    double storagePerBagMonthXaf = 0,
+    double lossPct = 0,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/markets/campaign-plan');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'capital_xaf': capitalXaf,
+            'origin_province': originProvince,
+            'entrepreneur_status': entrepreneurStatus,
+            if (cropId != null && cropId.isNotEmpty) 'crop_id': cropId,
+            if (holdingMonths != null) 'holding_months': holdingMonths,
+            'coro_weight_kg': coroWeightKg,
+            'transport_per_bag_xaf': transportPerBagXaf,
+            'storage_per_bag_month_xaf': storagePerBagMonthXaf,
+            'loss_pct': lossPct,
+          }),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    throw ApiHttpException(resp.statusCode,
+        _extractErrorDetail(resp, 'Simulation de campagne impossible'));
+  }
+
   Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async {
     final uri = Uri.parse('$baseUrl/api/v1/market-pro/overview').replace(
       queryParameters:
