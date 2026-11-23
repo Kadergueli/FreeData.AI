@@ -727,8 +727,11 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  bool _isWatchlistTriggered(Map<String, dynamic> w) =>
+      w['triggered'] == true || w['alert_triggered'] == true;
+
   Future<void> _refreshWatchlistNotifications() async {
-    if (!_apiService.isAuthenticated && !_apiService.hasPremiumKey) return;
+    if (!_apiService.hasPremiumKey) return;
     try {
       final overview = await _apiService.getMarketProOverview();
       final raw = overview['watchlists'];
@@ -737,8 +740,7 @@ class _MainShellState extends State<MainShell> {
             .whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
-        final triggered =
-            items.where((w) => w['alert_triggered'] == true).length;
+        final triggered = items.where(_isWatchlistTriggered).length;
         setState(() {
           _watchlistAlerts = items;
           _triggeredWatchlistCount = triggered;
@@ -751,9 +753,9 @@ class _MainShellState extends State<MainShell> {
     await _refreshWatchlistNotifications();
     if (!mounted) return;
     final triggeredItems =
-        _watchlistAlerts.where((w) => w['alert_triggered'] == true).toList();
+        _watchlistAlerts.where(_isWatchlistTriggered).toList();
     final activeItems =
-        _watchlistAlerts.where((w) => w['alert_triggered'] != true).toList();
+        _watchlistAlerts.where((w) => !_isWatchlistTriggered(w)).toList();
 
     await showDialog<void>(
       context: context,
@@ -778,9 +780,9 @@ class _MainShellState extends State<MainShell> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!_apiService.isAuthenticated && !_apiService.hasPremiumKey)
+                if (!_apiService.hasPremiumKey)
                   const Text(
-                    'Connectez-vous ou activez un accès PRO pour recevoir les alertes de seuils de prix sur vos watchlists.',
+                    'Activez un accès PRO pour créer des watchlists et recevoir les alertes de seuils de prix en temps réel.',
                     style: TextStyle(fontSize: 13, color: FDTheme.muted),
                   )
                 else if (_watchlistAlerts.isEmpty)
@@ -812,7 +814,7 @@ class _MainShellState extends State<MainShell> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? ''}',
+                              '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 13,
@@ -821,7 +823,7 @@ class _MainShellState extends State<MainShell> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Prix prévu : ${w['current_predicted_xaf_kg'] ?? '—'} FCFA/kg · Seuil : ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (${w['direction'] ?? ''})',
+                              'Prix prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'} FCFA/kg · Seuil : ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (${w['direction'] == 'above' ? '≥' : '≤'})',
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: FDTheme.muted,
@@ -852,7 +854,7 @@ class _MainShellState extends State<MainShell> {
                           border: Border.all(color: FDTheme.line),
                         ),
                         child: Text(
-                          '${w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? ''} — Seuil ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (prévu : ${w['current_predicted_xaf_kg'] ?? '—'})',
+                          '${w['label_fr'] ?? w['commodity_std'] ?? w['crop_id'] ?? 'Produit'} · ${w['province'] ?? 'Toutes provinces'} — Seuil ${w['direction'] == 'above' ? '≥' : '≤'} ${w['threshold_xaf_kg'] ?? '—'} FCFA/kg (prévu : ${w['predicted_xaf_kg'] ?? w['current_xaf_kg'] ?? '—'})',
                           style: const TextStyle(
                               fontSize: 12.5, color: FDTheme.ink),
                         ),

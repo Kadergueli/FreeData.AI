@@ -649,11 +649,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 SizedBox(
                   width: 165,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: hub,
                     decoration:
                         const InputDecoration(labelText: 'Pôle', isDense: true),
                     items: widget.availableHubs
-                        .map((h) => DropdownMenuItem(value: h, child: Text(h)))
+                        .map((h) => DropdownMenuItem(
+                              value: h,
+                              child: Text(h, overflow: TextOverflow.ellipsis),
+                            ))
                         .toList(),
                     onChanged: (v) {
                       if (v != null) onHub(v);
@@ -703,12 +707,16 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 SizedBox(
                   width: 155,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: tex,
                     decoration: const InputDecoration(
                         labelText: 'Texture (opt.)', isDense: true),
                     items: _textures
                         .map((t) => DropdownMenuItem(
-                            value: t['id']!, child: Text(t['label']!)))
+                              value: t['id']!,
+                              child: Text(t['label']!,
+                                  overflow: TextOverflow.ellipsis),
+                            ))
                         .toList(),
                     onChanged: (v) => onTex(v ?? ''),
                   ),
