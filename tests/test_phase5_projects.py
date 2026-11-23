@@ -154,3 +154,27 @@ def test_delete_project_removes_all_generated_pdf_artifacts(tmp_path):
 
     assert not pdf_files[0].exists()
     assert store.list_projects("user:alice", include_archived=True) == []
+
+def test_artifact_cleanup_rejects_symlink_escape_and_unlinks_external_file_link(tmp_path):
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "keep.pdf"
+    outside_file.write_bytes(b"do not delete")
+
+    store = ProjectStore(
+        db_path=str(tmp_path / "projects.db"),
+        artifacts_dir=str(artifacts_dir),
+    )
+    linked_dir = artifacts_dir / "linked"
+    linked_dir.symlink_to(outside_dir, target_is_directory=True)
+    with pytest.raises(ValueError, match="répertoire autorisé"):
+        store._remove_artifact_file(str(linked_dir / "keep.pdf"))
+    assert outside_file.exists()
+
+    file_link = artifacts_dir / "external-link.pdf"
+    file_link.symlink_to(outside_file)
+    store._remove_artifact_file(str(file_link))
+    assert not file_link.exists()
+    assert outside_file.exists()
