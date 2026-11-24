@@ -379,6 +379,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Les charges OPEX sont volontairement vides : le test déclare explicitement
+    // zéro pour chaque poste avant de lancer le calcul.
+    final fields = find.byType(TextField);
+    for (var i = 3; i < 9; i++) {
+      await tester.enterText(fields.at(i), '0');
+    }
+    await tester.pump();
+
     final calculate = find.text('Calculer le Compte d’Exploitation');
     await tester.scrollUntilVisible(
       calculate,
