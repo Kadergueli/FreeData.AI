@@ -254,7 +254,8 @@ void main() {
         contains('demande-le avant de produire les projections'));
   });
 
-  testWidgets('farm operating account results can be explained and planned with AI',
+  testWidgets(
+      'farm operating account results can be explained and planned with AI',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 1100);
     tester.view.devicePixelRatio = 1;
@@ -290,7 +291,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.tap(explain);
-    expect(capturedPrompt, contains('Explique le compte d’exploitation agricole'));
+    expect(
+        capturedPrompt, contains('Explique le compte d’exploitation agricole'));
     expect(capturedPrompt, contains('marge EBITDA'));
     expect(capturedPrompt, contains('Seuil de rentabilité'));
 
@@ -299,7 +301,8 @@ void main() {
     expect(capturedPrompt, contains('capital initial'));
   });
 
-  testWidgets('campaign plan results pass capital provenance and scenarios to AI',
+  testWidgets(
+      'campaign plan results pass capital provenance and scenarios to AI',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 1100);
     tester.view.devicePixelRatio = 1;
@@ -341,8 +344,8 @@ void main() {
 
     await tester.tap(find.text('Créer un business plan'));
     expect(capturedPrompt, contains('business plan commercial agricole'));
-    expect(capturedPrompt, contains('capital réel de l’utilisateur n’est pas confirmé'));
+    expect(capturedPrompt,
+        contains('capital réel de l’utilisateur n’est pas confirmé'));
     expect(capturedPrompt, isNot(contains('Capital saisi par l’utilisateur')));
   });
-
 }
