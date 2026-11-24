@@ -310,8 +310,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 ? const Color(0xFF1D4ED8)
                                 : const Color(0xFF64748B),
                           ),
-                          label: Text(
-                              'Toutes (${activeConversations.length})'),
+                          label: Text('Toutes (${activeConversations.length})'),
                           selected: !_showTrash && !_filterSavedOnly,
                           selectedColor: const Color(0xFFEFF6FF),
                           labelStyle: TextStyle(
