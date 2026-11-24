@@ -140,10 +140,18 @@ class _PassportScreenState extends State<PassportScreen> {
             children: [
               FDCard(
                 padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final fieldWidth = constraints.maxWidth < 520
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 10) / 2;
+                    return Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        SizedBox(
+                          width: fieldWidth,
+                          child: DropdownButtonFormField<String>(
                         key: ValueKey(_commodity),
                         initialValue: _commodities.contains(_commodity)
                             ? _commodity
@@ -171,11 +179,11 @@ class _PassportScreenState extends State<PassportScreen> {
                             _load();
                           }
                         },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<int>(
+                      ),,
+                        ),
+                        SizedBox(
+                          width: fieldWidth,
+                          child: DropdownButtonFormField<int>(
                         initialValue: _loanAmount,
                         isExpanded: true,
                         decoration: const InputDecoration(
@@ -212,9 +220,11 @@ class _PassportScreenState extends State<PassportScreen> {
                             _load();
                           }
                         },
-                      ),
-                    ),
-                  ],
+                      ),,
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 14),
