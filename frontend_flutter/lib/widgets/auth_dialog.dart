@@ -182,7 +182,7 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 28),
           const Text(
-            'Transformez vos données en décisions intelligentes.,
+            'Transformez vos données en décisions intelligentes.',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -192,7 +192,7 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Exploitez les données sectorielles et vos propres documents grâce à l’intelligence artificielle et à l’analyse prédictive.,
+            'Exploitez les données sectorielles et vos propres documents grâce à l’intelligence artificielle et à l’analyse prédictive.',
             style: TextStyle(
               color: Color(0xFF94A3B8),
               fontSize: 13,
@@ -203,23 +203,23 @@ class _AuthDialogState extends State<AuthDialog> {
           _brandFeature(
             Icons.auto_awesome_outlined,
             'IA & Analyse documentaire',
-            'Interrogez vos données et vos fichiers PDF/CSV. Obtenez des synthèses structurées et sourcées.,
+            'Interrogez vos données et vos fichiers PDF/CSV. Obtenez des synthèses structurées et sourcées.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.insights_outlined,
             'Analyses prédictives & simulations',
-            'Explorez les tendances, estimez les risques et comparez des scénarios à partir des données disponibles.,
+            'Explorez les tendances, estimez les risques et comparez des scénarios à partir des données disponibles.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.description_outlined,
             'Rapports & espaces de travail',
-            'Organisez vos études, exportez des rapports PDF vérifiables et pilotez vos projets.,
+            'Organisez vos études, exportez des rapports PDF vérifiables et pilotez vos projets.',
           ),
           const Spacer(),
           const Text(
-            'FreeData.AI · Un produit de FreeData.td,
+            'FreeData.AI · Un produit de FreeData.td',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontSize: 11.5,
