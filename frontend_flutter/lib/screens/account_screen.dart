@@ -29,13 +29,20 @@ class _AccountLoadError extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded,
-              size: 18, color: AppColors.danger),
+          const Icon(
+            Icons.error_outline_rounded,
+            size: 18,
+            color: AppColors.danger,
+          ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(message,
-                style: const TextStyle(
-                    fontSize: 12.5, color: AppColors.danger)),
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.danger,
+              ),
+            ),
           ),
           TextButton(
             onPressed: onRetry,
@@ -866,7 +873,8 @@ class _AccountScreenState extends State<AccountScreen> {
                 const SizedBox(height: 14),
                 if (_agroProfileError != null)
                   _AccountLoadError(
-                    message: 'Profil agronome indisponible : $_agroProfileError',
+                    message:
+                        'Profil agronome indisponible : $_agroProfileError',
                     onRetry: _loadBilling,
                   ),
                 _buildAgroOfficialProfileCard(),
@@ -990,7 +998,8 @@ class _AccountScreenState extends State<AccountScreen> {
                       const SizedBox(height: 10),
                       if (_documentsError != null)
                         _AccountLoadError(
-                          message: 'Impossible de charger les documents : $_documentsError',
+                          message:
+                              'Impossible de charger les documents : $_documentsError',
                           onRetry: _loadBilling,
                         )
                       else if (_loadingBilling && _myDocs.isEmpty)
@@ -1054,9 +1063,10 @@ class _AccountScreenState extends State<AccountScreen> {
                         ),
                       if (_billingError != null)
                         _AccountLoadError(
-                          message: 'Informations de facturation non actualisées : $_billingError',
+                          message:
+                              'Informations de facturation non actualisées : $_billingError',
                           onRetry: _loadBilling,
-                        )
+                        ),
                       else
                         const Text(
                           'Vos conversations, projets et préférences sont associés à votre compte sécurisé.',
