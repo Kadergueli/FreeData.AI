@@ -22,13 +22,16 @@ class SessionLogout {
     final accountStorageKey = storage.activeStorageKey;
     var cacheCleared = true;
 
+    // If secure storage is unavailable, preserve both the active session and
+    // its local data so the user can retry without losing access.
+    await AuthTokenStorage.delete();
+
     try {
       await storage.clearStorageKey(accountStorageKey);
     } catch (_) {
       cacheCleared = false;
     }
 
-    await AuthTokenStorage.delete();
     await apiService.logoutAccount();
 
     return SessionLogoutResult(cacheCleared: cacheCleared);
