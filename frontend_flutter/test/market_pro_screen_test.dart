@@ -322,6 +322,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final capitalField = find.byType(TextField).first;
+    expect(tester.widget<TextField>(capitalField).controller!.text, isEmpty);
+    await tester.enterText(capitalField, '500000');
+
     final simulate = find.text('Simuler mon Plan de Campagne');
     await tester.scrollUntilVisible(
       simulate,
@@ -345,7 +349,8 @@ void main() {
     await tester.tap(find.text('Créer un business plan'));
     expect(capturedPrompt, contains('business plan commercial agricole'));
     expect(capturedPrompt,
-        contains('capital réel de l’utilisateur n’est pas confirmé'));
-    expect(capturedPrompt, isNot(contains('Capital saisi par l’utilisateur')));
+        contains('Capital saisi par l’utilisateur : 500000 XAF'));
+    expect(capturedPrompt,
+        isNot(contains('capital réel de l’utilisateur n’est pas confirmé')));
   });
 }
