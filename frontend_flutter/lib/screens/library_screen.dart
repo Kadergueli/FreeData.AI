@@ -231,8 +231,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                         ),
                       ),
-                      if (!compact)
-                        IconButton(
+                      Visibility(
+                        visible: !compact,
+                        child: IconButton(
                           icon: const Icon(
                             Icons.refresh_rounded,
                             size: 22,
@@ -244,6 +245,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             widget.onConversationsUpdated?.call();
                           },
                         ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
