@@ -30,32 +30,34 @@ class _PassportFakeApiService extends ApiService {
           'policy_recommendation': 'Stabilité relative des prix observés.',
         },
       ];
-  testWidgets('PassportScreen explains market index is not borrower credit score',
-      (tester) async {
-    tester.view.physicalSize = const Size(1280, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(home: PassportScreen(apiService: _PassportFakeApiService())),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Ce que mesure cet indicateur'), findsOneWidget);
-    expect(
-      find.textContaining('ne constitue pas une note de crédit'),
-      findsOneWidget,
-    );
-    expect(find.text('Plafond indicatif'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
 }
 
 void main() {
+  testWidgets(
+    'PassportScreen explains market index is not borrower credit score',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(home: PassportScreen(apiService: _PassportFakeApiService())),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ce que mesure cet indicateur'), findsOneWidget);
+      expect(
+        find.textContaining('ne constitue pas une note de crédit'),
+        findsOneWidget,
+      );
+      expect(find.text('Plafond indicatif'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('PassportScreen stacks filters without narrow-screen overflow',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
