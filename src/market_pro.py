@@ -358,24 +358,6 @@ def compute_spatial_arbitrage_detailed(
     limit: int = 12,
 ) -> dict[str, Any]:
     """Compare des prévisions provinciales sur un même mois sans assimiler un écart brut à un bénéfice."""
-    if not math.isfinite(float(area_hectares)) or not 0 < float(area_hectares) <= 500_000:
-        raise ValueError("La superficie doit être comprise entre 0 et 500 000 hectares.")
-    if not math.isfinite(float(farmgate_discount_pct)) or not 0 <= float(farmgate_discount_pct) <= 50:
-        raise ValueError("La décote bord-champ doit être comprise entre 0 et 50 %.")
-    numeric_inputs = (
-        seed_cost_per_ha_xaf, fertilizer_cost_per_ha_xaf, labor_cost_per_ha_xaf,
-        land_prep_irrigation_per_ha_xaf, harvest_postharvest_per_ha_xaf,
-        other_opex_per_ha_xaf, capex_total_xaf, loan_amount_xaf, interest_rate_pct,
-    )
-    if any(not math.isfinite(float(value)) or float(value) < 0 for value in numeric_inputs):
-        raise ValueError("Les coûts, le financement et le taux d’intérêt doivent être des nombres positifs ou nuls.")
-    if float(interest_rate_pct) > 100:
-        raise ValueError("Le taux d’intérêt doit être compris entre 0 et 100 %.")
-    if target_yield_kg_ha is not None and (
-        not math.isfinite(float(target_yield_kg_ha)) or not 0 < float(target_yield_kg_ha) <= 50_000
-    ):
-        raise ValueError("Le rendement cible doit être compris entre 0 et 50 000 kg/ha.")
-
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
     comm = meta["commodity_std"]
@@ -594,6 +576,27 @@ def compute_agro_credit_passport(
     """Profil Credit Passport Agro : rendement World Bank 2020-2024, DSCR sous 3 scénarios et fréquence années sèches."""
     from src.agro_engine import build_zone_profile
     from src.agro_indicators import HUB_PROVINCE, canonical_region, national_indicator_key
+
+    numeric_inputs = (
+        area_hectares, farmgate_discount_pct, seed_cost_per_ha_xaf,
+        fertilizer_cost_per_ha_xaf, labor_cost_per_ha_xaf,
+        land_prep_irrigation_per_ha_xaf, harvest_postharvest_per_ha_xaf,
+        other_opex_per_ha_xaf, capex_total_xaf, loan_amount_xaf, interest_rate_pct,
+    )
+    if any(not math.isfinite(float(value)) for value in numeric_inputs):
+        raise ValueError("Tous les paramètres financiers doivent être des nombres finis.")
+    if not 0 < float(area_hectares) <= 500_000:
+        raise ValueError("La superficie doit être comprise entre 0 et 500 000 hectares.")
+    if not 0 <= float(farmgate_discount_pct) <= 50:
+        raise ValueError("La décote bord-champ doit être comprise entre 0 et 50 %.")
+    if any(float(value) < 0 for value in numeric_inputs[2:]):
+        raise ValueError("Les coûts et financements doivent être positifs ou nuls.")
+    if float(interest_rate_pct) > 100:
+        raise ValueError("Le taux d’intérêt doit être compris entre 0 et 100 %.")
+    if target_yield_kg_ha is not None and (
+        not math.isfinite(float(target_yield_kg_ha)) or not 0 < float(target_yield_kg_ha) <= 50_000
+    ):
+        raise ValueError("Le rendement cible doit être compris entre 0 et 50 000 kg/ha.")
 
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
@@ -1157,8 +1160,11 @@ def compute_farm_operating_account(
     storage_px: Optional[float] = None
     if not history.empty:
         history_reference_month = str(history["_month"].max())
-        months = sorted(history["_month"].unique())[-12:]
-        recent_history = history[history["_month"].isin(months)]
+        latest_period = pd.Period(history_reference_month, freq="M")
+        first_period = latest_period - 11
+        recent_history = history[
+            history["_month"].map(lambda value: first_period <= pd.Period(value, freq="M") <= latest_period)
+        ]
         history_rows_used = int(len(recent_history))
         history_values = recent_history["_value"]
         stress_px = round(float(history_values.min()), 1)
