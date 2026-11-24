@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import os
+import pandas as pd
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -327,121 +329,191 @@ def compute_spatial_arbitrage_detailed(
     tonnage: Optional[float] = None,
     limit: int = 12,
 ) -> dict[str, Any]:
-    """Arbitrage spatial détaillé entre provinces/pôles avec marge nette, ROI et MAPE hors-temps."""
+    """Compare des prévisions provinciales sur un même mois sans assimiler un écart brut à un bénéfice."""
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
     comm = meta["commodity_std"]
     rec = (track_record or {}).get(comm) or {}
     mape = rec.get("mape_pct") if rec.get("mape_pct") is not None else rec.get("MAPE_pct")
-    mape_val = round(float(mape), 2) if isinstance(mape, (int, float)) else None
+    mape_val = round(float(mape), 2) if isinstance(mape, (int, float)) and math.isfinite(float(mape)) else None
 
-    if forecast_df is None or getattr(forecast_df, "empty", True) or "province" not in forecast_df.columns:
-        return {
-            "crop_id": cid,
-            "commodity_std": comm,
-            "label_fr": meta["label_fr"],
-            "historical_mape_pct": mape_val,
-            "routes": [],
-            "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
-            "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
-        }
+    empty = {
+        "crop_id": cid,
+        "commodity_std": comm,
+        "label_fr": meta["label_fr"],
+        "historical_mape_pct": mape_val,
+        "mape_scope": "commodity_backtest_not_route_specific",
+        "forecast_month": None,
+        "routes": [],
+        "recommendations": [],
+        "sources": [],
+        "license": "Attribution Required (FreeData.td)",
+        "spatial_resolution": "province_market",
+        "confidence_level": "not_assessed",
+        "status": "insufficient_data",
+        "status_message": "Données prévisionnelles insuffisantes pour comparer les provinces.",
+    }
+    if forecast_df is None or getattr(forecast_df, "empty", True):
+        return empty
+    required = {"commodity_std", "province", "forecast_t1", "forecast_month"}
+    if not required.issubset(set(forecast_df.columns)):
+        return {**empty, "status_message": "Le jeu de données ne contient pas les champs de prévision et de période requis."}
 
-    sub = forecast_df[forecast_df["commodity_std"] == comm]
+    sub = forecast_df[forecast_df["commodity_std"] == comm].copy()
     if sub.empty:
+        return empty
+    sub["forecast_t1"] = pd.to_numeric(sub["forecast_t1"], errors="coerce")
+    sub = sub[sub["forecast_t1"].notna() & (sub["forecast_t1"] > 0)]
+    sub["forecast_month"] = sub["forecast_month"].astype(str).str.strip()
+    sub = sub[sub["forecast_month"].str.match(r"^\\d{4}-\\d{2}$", na=False)]
+    if sub.empty:
+        return {**empty, "status_message": "Aucun prix prévisionnel valide avec un mois de référence explicite."}
+
+    # Une comparaison spatiale doit porter sur le même horizon de prévision.
+    fc_month = sorted(sub["forecast_month"].unique())[-1]
+    sub = sub[sub["forecast_month"] == fc_month].copy()
+    grouped = sub.groupby("province", dropna=True)
+    by_prov = grouped["forecast_t1"].mean().dropna().sort_values()
+    if len(by_prov) < 2:
         return {
-            "crop_id": cid,
-            "commodity_std": comm,
-            "label_fr": meta["label_fr"],
-            "historical_mape_pct": mape_val,
-            "routes": [],
-            "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
-            "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
+            **empty,
+            "forecast_month": fc_month,
+            "status_message": "Au moins deux provinces doivent avoir une prévision valide pour le même mois.",
         }
 
-    by_prov = sub.groupby("province")["forecast_t1"].mean().dropna().sort_values()
-    fc_month = (
-        str(sub["forecast_month"].dropna().iloc[0])
-        if "forecast_month" in sub.columns and not sub["forecast_month"].dropna().empty
-        else None
-    )
-    provs = list(by_prov.items())
+    def _mean_optional(group: Any, column: str) -> Optional[float]:
+        if column not in group.columns:
+            return None
+        values = pd.to_numeric(group[column], errors="coerce").dropna()
+        values = values[values.map(lambda value: math.isfinite(float(value)))]
+        return round(float(values.mean()), 1) if not values.empty else None
+
+    prov_stats: dict[str, dict[str, Any]] = {}
+    for province, group in grouped:
+        price = _mean_optional(group, "forecast_t1")
+        if price is None or price <= 0:
+            continue
+        prov_stats[str(province)] = {
+            "forecast_price": price,
+            "market_count": int(group["market_name"].dropna().astype(str).nunique()) if "market_name" in group.columns else int(len(group)),
+            "last_observed_month": (
+                str(group["last_observed_month"].dropna().astype(str).max())
+                if "last_observed_month" in group.columns and not group["last_observed_month"].dropna().empty
+                else None
+            ),
+            "ci_low": _mean_optional(group, "ci_low_80"),
+            "ci_high": _mean_optional(group, "ci_high_80"),
+            "sources": sorted({str(v).strip() for v in group.get("source", pd.Series(dtype=str)).dropna() if str(v).strip()}),
+        }
+
+    provinces = sorted(prov_stats.items(), key=lambda item: item[1]["forecast_price"])
     routes: list[dict[str, Any]] = []
-    for i, (orig_prov, orig_px) in enumerate(provs):
-        for dest_prov, dest_px in reversed(provs[i + 1 :]):
-            spread = float(dest_px) - float(orig_px)
-            if spread <= 0 or orig_px <= 0:
+    for i, (origin, origin_stats) in enumerate(provinces):
+        for destination, destination_stats in reversed(provinces[i + 1:]):
+            origin_px = origin_stats["forecast_price"]
+            destination_px = destination_stats["forecast_price"]
+            spread = round(destination_px - origin_px, 1)
+            if spread <= 0:
                 continue
-            net_kg = (spread - float(transport_cost_xaf_kg)) if transport_cost_xaf_kg is not None else None
-            denom = float(orig_px) + (float(transport_cost_xaf_kg) if transport_cost_xaf_kg is not None else 0.0)
-            roi_pct = round(((net_kg if net_kg is not None else spread) / denom) * 100.0, 1) if denom > 0 else None
-            total_net_xaf = (
-                round((net_kg if net_kg is not None else spread) * float(tonnage) * 1000.0, 0)
-                if tonnage is not None
+
+            low_spread = None
+            high_spread = None
+            if origin_stats["ci_high"] is not None and destination_stats["ci_low"] is not None:
+                low_spread = round(destination_stats["ci_low"] - origin_stats["ci_high"], 1)
+            if origin_stats["ci_low"] is not None and destination_stats["ci_high"] is not None:
+                high_spread = round(destination_stats["ci_high"] - origin_stats["ci_low"], 1)
+
+            net_margin = round(spread - float(transport_cost_xaf_kg), 1) if transport_cost_xaf_kg is not None else None
+            estimated_total = (
+                round(net_margin * float(tonnage) * 1000.0, 0)
+                if net_margin is not None and tonnage is not None
                 else None
             )
-            spread_bag = round(spread * 100.0)
-            if transport_cost_xaf_kg is not None:
-                rec_text = (
-                    f"Arbitrage positif (+{net_kg:.1f} FCFA/kg net). Vérifier la disponibilité du fret et l'état de l'axe avant expédition."
-                    if net_kg is not None and net_kg > 0
-                    else f"Arbitrage déficitaire ({net_kg:.1f} FCFA/kg net) : le coût de transport saisi dépasse l'écart de prix."
-                )
+            roi = (
+                round((net_margin / (origin_px + float(transport_cost_xaf_kg))) * 100.0, 1)
+                if net_margin is not None and origin_px + float(transport_cost_xaf_kg) > 0
+                else None
+            )
+            robust_net = (
+                round(low_spread - float(transport_cost_xaf_kg), 1)
+                if low_spread is not None and transport_cost_xaf_kg is not None
+                else None
+            )
+            if transport_cost_xaf_kg is None:
+                signal = "gross_spread_only"
+                recommendation = f"Écart brut de {spread:.1f} FCFA/kg. Saisir un coût réel de transport avant toute estimation de marge."
+            elif net_margin is not None and net_margin <= 0:
+                signal = "not_viable_after_transport"
+                recommendation = f"Marge après transport déclaré : {net_margin:.1f} FCFA/kg, avant stockage, pertes, manutention et taxes."
+            elif robust_net is not None and robust_net <= 0:
+                signal = "uncertain_after_forecast_interval"
+                recommendation = f"Marge centrale après transport : {net_margin:.1f} FCFA/kg, mais l'intervalle de prévision ne confirme pas une marge positive."
             else:
-                rec_text = (
-                    f"Écart brut +{spread:.1f} FCFA/kg (+{spread_bag:,} FCFA/sac 100 kg). "
-                    f"Carburant/état des routes non modélisés : vérifier que le fret réel reste < {spread:.1f} FCFA/kg avant expédition."
-                ).replace(",", " ")
+                signal = "positive_after_declared_transport"
+                recommendation = f"Marge centrale après transport déclaré : {net_margin:.1f} FCFA/kg. Confirmer le fret, les pertes, le stockage, les taxes et la disponibilité du marché."
+
+            sources = sorted(set(origin_stats["sources"] + destination_stats["sources"]))
             routes.append({
-                "origin_province": str(orig_prov),
-                "dest_province": str(dest_prov),
-                "origin_predicted_xaf_kg": round(float(orig_px), 1),
-                "dest_predicted_xaf_kg": round(float(dest_px), 1),
-                "spread_xaf_kg": round(spread, 1),
-                "spread_per_100kg_bag_xaf": spread_bag,
-                "breakeven_transport_xaf_kg": round(spread, 1),
+                "origin_province": origin,
+                "dest_province": destination,
+                "origin_predicted_xaf_kg": origin_px,
+                "dest_predicted_xaf_kg": destination_px,
+                "spread_xaf_kg": spread,
+                "spread_per_100kg_bag_xaf": round(spread * 100.0),
+                "spread_low_80_xaf_kg": low_spread,
+                "spread_high_80_xaf_kg": high_spread,
                 "transport_cost_xaf_kg": round(float(transport_cost_xaf_kg), 1) if transport_cost_xaf_kg is not None else None,
-                "net_margin_xaf_kg": round(net_kg, 1) if net_kg is not None else None,
+                "net_margin_xaf_kg": net_margin,
                 "tonnage": tonnage,
-                "estimated_net_margin_xaf": total_net_xaf,
-                "roi_pct": roi_pct,
+                "estimated_net_margin_xaf": estimated_total,
+                "roi_pct": roi,
+                "roi_basis": "net_spread_divided_by_origin_price_plus_declared_transport" if roi is not None else None,
+                "origin_market_count": origin_stats["market_count"],
+                "dest_market_count": destination_stats["market_count"],
+                "origin_last_observed_month": origin_stats["last_observed_month"],
+                "dest_last_observed_month": destination_stats["last_observed_month"],
                 "forecast_month": fc_month,
-                "recommendation": rec_text,
+                "commercial_signal": signal,
+                "recommendation": recommendation,
+                "sources": sources,
+                "costs_excluded": ["stockage", "pertes", "manutention", "taxes", "financement", "retours à vide"],
             })
 
     routes.sort(
-        key=lambda r: r["net_margin_xaf_kg"] if r["net_margin_xaf_kg"] is not None else r["spread_xaf_kg"],
+        key=lambda route: route["net_margin_xaf_kg"] if route["net_margin_xaf_kg"] is not None else route["spread_xaf_kg"],
         reverse=True,
     )
-    top_routes = routes[:limit]
+    top_routes = routes[:max(1, min(int(limit), 50))]
     recommendations: list[str] = []
     if top_routes:
-        best = top_routes[0]
-        recommendations.append(
-            f"Corridor prioritaire : {best['origin_province']} → {best['dest_province']} "
-            f"(écart brut {best['spread_xaf_kg']} FCFA/kg, soit +{best['spread_per_100kg_bag_xaf']:,} FCFA/sac 100 kg).".replace(",", " ")
-        )
-        recommendations.append(
-            f"Seuil de rentabilité transport : ne pas engager d'expédition si le coût réel (carburant, péages, manutention) dépasse {best['breakeven_transport_xaf_kg']} FCFA/kg."
-        )
+        recommendations.append("Les résultats sont des comparaisons de prix prévisionnels, pas une garantie de profit ni une validation logistique.")
+        if transport_cost_xaf_kg is None:
+            recommendations.append("Renseigner un coût de transport réellement obtenu avant d'interpréter une marge nette ou un ROI.")
+        if tonnage is None:
+            recommendations.append("Renseigner le tonnage réellement prévu pour estimer un résultat total.")
     if mape_val is not None:
-        recommendations.append(
-            f"Prudence modèle : intégrer une marge d'incertitude de ±{mape_val}% (MAPE hors-temps) dans le calcul du prix de revente."
-        )
+        recommendations.append(f"MAPE historique global de la culture : {mape_val} %. Cette mesure n'est pas une marge d'erreur garantie pour chaque province ou corridor.")
+
+    sources = sorted({source for route in top_routes for source in route["sources"]})
     return {
         "crop_id": cid,
         "commodity_std": comm,
         "label_fr": meta["label_fr"],
         "historical_mape_pct": mape_val,
+        "mape_scope": "commodity_backtest_not_route_specific",
         "backtest_verdict": rec.get("verdict"),
         "forecast_month": fc_month,
         "routes": top_routes,
         "recommendations": recommendations,
-        "sources": ["WFP", "FEWS NET", "NASA POWER Agro"],
-        "license": "Attribution Required (FreeData.td) / Public Domain (NASA)",
-        "spatial_resolution": "regional_city_hub / market_province",
-        "confidence_level": "ML_Backtested_70_30",
+        "sources": sources,
+        "license": "Attribution Required (FreeData.td)",
+        "spatial_resolution": "province_market",
+        "confidence_level": "intervals_when_available",
+        "status": "ok" if top_routes else "no_positive_spread",
+        "status_message": None if top_routes else "Aucun écart positif entre les provinces couvertes pour cette période.",
+        "transport_cost_supplied": transport_cost_xaf_kg is not None,
+        "tonnage_supplied": tonnage is not None,
     }
-
 
 def compute_agro_credit_passport(
     *,
