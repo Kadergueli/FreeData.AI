@@ -594,26 +594,28 @@ class _FarmOperatingAccountScreenState
                             ),
                           FDSecondaryButton(
                             label: 'Copier la synthèse investisseur',
-                        icon: Icons.copy_rounded,
-                        onPressed: () async {
-                          final cScen =
-                              scenarios.length > 1 && scenarios[1] is Map
-                                  ? scenarios[1] as Map
-                                  : const {};
-                          final summary =
-                              'Compte d’Exploitation FreeData.td — ${res['label_fr']} (${res['province']}, ${res['area_hectares']} ha)\n'
-                              '• Production : ${res['production_kg']} kg (${res['yield_kg_ha']} kg/ha)\n'
-                              '• OPEX Total : ${_fmtXaf(res['opex_total_xaf'])} | CAPEX : ${_fmtXaf(res['capex_total_xaf'])}\n'
-                              '• Point Mort OPEX : ${res['breakeven_price_opex_xaf_kg'] ?? '—'} F/kg\n'
-                              '• Scénario Central ML : CA ${_fmtXaf(cScen['gross_revenue_xaf'])} | Net ${_fmtXaf(cScen['net_profit_after_capex_xaf'])} (ROI ${cScen['roi_on_opex_pct'] ?? '—'}%)';
-                          await Clipboard.setData(ClipboardData(text: summary));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Synthèse investisseur copiée !'),
-                            ),
-                          );
-                        },
+                            icon: Icons.copy_rounded,
+                            onPressed: () async {
+                              final cScen =
+                                  scenarios.length > 1 && scenarios[1] is Map
+                                      ? scenarios[1] as Map
+                                      : const {};
+                              final summary =
+                                  'Compte d’Exploitation FreeData.td — ${res['label_fr']} (${res['province']}, ${res['area_hectares']} ha)\n'
+                                  '• Production : ${res['production_kg']} kg (${res['yield_kg_ha']} kg/ha)\n'
+                                  '• OPEX Total : ${_fmtXaf(res['opex_total_xaf'])} | CAPEX : ${_fmtXaf(res['capex_total_xaf'])}\n'
+                                  '• Point Mort OPEX : ${res['breakeven_price_opex_xaf_kg'] ?? '—'} F/kg\n'
+                                  '• Scénario Central ML : CA ${_fmtXaf(cScen['gross_revenue_xaf'])} | Net ${_fmtXaf(cScen['net_profit_after_capex_xaf'])} (ROI ${cScen['roi_on_opex_pct'] ?? '—'}%)';
+                              await Clipboard.setData(
+                                  ClipboardData(text: summary));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content:
+                                      Text('Synthèse investisseur copiée !'),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
