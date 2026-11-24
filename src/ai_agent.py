@@ -2205,7 +2205,8 @@ class FreeDataAIAgent(FormattersMixin):
             and not is_explicit_biz_param
         )
         has_business_sim_signal = bool(
-            _BEGINNER_BUSINESS_RE.search(q_norm)
+            _BUSINESS_PLAN_RE.search(q_norm)
+            or _BEGINNER_BUSINESS_RE.search(q_norm)
             or _PROFIT_SIM_RE.search(q_norm)
             or is_explicit_biz_param
             or (
@@ -3532,6 +3533,7 @@ class FreeDataAIAgent(FormattersMixin):
             or entities["commodity"]
             or entities.get("volume_kg")
             or entities.get("intent") == "business_simulator"
+            or _BUSINESS_PLAN_RE.search(q_norm)
             or _CREDIT_RE.search(q_norm)
             or _ALERT_RE.search(q_norm)
             or _OPPORTUNITY_RE.search(q_norm)
@@ -3748,6 +3750,13 @@ class FreeDataAIAgent(FormattersMixin):
                  and not entities.get("volume_kg")
                  and not (entities.get("origin_province") and entities.get("destination_province")))
                 or (known_count < 2 and entities.get("is_default_capital", True))
+                # Un business plan engage des projections sur plusieurs mois : ne jamais
+                # substituer le capital par défaut (500 000 XAF) à un budget utilisateur absent,
+                # même si le corridor achat/vente est déjà connu.
+                or (
+                    entities.get("is_business_plan_request")
+                    and entities.get("is_default_capital", True)
+                )
             )
         ):
             return self._ask_consultative_business_response(entities, client_state)
