@@ -186,7 +186,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
       'Transport par sac : ${_transportCtrl.text.trim()} XAF.',
       'Stockage par sac et par mois : ${_storageCtrl.text.trim()} XAF.',
       'Pertes déclarées : ${_lossCtrl.text.trim()} %. ',
-      'Recommandation : ${recommendation['label_fr'] ?? 'N/D'}.',
+      'Recommandation : ${recommendation['label_fr'] ?? 'N/D'} ; signal : ${recommendation['timing_label'] ?? 'N/D'} ; percentile historique : ${recommendation['percentile_rank_pct'] ?? 'N/D'} %.',
       'Quantité : ${recommendation['bags_count'] ?? 'N/D'} sacs de 100 kg ; équivalent : ${recommendation['coros_equiv'] ?? 'N/D'} coros.',
       'Prix d’achat : ${recommendation['buy_price_xaf_kg'] ?? 'N/D'} XAF/kg ; point mort : ${recommendation['breakeven_price_xaf_kg'] ?? 'N/D'} XAF/kg.',
       'Réserve de trésorerie : ${recommendation['cash_reserve_xaf'] ?? 'N/D'} XAF.',
