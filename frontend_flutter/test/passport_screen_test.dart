@@ -59,8 +59,9 @@ void main() {
     },
   );
 
-  testWidgets('PassportScreen stacks filters without narrow-screen overflow',
-      (tester) async {
+  testWidgets(
+    'PassportScreen stacks filters without narrow-screen overflow',
+    (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -68,14 +69,15 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
 
-    await tester.pumpWidget(
-      MaterialApp(home: PassportScreen(apiService: _PassportFakeApiService())),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        MaterialApp(home: PassportScreen(apiService: _PassportFakeApiService())),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Produit'), findsOneWidget);
-    expect(find.text('Valeur estimée du stock nanti'), findsOneWidget);
-    expect(find.textContaining('province(s) évaluée(s)'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('Produit'), findsOneWidget);
+      expect(find.text('Valeur estimée du stock nanti'), findsOneWidget);
+      expect(find.textContaining('province(s) évaluée(s)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
