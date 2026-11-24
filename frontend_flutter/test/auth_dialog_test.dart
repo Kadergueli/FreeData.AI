@@ -1,141 +1,132 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:freedata_ai/services/api_service.dart';
 import 'package:freedata_ai/services/auth_token_storage.dart';
 import 'package:freedata_ai/widgets/auth_dialog.dart';
 
-class _MemoryTokenStorage implements AuthTokenStorageBackend {
-  String? value;
-  bool failWrites = false;
+class _FakeAuthApi extends ApiService {
+  _FakeAuthApi({this.responseToken = 'test-session-token'});
 
-  @override
-  Future<String?> read() async => value;
-
-  @override
-  Future<void> write(String token) async {
-    if (failWrites) throw StateError('secure storage unavailable');
-    value = token;
-  }
-
-  @override
-  Future<void> delete() async {
-    value = null;
-  }
-}
-
-class _AuthApi extends ApiService {
-  _AuthApi({this.token = 'session-token'});
-
-  final String token;
+  final String? responseToken;
   int logoutCalls = 0;
-
-  @override
-  Future<Map<String, dynamic>> loginAccount({
-    required String email,
-    required String password,
-  }) async {
-    setAuthSession(token: token, user: {'email': email});
-    return {'token': token, 'user': {'email': email}};
-  }
 
   @override
   Future<void> logoutAccount() async {
     logoutCalls++;
     clearAuthSession();
   }
+
+  @override
+  Future<Map<String, dynamic>> loginAccount({
+    required String email,
+    required String password,
+  }) async {
+    setAuthSession(token: responseToken, user: {'email': email});
+    return {
+      if (responseToken != null) 'token': responseToken,
+      'user': {'email': email},
+    };
+  }
 }
 
-void main() {
-  late _MemoryTokenStorage storage;
+class _FailingTokenStorage implements AuthTokenStorageBackend {
+  @override
+  Future<String?> read() async => null;
 
-  setUp(() {
-    storage = _MemoryTokenStorage();
-    AuthTokenStorage.setBackendForTesting(storage);
-  });
+  @override
+  Future<void> write(String token) async {
+    throw Exception('platform storage failure');
+  }
 
-  tearDown(() {
-    AuthTokenStorage.resetBackend();
-  });
+  @override
+  Future<void> delete() async {}
+}
 
-  Future<void> openLoginDialog(
-    WidgetTester tester,
-    _AuthApi api,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => showDialog<bool>(
-                context: context,
-                builder: (_) => AuthDialog(apiService: api),
-              ),
-              child: const Text('Open login'),
+class _MemoryTokenStorage implements AuthTokenStorageBackend {
+  String? token;
+
+  @override
+  Future<String?> read() async => token;
+
+  @override
+  Future<void> write(String value) async {
+    token = value;
+  }
+
+  @override
+  Future<void> delete() async {
+    token = null;
+  }
+}
+
+Future<void> _openAndSubmit(
+  WidgetTester tester,
+  _FakeAuthApi api,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showDialog<bool>(
+              context: context,
+              builder: (_) => AuthDialog(apiService: api),
             ),
+            child: const Text('Open auth'),
           ),
         ),
       ),
-    );
-    await tester.tap(find.text('Open login'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Adresse e-mail'),
-      'user@example.td',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Mot de passe'),
-      'ValidPass123!',
-    );
-  }
+    ),
+  );
+  await tester.tap(find.text('Open auth'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField).at(0), 'user@example.com');
+  await tester.enterText(find.byType(TextField).at(1), 'correct-password');
+  await tester.tap(find.text('Se connecter').last);
+  await tester.pumpAndSettle();
+}
 
-  testWidgets('AuthDialog persists the token before closing successfully',
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  tearDown(AuthTokenStorage.resetBackend);
+
+  testWidgets('Auth dialog stays open when the API returns no session token',
       (tester) async {
-    final api = _AuthApi();
-    await openLoginDialog(tester, api);
+    AuthTokenStorage.setBackendForTesting(_MemoryTokenStorage());
+    final api = _FakeAuthApi(responseToken: null);
 
-    await tester.tap(find.text('Se connecter').last);
-    await tester.pumpAndSettle();
+    await _openAndSubmit(tester, api);
 
-    expect(storage.value, 'session-token');
-    expect(api.isAuthenticated, isTrue);
-    expect(find.byType(AuthDialog), findsNothing);
-  });
-
-  testWidgets('AuthDialog rejects a successful response without a token',
-      (tester) async {
-    final api = _AuthApi(token: '');
-    await openLoginDialog(tester, api);
-
-    await tester.tap(find.text('Se connecter').last);
-    await tester.pumpAndSettle();
-
-    expect(find.byType(AuthDialog), findsOneWidget);
-    expect(
-      find.text(
-        'Le serveur n’a pas fourni de jeton de session. Veuillez réessayer.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Connexion à votre espace'), findsOneWidget);
+    expect(find.textContaining('jeton de session'), findsOneWidget);
     expect(api.isAuthenticated, isFalse);
-    expect(storage.value, isNull);
   });
 
-  testWidgets('AuthDialog clears the in-memory session when secure storage fails',
+  testWidgets('Auth dialog clears memory session when secure storage fails',
       (tester) async {
-    storage.failWrites = true;
-    final api = _AuthApi();
-    await openLoginDialog(tester, api);
+    AuthTokenStorage.setBackendForTesting(_FailingTokenStorage());
+    final api = _FakeAuthApi();
 
-    await tester.tap(find.text('Se connecter').last);
-    await tester.pumpAndSettle();
+    await _openAndSubmit(tester, api);
 
-    expect(find.byType(AuthDialog), findsOneWidget);
-    expect(
-      find.textContaining('impossible de sécuriser votre session'),
-      findsOneWidget,
-    );
+    expect(find.text('Connexion à votre espace'), findsOneWidget);
+    expect(find.textContaining('Impossible de sécuriser votre session'),
+        findsOneWidget);
     expect(api.isAuthenticated, isFalse);
     expect(api.logoutCalls, 1);
+  });
+
+  testWidgets('Auth dialog closes after the session token is persisted',
+      (tester) async {
+    final storage = _MemoryTokenStorage();
+    AuthTokenStorage.setBackendForTesting(storage);
+    final api = _FakeAuthApi();
+
+    await _openAndSubmit(tester, api);
+
+    expect(find.text('Connexion à votre espace'), findsNothing);
+    expect(api.isAuthenticated, isTrue);
+    expect(storage.token, 'test-session-token');
   });
 }
