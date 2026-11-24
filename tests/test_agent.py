@@ -869,7 +869,7 @@ def test_agent_free_mode_skips_llm_and_renders_rag_sources_section(agent, monkey
 
             def json(self):
                 if url == "https://api.jina.ai/v1/embeddings":
-                    return {"data": [{"embedding": [0.1, 0.2]}]}
+                    return {"data": [{"embedding": [0.1] * 1024}]}
                 return [
                     {
                         "titre": "Bulletin PAM Octobre",
