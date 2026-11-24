@@ -179,7 +179,7 @@ class _PassportScreenState extends State<PassportScreen> {
                             _load();
                           }
                         },
-                      ),,
+                      ),
                         ),
                         SizedBox(
                           width: fieldWidth,
