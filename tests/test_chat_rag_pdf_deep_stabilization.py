@@ -276,5 +276,5 @@ def test_rag_short_followup_uses_recent_user_context_instead_of_generic_reply(mo
     answer = agent.answer("Pourquoi ?", history=history, tier="free")
 
     assert answer["intent"] == "rag_answer"
-    assert "mil au Salamat" in seen_queries[0].lower()
+    assert "mil au salamat" in seen_queries[0].lower()
     assert "contrôles de cohérence" in answer["reply"]
