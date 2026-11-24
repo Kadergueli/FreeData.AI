@@ -625,7 +625,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                         ),
                                       ))),
                               if (widget.onAskAssistant != null &&
-                                  (((_arbResult!['routes'] as List?) ?? const [])
+                                  (((_arbResult!['routes'] as List?) ??
+                                          const [])
                                       .isNotEmpty)) ...[
                                 const SizedBox(height: 8),
                                 Wrap(
