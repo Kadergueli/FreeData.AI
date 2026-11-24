@@ -109,6 +109,38 @@ class _FakeAnalyticsApiService extends ApiService {
       ];
 }
 
+class _UnavailableOptionalAnalyticsApiService extends _FakeAnalyticsApiService {
+  @override
+  Future<Map<String, dynamic>> getForecastBenchmark({
+    required String commodity,
+    required String province,
+  }) async {
+    throw Exception('benchmark unavailable');
+  }
+
+  @override
+  Future<List<dynamic>> getForecasts({
+    String? province,
+    String? commodity,
+  }) async {
+    throw Exception('forecast unavailable');
+  }
+
+  @override
+  Future<Map<String, dynamic>> getAnalyticsTrends({
+    String? commodity,
+    String? province,
+    int limit = 24,
+  }) async =>
+      {
+        'records': [
+          {'month': '2026-08', 'median_price_xaf_kg': 295.0},
+          {'month': '2026-09', 'median_price_xaf_kg': null},
+          {'month': '2026-10', 'median_price_xaf_kg': 276.0},
+        ],
+      };
+}
+
 void main() {
   testWidgets(
       'AnalyticsScreen renders trend curve, backtest benchmark, and formula panel',
@@ -132,6 +164,29 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Méthode & Formules Mathématiques'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'AnalyticsScreen labels optional service failures and ignores invalid prices',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnalyticsScreen(
+          apiService: _UnavailableOptionalAnalyticsApiService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Prévision temporairement indisponible'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('backtest est temporairement indisponible'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Min : 0 XAF/kg'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

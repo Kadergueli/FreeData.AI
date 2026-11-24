@@ -13,6 +13,8 @@ class _StudioFakeApiService extends ApiService {
   String? lastLaunchedTask;
   String? lastDeployedModelId;
   int? lastDeployedVersion;
+  int rollbackCalls = 0;
+  int? lastRollbackTargetVersion;
 
   final List<Map<String, dynamic>> jobs = [
     {
@@ -109,6 +111,18 @@ class _StudioFakeApiService extends ApiService {
   }
 
   @override
+  Future<Map<String, dynamic>> rollbackAdminMlModel(
+    String adminToken,
+    String modelId, {
+    required int targetVersion,
+    String reason = 'Admin rollback',
+  }) async {
+    rollbackCalls++;
+    lastRollbackTargetVersion = targetVersion;
+    return {'model_id': modelId, 'target_version': targetVersion};
+  }
+
+  @override
   Future<Map<String, dynamic>> transitionAdminMlModelStatus(
     String adminToken,
     String modelId, {
@@ -191,7 +205,8 @@ void main() {
 
     final api = _StudioFakeApiService();
     final csvBytes = Uint8List.fromList(
-      utf8.encode('month,price\n2025-01,300\n2025-02,310\n2025-03,320\n'),
+      utf8.encode(
+          'month,"price, XAF"\n2025-01,300\n2025-02,310\n2025-03,320\n'),
     );
 
     await tester.pumpWidget(
@@ -234,6 +249,7 @@ void main() {
 
     await tester.tap(find.text('Continuer vers la configuration'));
     await tester.pumpAndSettle();
+    expect(find.text('price, XAF'), findsOneWidget);
 
     await tester.enterText(
       find.widgetWithText(TextField, 'Source du jeu de données (obligatoire)'),
@@ -322,5 +338,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.lastDeployedModelId, 'ridge_price_regressor');
     expect(api.lastDeployedVersion, 1);
+  });
+  testWidgets(
+      'MLBenchmarkStudio confirms rollback before changing model version',
+      (tester) async {
+    final api = _StudioFakeApiService();
+    final overview = _sampleOverview();
+    final models = overview['ml_models'] as List<Map<String, Object>>;
+    final secondVersion = Map<String, Object>.from(models.first)
+      ..['version'] = 2
+      ..['is_active_production'] = false;
+    models.add(secondVersion);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MLBenchmarkStudio(
+              apiService: api,
+              adminToken: 'super-admin-token-1234567890',
+              overview: overview,
+              canManageModels: true,
+              onRefreshOverview: () async {},
+              onCompareModel: (_) async {},
+              statusColor: (_) => Colors.green,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Registre ML'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Rollback → v1'));
+    await tester.tap(find.text('Rollback → v1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirmer le rollback'), findsNWidgets(2));
+    expect(api.rollbackCalls, 0);
+    await tester.tap(find.text('Annuler'));
+    await tester.pumpAndSettle();
+    expect(api.rollbackCalls, 0);
+
+    await tester.ensureVisible(find.text('Rollback → v1'));
+    await tester.tap(find.text('Rollback → v1'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(ElevatedButton, 'Confirmer le rollback'),
+    );
+    await tester.pumpAndSettle();
+    expect(api.rollbackCalls, 1);
+    expect(api.lastRollbackTargetVersion, 1);
   });
 }

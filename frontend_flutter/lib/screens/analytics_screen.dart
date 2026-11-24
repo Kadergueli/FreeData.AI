@@ -25,6 +25,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Map<String, dynamic>? _trends;
   Map<String, dynamic>? _benchmark;
   Map<String, dynamic>? _latestForecast;
+  bool _benchmarkUnavailable = false;
+  bool _forecastUnavailable = false;
   List<String> _commodities = const [
     'Millet',
     'Sorghum (red)',
@@ -112,10 +114,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           limit: 24,
         ),
       ]);
+      var benchmarkUnavailable = false;
+      var forecastUnavailable = false;
       final benchFuture = widget.apiService
           .getForecastBenchmark(commodity: benchComm, province: benchProv)
           .then<Map<String, dynamic>?>((v) => v)
-          .catchError((_) => null);
+          .catchError((_) {
+        benchmarkUnavailable = true;
+        return null;
+      });
       final forecastFuture = () async {
         try {
           final fcList = await widget.apiService.getForecasts(
@@ -133,6 +140,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           );
           return sample.isEmpty ? null : sample;
         } catch (_) {
+          forecastUnavailable = true;
           return null;
         }
       }();
@@ -147,6 +155,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _trends = results[3];
         _benchmark = bench;
         _latestForecast = forecastSample;
+        _benchmarkUnavailable = benchmarkUnavailable;
+        _forecastUnavailable = forecastUnavailable;
         _loading = false;
       });
     } catch (e) {
@@ -187,7 +197,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final volatileList =
         (_summary?['most_volatile_commodities'] as List? ?? []).cast<Map>();
     final provinces = (_regional?['provinces'] as List? ?? []).cast<Map>();
-    final trendRecords = (_trends?['records'] as List? ?? []).cast<Map>();
+    final trendRecords =
+        (_trends?['records'] as List? ?? []).whereType<Map>().where((record) {
+      final price =
+          double.tryParse(record['median_price_xaf_kg']?.toString() ?? '');
+      return price != null && price.isFinite && price > 0;
+    }).toList();
     final change12m = _trends?['change_12m_pct'];
     final benchModels = (_benchmark?['models'] as List? ?? []).cast<Map>();
 
@@ -387,6 +402,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                   _latestForecast?['ci_high_80']?.toString() ??
                                       ''),
                             ),
+                            if (_forecastUnavailable)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Prévision temporairement indisponible. Les prix historiques restent affichés.',
+                                  style: TextStyle(
+                                      fontSize: 12, color: AppColors.muted),
+                                ),
+                              )
+                            else if (_latestForecast == null)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Aucune prévision disponible pour cette sélection.',
+                                  style: TextStyle(
+                                      fontSize: 12, color: AppColors.muted),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -437,6 +470,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                   ),
                                 )),
                           ],
+                        ),
+                      ),
+                    ],
+                    if (benchModels.isEmpty) ...[
+                      const SizedBox(height: 12),
+                      FDCard(
+                        child: Text(
+                          _benchmarkUnavailable
+                              ? 'Le backtest est temporairement indisponible pour cette sélection.'
+                              : 'Aucun backtest disponible pour cette sélection.',
+                          style: const TextStyle(
+                              fontSize: 12.5, color: AppColors.muted),
                         ),
                       ),
                     ],
