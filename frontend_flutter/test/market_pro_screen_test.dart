@@ -69,8 +69,7 @@ void main() {
     expect(find.text('Sorgho rouge'), findsOneWidget);
     expect(find.text('CA / ha (ML t+1)'), findsOneWidget);
     expect(find.text('420000 F'), findsOneWidget);
-    expect(find.text('Risque Crédit'), findsOneWidget);
-    expect(find.text('Élevé'), findsOneWidget);
+    expect(find.text('Risque Crédit : Élevé'), findsOneWidget);
     expect(find.text('DOUBLE VULNÉRABILITÉ'), findsOneWidget);
     expect(find.byType(DataTable), findsNothing);
     expect(tester.takeException(), isNull);
