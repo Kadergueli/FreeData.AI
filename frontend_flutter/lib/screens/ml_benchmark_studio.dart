@@ -84,6 +84,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
   Timer? _pollTimer;
   int _pollTicks = 0;
   bool _pollInFlight = false;
+  String? _rollbackInProgressModelId;
+  final Set<String> _domainUpdatesInProgress = {};
 
   // --- History & Registry Filters ---
   List<Map<String, dynamic>> _historyJobs = const [];
@@ -171,6 +173,31 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
     }
   }
 
+  List<String> _parseCsvHeader(String row) {
+    final fields = <String>[];
+    final field = StringBuffer();
+    var quoted = false;
+    for (var i = 0; i < row.length; i++) {
+      final char = row[i];
+      if (char == '"') {
+        if (quoted && i + 1 < row.length && row[i + 1] == '"') {
+          field.write('"');
+          i++;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (char == ',' && !quoted) {
+        fields.add(field.toString().trim());
+        field.clear();
+      } else {
+        field.write(char);
+      }
+    }
+    if (quoted) throw const FormatException('CSV header has an unclosed quote.');
+    fields.add(field.toString().trim());
+    return fields;
+  }
+
   Future<void> _pickCsvFile() async {
     final picker = widget.onPickCsv ?? pickUserDocumentFile;
     final picked = await picker();
@@ -196,7 +223,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
     }
 
     try {
-      final text = utf8.decode(picked.bytes);
+      var text = utf8.decode(picked.bytes);
+      if (text.startsWith('\uFEFF')) text = text.substring(1);
       final lines = text
           .split(RegExp(r'\r?\n'))
           .where((l) => l.trim().isNotEmpty)
@@ -210,11 +238,16 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
         });
         return;
       }
-      final headers = lines.first
-          .split(',')
-          .map((h) => h.trim().replaceAll('"', '').replaceAll("'", ''))
-          .where((h) => h.isNotEmpty)
-          .toList();
+      final headers = _parseCsvHeader(lines.first);
+      if (headers.any((header) => header.isEmpty)) {
+        setState(() {
+          _pickedCsv = null;
+          _csvHeaders = const [];
+          _csvValidationError =
+              'Chaque colonne du CSV doit avoir un nom non vide.';
+        });
+        return;
+      }
       if (headers.toSet().length != headers.length) {
         setState(() {
           _pickedCsv = null;
@@ -541,6 +574,54 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(errText(e))));
+    }
+  }
+
+  Future<void> _confirmAndRollbackModel(
+    String modelId, {
+    required int targetVersion,
+  }) async {
+    if (!widget.canManageModels || _rollbackInProgressModelId != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmer le rollback'),
+        content: Text(
+          'Le modèle $modelId va revenir à la version $targetVersion. '
+          'Cette modification affectera la version utilisée par le registre ML.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmer le rollback'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _rollbackInProgressModelId = modelId);
+    try {
+      await widget.apiService.rollbackAdminMlModel(
+        widget.adminToken,
+        modelId,
+        targetVersion: targetVersion,
+      );
+      await widget.onRefreshOverview();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rollback de $modelId vers v$targetVersion effectué.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Échec du rollback : ${errText(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => _rollbackInProgressModelId = null);
     }
   }
 
@@ -1305,15 +1386,17 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                             ),
                           if (widget.canManageModels && ver > 1)
                             OutlinedButton(
-                              onPressed: () async {
-                                await widget.apiService.rollbackAdminMlModel(
-                                  widget.adminToken,
-                                  modelId,
-                                  targetVersion: ver - 1,
-                                );
-                                await widget.onRefreshOverview();
-                              },
-                              child: Text('Rollback → v${ver - 1}'),
+                              onPressed: _rollbackInProgressModelId == null
+                                  ? () => _confirmAndRollbackModel(
+                                        modelId,
+                                        targetVersion: ver - 1,
+                                      )
+                                  : null,
+                              child: Text(
+                                _rollbackInProgressModelId == modelId
+                                    ? 'Rollback…'
+                                    : 'Rollback → v${ver - 1}',
+                              ),
                             ),
                         ],
                       ),
@@ -1509,11 +1592,39 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                   subtitle: Text(
                       'Données: ${d['data_status'] ?? 'in_preparation'} · Tier: ${d['required_tier'] ?? 'free'} · Usages: ${d['usage_count'] ?? 0}'),
                   value: active,
-                  onChanged: widget.canManageModels
+                  onChanged: widget.canManageModels &&
+                          !_domainUpdatesInProgress.contains(domId)
                       ? (val) async {
-                          await widget.apiService.setAdminDomainStatus(
-                              widget.adminToken, domId, val);
-                          await widget.onRefreshOverview();
+                          setState(() => _domainUpdatesInProgress.add(domId));
+                          try {
+                            await widget.apiService.setAdminDomainStatus(
+                                widget.adminToken, domId, val);
+                            await widget.onRefreshOverview();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Domaine ${d['label_fr'] ?? domId} mis à jour.',
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Échec de la mise à jour du domaine : ${errText(e)}',
+                                  ),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() =>
+                                  _domainUpdatesInProgress.remove(domId));
+                            }
+                          }
                         }
                       : null,
                 );
