@@ -30,23 +30,6 @@ class _AuthDialogState extends State<AuthDialog> {
   bool _obscurePassword = true;
   bool _submitting = false;
   String? _error;
-  String _selectedPersona = 'analyste';
-
-  static const _personas = <({String id, String label, IconData icon})>[
-    (id: 'analyste', label: 'Multi-domaines & ONG', icon: Icons.hub_outlined),
-    (
-      id: 'marche',
-      label: 'Entreprise & Commerce',
-      icon: Icons.storefront_outlined
-    ),
-    (id: 'agronome', label: 'Agro & Territoires', icon: Icons.public_outlined),
-    (
-      id: 'banque',
-      label: 'Finance & Décision',
-      icon: Icons.account_balance_outlined
-    ),
-  ];
-
   @override
   void dispose() {
     _emailCtrl.dispose();
@@ -94,7 +77,6 @@ class _AuthDialogState extends State<AuthDialog> {
               email: email,
               password: pass,
               displayName: _nameCtrl.text.trim(),
-              persona: _selectedPersona,
             )
           : await widget.apiService.loginAccount(email: email, password: pass);
 
@@ -173,20 +155,34 @@ class _AuthDialogState extends State<AuthDialog> {
             children: [
               const FDLogoBadge(size: 38, radius: 10),
               const SizedBox(width: 10),
-              const Text(
-                'FreeData.AI',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'FreeData.AI',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  SizedBox(height: 1),
+                  Text(
+                    'by FreeData.td',
+                    style: TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 28),
           const Text(
-            'L’intelligence décisionnelle & sectorielle de référence.',
+            'Transformez vos données en décisions intelligentes.',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -196,7 +192,7 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Transformez les données publiques, vos documents privés et les signaux terrain en décisions chiffrées et traçables.',
+            'Exploitez les données sectorielles et vos propres documents grâce à l’intelligence artificielle et à l’analyse prédictive.',
             style: TextStyle(
               color: Color(0xFF94A3B8),
               fontSize: 13,
@@ -206,24 +202,24 @@ class _AuthDialogState extends State<AuthDialog> {
           const SizedBox(height: 28),
           _brandFeature(
             Icons.auto_awesome_outlined,
-            'Assistant IA & Analyse Documentaire',
-            'Interrogez 8 secteurs clés et vos propres documents PDF/CSV avec des synthèses sourcées.',
+            'IA & Analyse documentaire',
+            'Interrogez vos données et vos fichiers PDF/CSV. Obtenez des synthèses structurées et sourcées.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.insights_outlined,
-            'Prévisions, Scoring & Simulation',
-            'Anticipez les tendances, évaluez les risques et simulez vos plans d’investissement.',
+            'Analyses prédictives & simulations',
+            'Explorez les tendances, estimez les risques et comparez des scénarios à partir des données disponibles.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.description_outlined,
-            'Rapports Certifiés & Espace Projets',
-            'Structurez vos études, exportez des bulletins PDF vérifiables et pilotez vos dossiers en toute sécurité.',
+            'Rapports & espaces de travail',
+            'Organisez vos études, exportez des rapports PDF vérifiables et pilotez vos projets.',
           ),
           const Spacer(),
           const Text(
-            'Plateforme FreeData.AI · Standard & Solutions PRO',
+            'FreeData.AI · Un produit de FreeData.td',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontSize: 11.5,
@@ -315,7 +311,7 @@ class _AuthDialogState extends State<AuthDialog> {
                       const SizedBox(height: 2),
                       Text(
                         _registerMode
-                            ? 'Accédez à l’ensemble des outils et services en quelques secondes.'
+                            ? 'Créez votre espace pour retrouver vos données, analyses et projets.'
                             : 'Retrouvez vos conversations, projets et analyses sauvegardés.',
                         style: const TextStyle(
                             fontSize: 12.5, color: AppColors.muted),
@@ -414,7 +410,7 @@ class _AuthDialogState extends State<AuthDialog> {
                         autofillHints: const [AutofillHints.name],
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
-                          labelText: 'Nom ou organisation (optionnel)',
+                          labelText: 'Nom complet ou organisation (facultatif)',
                           prefixIcon:
                               Icon(Icons.person_outline_rounded, size: 19),
                         ),
@@ -422,34 +418,6 @@ class _AuthDialogState extends State<AuthDialog> {
                     )
                   : const SizedBox.shrink(),
             ),
-            if (_registerMode) ...[
-              const Text(
-                'Votre profil principal',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.inkSoft,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final p in _personas)
-                    ChoiceChip(
-                      avatar: Icon(p.icon, size: 15),
-                      label:
-                          Text(p.label, style: const TextStyle(fontSize: 12)),
-                      selected: _selectedPersona == p.id,
-                      onSelected: _submitting
-                          ? null
-                          : (_) => setState(() => _selectedPersona = p.id),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ],
             TextField(
               controller: _emailCtrl,
               enabled: !_submitting,
