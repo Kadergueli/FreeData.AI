@@ -635,8 +635,8 @@ void main() {
     expect(find.text('PLAN GRATUIT'), findsOneWidget);
 
     final editNameBtn = find.byKey(const ValueKey('edit-name-btn'));
-    await tester.scrollUntilVisible(editNameBtn, 200,
-        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(editNameBtn);
+    await tester.pumpAndSettle();
     await tester.tap(editNameBtn);
     await tester.pumpAndSettle();
 
