@@ -13,6 +13,25 @@ class _MarketRadarApi extends ApiService {
       };
 
   @override
+  Future<Map<String, dynamic>> getSpatialArbitrage({
+    required String cropId,
+    double? transportCostXafKg,
+    double? tonnage,
+  }) async =>
+      {
+        'historical_mape_pct': 12.3,
+        'routes': [
+          {
+            'origin_province': 'Salamat',
+            'dest_province': "N'Djamena",
+            'net_margin_xaf_kg': 45,
+            'estimated_net_margin_xaf': 450000,
+            'roi_pct': 18,
+          },
+        ],
+      };
+
+  @override
   Future<Map<String, dynamic>> getAgroCampaignRadar() async => {
         'summary': {
           'hubs_count': 1,
@@ -96,3 +115,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
+
+
+  testWidgets('arbitrage results can be explained or turned into a business plan by AI',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    String? capturedPrompt;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MarketProScreen(
+          apiService: _MarketRadarApi(),
+          onAskAssistant: (prompt) => capturedPrompt = prompt,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final simulate = find.text('Simuler marge & ROI');
+    await tester.scrollUntilVisible(
+      simulate,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(simulate);
+    await tester.pumpAndSettle();
+
+    final explain = find.text('Expliquer avec l’IA');
+    await tester.scrollUntilVisible(
+      explain,
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(explain);
+    expect(capturedPrompt, contains('Explique les résultats'));
+    expect(capturedPrompt, contains('Salamat'));
+    expect(capturedPrompt, contains('marge nette affichée'));
+
+    final businessPlan = find.text('Créer un business plan');
+    await tester.tap(businessPlan);
+    expect(capturedPrompt, contains('business plan agricole professionnel'));
+    expect(capturedPrompt, contains('demande-le avant de produire les projections'));
+  });
