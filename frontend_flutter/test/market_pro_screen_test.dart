@@ -6,8 +6,7 @@ import 'package:freedata_ai/services/api_service.dart';
 
 class _MarketRadarApi extends ApiService {
   @override
-  Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async =>
-      {
+  Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async => {
         'validated_forecasts': const [],
         'arbitrage': const [],
         'watchlists': const [],
