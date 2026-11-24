@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -71,11 +72,26 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
         timeout=30,
     )
     _raise_for_api_error(resp, "Embeddings")
-    data = resp.json()["data"]
-    return [
+    data = resp.json().get("data")
+    if not isinstance(data, list) or len(data) != len(texts):
+        raise RuntimeError(
+            f"[FreeData.AI RAG] Réponse Embeddings invalide : {len(data) if isinstance(data, list) else 'non-list'} "
+            f"vecteurs reçus pour {len(texts)} extraits."
+        )
+    vectors = [
         item["embedding"]
         for _, item in sorted(enumerate(data), key=lambda pair: pair[1].get("index", pair[0]))
     ]
+    for index, vector in enumerate(vectors):
+        if (
+            not isinstance(vector, list)
+            or len(vector) != 1024
+            or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector)
+        ):
+            raise RuntimeError(
+                f"[FreeData.AI RAG] Vecteur #{index} invalide : 1024 valeurs numériques finies attendues."
+            )
+    return vectors
 
 
 def upsert_document(meta: dict) -> str:
@@ -115,6 +131,21 @@ def fetch_existing_hashes(document_id: str) -> dict[int, str]:
     return {row["chunk_index"]: row["content_hash"] for row in resp.json()}
 
 
+def delete_stale_chunks(document_id: str, first_stale_index: int) -> None:
+    """Supprime les anciens segments qui ne font plus partie de la version source."""
+    endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/rag_chunks"
+    resp = requests.delete(
+        endpoint,
+        headers=_supabase_headers(),
+        params={
+            "document_id": f"eq.{document_id}",
+            "chunk_index": f"gte.{max(0, int(first_stale_index))}",
+        },
+        timeout=20,
+    )
+    _raise_for_api_error(resp, "suppression des anciens extraits")
+
+
 _REQUIRED_MANIFEST_FIELDS = ("filename", "titre", "editeur")
 
 
@@ -137,10 +168,19 @@ def validate_manifest(manifest_path: Path = MANIFEST_PATH, docs_dir: Path = DOCS
                 errors.append(f"Entrée #{idx} : champ obligatoire '{field}' manquant.")
         fname = str(entry.get("filename") or "").strip()
         if fname:
-            if (docs_dir / fname).exists():
+            candidate = (docs_dir / fname).resolve()
+            root = docs_dir.resolve()
+            if candidate == root or root not in candidate.parents:
+                errors.append(f"Entrée #{idx} : chemin de fichier hors du dossier docs interdit.")
+                continue
+            if candidate.suffix.lower() != ".pdf":
+                errors.append(f"Entrée #{idx} : seul le format PDF est accepté pour l'indexation publique.")
+                continue
+            if candidate.is_file():
                 present.append(fname)
             else:
                 missing.append(fname)
+                errors.append(f"Entrée #{idx} : fichier documentaire introuvable : '{fname}'.")
     return {
         "status": "invalid" if errors else ("ok" if raw else "empty"),
         "entries_count": len(raw),
@@ -178,10 +218,12 @@ def main(argv: list[str] | None = None) -> int:
     chunks_endpoint = f"{base}/rest/v1/rag_chunks?on_conflict=document_id,chunk_index"
 
     for entry in manifest:
-        pdf_path = DOCS_DIR / entry["filename"]
-        if not pdf_path.exists():
-            print(f"[FreeData.AI RAG] Fichier introuvable ignoré : {pdf_path}")
-            continue
+        pdf_path = (DOCS_DIR / entry["filename"]).resolve()
+        if not pdf_path.is_file():
+            raise RuntimeError(
+                f"[FreeData.AI RAG] Fichier déclaré mais absent : {entry['filename']}. "
+                "L'indexation est interrompue pour éviter un succès silencieux."
+            )
 
         try:
             from pypdf import PdfReader
@@ -202,7 +244,11 @@ def main(argv: list[str] | None = None) -> int:
                 idx += 1
 
         if idx == 0:
-            print(f"[FreeData.AI RAG] Aucun texte extractible dans '{entry['titre']}' (PDF scanné sans couche texte ?).")
+            delete_stale_chunks(doc_id, 0)
+            print(
+                f"[FreeData.AI RAG] Aucun texte extractible dans '{entry['titre']}' "
+                "(PDF scanné sans couche texte ?) ; anciens extraits supprimés."
+            )
             continue
 
         if not pending:
@@ -213,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
         for i in range(0, len(pending), 16):
             batch = pending[i : i + 16]
             vectors = get_embeddings([b["content"] for b in batch])
+            if len(vectors) != len(batch):
+                raise RuntimeError(
+                    f"[FreeData.AI RAG] Lot incomplet : {len(vectors)} vecteurs pour {len(batch)} extraits."
+                )
             records = [
                 {
                     "document_id": doc_id,
@@ -232,7 +282,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             _raise_for_api_error(resp, "insertion rag_chunks")
 
-        print(f"[FreeData.AI RAG] '{entry['titre']}' : {len(pending)} extraits indexés.")
+        # Les suppressions ne sont faites qu'après la réussite de tous les lots d'indexation.
+        # Un PDF raccourci ne doit jamais laisser d'anciens passages récupérables.
+        delete_stale_chunks(doc_id, idx)
+        print(
+            f"[FreeData.AI RAG] '{entry['titre']}' : {len(pending)} extraits indexés, "
+            f"{idx} extraits au total."
+        )
     return 0
 
 
