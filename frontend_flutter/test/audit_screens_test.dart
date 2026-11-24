@@ -352,7 +352,7 @@ class _DelayedProjectsApiService extends _AuditFakeApiService {
 
   @override
   Future<List<Map<String, dynamic>>> listProjects(
-      {bool includeArchived = false}) {
+      {bool includeArchived = false}) async {
     projectRequests++;
     if (projectRequests == 1) return firstProjectsResponse.future;
     return [
