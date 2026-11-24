@@ -59,6 +59,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   String _requestedScopeKey = '';
   int _loadToken = 0;
+  int _workspaceLoadToken = 0;
   Map<String, dynamic>? _selectedProject;
   List<ConversationThread> _projectConversations = [];
   List<Map<String, dynamic>> _projectDocuments = [];
@@ -109,6 +110,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       _projectAgroAssessments = [];
       _loadingWorkspace = false;
       _loadToken++;
+      _workspaceLoadToken++;
       _load();
     }
     if (oldWidget.refreshToken != widget.refreshToken ||
@@ -235,6 +237,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       {bool silent = false}) async {
     final pid = projSummary['project_id']?.toString() ?? '';
     if (pid.isEmpty) return;
+    final scopeKey = _currentScopeKey;
+    final workspaceToken = ++_workspaceLoadToken;
     if (!silent) {
       setState(() {
         _loadingWorkspace = true;
@@ -266,7 +270,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           },
         ),
       ]);
-      if (!mounted) return;
+      if (!mounted ||
+          workspaceToken != _workspaceLoadToken ||
+          scopeKey != _currentScopeKey) {
+        return;
+      }
       final liveConvs = widget.conversations != null
           ? widget.conversations!.where((c) => c.projectId == pid).toList()
           : (results[1] as List<ConversationThread>);
@@ -284,7 +292,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         _loadingWorkspace = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted ||
+          workspaceToken != _workspaceLoadToken ||
+          scopeKey != _currentScopeKey) {
+        return;
+      }
       setState(() => _loadingWorkspace = false);
       if (!silent) {
         final userError = 'Ouverture impossible : ${errText(e)}';
