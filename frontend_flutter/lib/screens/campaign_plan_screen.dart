@@ -105,32 +105,56 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
     super.dispose();
   }
 
-  double _num(TextEditingController c, double fallback) =>
-      double.tryParse(c.text.trim().replaceAll(',', '.')) ?? fallback;
+  double? _parseNumber(TextEditingController controller) =>
+      double.tryParse(controller.text.trim().replaceAll(',', '.'));
 
   Future<void> _runSimulation() async {
-    final cap = _num(_capitalCtrl, 0);
-    if (cap <= 0) {
-      setState(() => _error = 'Saisissez un capital supérieur à 0 FCFA.');
+    final cap = _parseNumber(_capitalCtrl);
+    final months = int.tryParse(_monthsCtrl.text.trim());
+    final coro = _parseNumber(_coroCtrl);
+    final transport = _parseNumber(_transportCtrl);
+    final storage = _parseNumber(_storageCtrl);
+    final losses = _parseNumber(_lossCtrl);
+
+    String? validationError;
+    if (cap == null || !cap.isFinite || cap <= 0) {
+      validationError = 'Saisissez un capital valide supérieur à 0 FCFA.';
+    } else if (months == null || months < 1 || months > 12) {
+      validationError = 'L’horizon doit être un nombre entier entre 1 et 12 mois.';
+    } else if (coro == null || !coro.isFinite || coro < 0.5 || coro > 10) {
+      validationError = 'Le poids du coro doit être compris entre 0,5 et 10 kg.';
+    } else if (transport == null || !transport.isFinite || transport < 0) {
+      validationError = 'Le transport par sac doit être un montant positif ou nul.';
+    } else if (storage == null || !storage.isFinite || storage < 0) {
+      validationError = 'Le stockage par sac et par mois doit être positif ou nul.';
+    } else if (losses == null || !losses.isFinite || losses < 0 || losses > 40) {
+      validationError = 'Les pertes doivent être comprises entre 0 et 40 %.';
+    }
+
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _result = null;
+      });
       return;
     }
+
     setState(() {
       _loading = true;
       _error = null;
+      _result = null;
     });
     try {
-      final months = int.tryParse(_monthsCtrl.text.trim());
       final res = await widget.apiService.computeCampaignPlan(
-        capitalXaf: cap,
+        capitalXaf: cap!,
         originProvince: _province,
         entrepreneurStatus: _status,
         cropId: _cropId.isEmpty ? null : _cropId,
-        holdingMonths:
-            (months != null && months >= 1 && months <= 12) ? months : null,
-        coroWeightKg: _num(_coroCtrl, 2.5),
-        transportPerBagXaf: _num(_transportCtrl, 0),
-        storagePerBagMonthXaf: _num(_storageCtrl, 0),
-        lossPct: _num(_lossCtrl, 0),
+        holdingMonths: months,
+        coroWeightKg: coro!,
+        transportPerBagXaf: transport!,
+        storagePerBagMonthXaf: storage!,
+        lossPct: losses!,
       );
       if (!mounted) return;
       setState(() {
@@ -358,7 +382,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _monthsCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Horizon (1–12 mois)',
+                              labelText: 'Horizon (1 à 12 mois)',
                               isDense: true,
                             ),
                           ),
@@ -370,7 +394,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true),
                             decoration: const InputDecoration(
-                              labelText: 'Poids coro (kg)',
+                              labelText: 'Poids du coro (kg)',
                               isDense: true,
                             ),
                           ),
@@ -381,7 +405,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _transportCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Transport / sac (F)',
+                              labelText: 'Transport / sac (XAF)',
                               isDense: true,
                             ),
                           ),
@@ -392,7 +416,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _storageCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Stockage / sac / mois (F)',
+                              labelText: 'Stockage / sac / mois (XAF)',
                               isDense: true,
                             ),
                           ),
