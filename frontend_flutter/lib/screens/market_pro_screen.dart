@@ -497,6 +497,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 SizedBox(
                                   width: 180,
                                   child: DropdownButtonFormField<String>(
+                                    isExpanded: true,
                                     key: ValueKey(_arbCrop),
                                     initialValue: _arbCrop,
                                     decoration: const InputDecoration(
@@ -645,6 +646,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 SizedBox(
                                   width: 180,
                                   child: DropdownButtonFormField<String>(
+                                    isExpanded: true,
                                     key: ValueKey(_watchCrop),
                                     initialValue: _watchCrop,
                                     decoration: const InputDecoration(
@@ -660,6 +662,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                 SizedBox(
                                   width: 170,
                                   child: DropdownButtonFormField<String>(
+                                    isExpanded: true,
                                     key: ValueKey(_watchDirection),
                                     initialValue: _watchDirection,
                                     decoration: const InputDecoration(
