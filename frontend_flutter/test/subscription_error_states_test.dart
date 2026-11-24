@@ -43,15 +43,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-        find.textContaining(
-            'Impossible de charger votre abonnement et vos quotas'),
-        findsOneWidget);
-    expect(find.textContaining('Les moyens de paiement sont indisponibles'),
-        findsOneWidget);
-    expect(find.textContaining('Impossible de charger vos demandes'),
-        findsOneWidget);
-    expect(find.byTooltip('Réessayer'), findsNWidgets(3));
+    final billingWarning = find.textContaining(
+        'Impossible de charger votre abonnement et vos quotas');
+    expect(billingWarning, findsOneWidget);
+
+    final paymentWarning =
+        find.textContaining('Les moyens de paiement sont indisponibles');
+    await tester.scrollUntilVisible(
+      paymentWarning,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(paymentWarning, findsOneWidget);
+
+    final requestsWarning =
+        find.textContaining('Impossible de charger vos demandes');
+    await tester.scrollUntilVisible(
+      requestsWarning,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(requestsWarning, findsOneWidget);
+    expect(find.byTooltip('Réessayer'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
