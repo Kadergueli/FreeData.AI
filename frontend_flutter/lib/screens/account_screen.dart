@@ -13,6 +13,40 @@ import '../widgets/auth_dialog.dart';
 import 'subscription_screen.dart';
 import '../core/utils/error_text.dart';
 
+class _AccountLoadError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _AccountLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline_rounded,
+              size: 18, color: AppColors.danger),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(
+                    fontSize: 12.5, color: AppColors.danger)),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('Réessayer'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class AccountScreen extends StatefulWidget {
   final ApiService apiService;
   final Future<void> Function()? onConfigureKey;
@@ -34,6 +68,9 @@ class _AccountScreenState extends State<AccountScreen> {
   Map<String, dynamic>? _agroProfile;
   List<Map<String, dynamic>> _myDocs = const [];
   bool _loadingBilling = false;
+  String? _billingError;
+  String? _documentsError;
+  String? _agroProfileError;
   bool _savingProfile = false;
   bool _savingAgroProfile = false;
   bool _changingPass = false;
@@ -55,32 +92,58 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Future<void> _loadBilling() async {
     if (!widget.apiService.isAuthenticated) return;
-    setState(() => _loadingBilling = true);
-    try {
-      final billingFuture = widget.apiService
-          .getMyBilling()
-          .then<Map<String, dynamic>?>((v) => v)
-          .catchError((_) => null);
-      final docsFuture = widget.apiService
-          .listUserDocuments()
-          .catchError((_) => const <Map<String, dynamic>>[]);
-      final agroFuture =
-          widget.apiService.getMyAgroProfile().catchError((_) => null);
-      final results =
-          await Future.wait<Object?>([billingFuture, docsFuture, agroFuture]);
-      final b = results[0] as Map<String, dynamic>?;
-      final docs = results[1] as List<Map<String, dynamic>>;
-      final agroProf = results[2] as Map<String, dynamic>?;
-      if (!mounted) return;
+    if (mounted) {
       setState(() {
-        _billing = b;
-        _myDocs = docs;
-        _agroProfile = agroProf;
-        _loadingBilling = false;
+        _loadingBilling = true;
+        _billingError = null;
+        _documentsError = null;
+        _agroProfileError = null;
       });
-    } catch (_) {
-      if (mounted) setState(() => _loadingBilling = false);
     }
+
+    String? billingError;
+    String? documentsError;
+    String? agroProfileError;
+    final results = await Future.wait<Object?>([
+      widget.apiService.getMyBilling().then<Map<String, dynamic>?>(
+        (value) => value,
+        onError: (Object error) {
+          billingError = errText(error);
+          return null;
+        },
+      ),
+      widget.apiService.listUserDocuments().then<List<Map<String, dynamic>>>(
+        (value) => value,
+        onError: (Object error) {
+          documentsError = errText(error);
+          return const <Map<String, dynamic>>[];
+        },
+      ),
+      widget.apiService.getMyAgroProfile().then<Map<String, dynamic>?>(
+        (value) => value,
+        onError: (Object error) {
+          agroProfileError = errText(error);
+          return null;
+        },
+      ),
+    ]);
+
+    if (!mounted) return;
+    setState(() {
+      if (billingError == null) {
+        _billing = results[0] as Map<String, dynamic>?;
+      }
+      if (documentsError == null) {
+        _myDocs = results[1] as List<Map<String, dynamic>>;
+      }
+      if (agroProfileError == null) {
+        _agroProfile = results[2] as Map<String, dynamic>?;
+      }
+      _billingError = billingError;
+      _documentsError = documentsError;
+      _agroProfileError = agroProfileError;
+      _loadingBilling = false;
+    });
   }
 
   Future<void> _deleteDoc(String docId, String filename) async {
@@ -801,6 +864,11 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                 ),
                 const SizedBox(height: 14),
+                if (_agroProfileError != null)
+                  _AccountLoadError(
+                    message: 'Profil agronome indisponible : $_agroProfileError',
+                    onRetry: _loadBilling,
+                  ),
                 _buildAgroOfficialProfileCard(),
                 const SizedBox(height: 14),
                 // Informations personnelles (lecture seule + modal sur action, style Google / ChatGPT)
@@ -920,7 +988,17 @@ class _AccountScreenState extends State<AccountScreen> {
                         style: TextStyle(fontSize: 13, color: AppColors.muted),
                       ),
                       const SizedBox(height: 10),
-                      if (_myDocs.isEmpty)
+                      if (_documentsError != null)
+                        _AccountLoadError(
+                          message: 'Impossible de charger les documents : $_documentsError',
+                          onRetry: _loadBilling,
+                        )
+                      else if (_loadingBilling && _myDocs.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: LinearProgressIndicator(minHeight: 2),
+                        )
+                      else if (_myDocs.isEmpty)
                         const Text(
                           'Aucun document privé téléversé pour le moment.',
                           style: TextStyle(
@@ -973,6 +1051,11 @@ class _AccountScreenState extends State<AccountScreen> {
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 6),
                           child: LinearProgressIndicator(minHeight: 3),
+                        ),
+                      if (_billingError != null)
+                        _AccountLoadError(
+                          message: 'Informations de facturation non actualisées : $_billingError',
+                          onRetry: _loadBilling,
                         )
                       else
                         const Text(
