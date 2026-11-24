@@ -3726,6 +3726,10 @@ class FreeDataAIAgent(FormattersMixin):
             routed = self._route_with_llm(q, entities, history)
             if routed:
                 if routed["intent"] == "clarify":
+                    evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+                    evidence_answer = self._rag_evidence_response(q, evidence, entities, client_state)
+                    if evidence_answer:
+                        return evidence_answer
                     return self._clarification_response(
                         entities, self._converse_with_llm(q, history, "demande trop vague, ou information manquante pour lancer une analyse")
                     )
