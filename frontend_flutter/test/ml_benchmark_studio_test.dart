@@ -246,10 +246,10 @@ void main() {
     await tester.tap(find.text('Sélectionner un fichier CSV'));
     await tester.pumpAndSettle();
     expect(find.textContaining('sample.csv'), findsOneWidget);
-    expect(find.text('price, XAF'), findsOneWidget);
 
     await tester.tap(find.text('Continuer vers la configuration'));
     await tester.pumpAndSettle();
+    expect(find.text('price, XAF'), findsOneWidget);
 
     await tester.enterText(
       find.widgetWithText(TextField, 'Source du jeu de données (obligatoire)'),
@@ -344,12 +344,11 @@ void main() {
       (tester) async {
     final api = _StudioFakeApiService();
     final overview = _sampleOverview();
-    final models = overview['ml_models'] as List;
-    models.add({
-      ...Map<String, dynamic>.from(models.first as Map),
-      'version': 2,
-      'is_active_production': false,
-    });
+    final models = overview['ml_models'] as List<Map<String, Object>>;
+    final secondVersion = Map<String, Object>.from(models.first)
+      ..['version'] = 2
+      ..['is_active_production'] = false;
+    models.add(secondVersion);
 
     await tester.pumpWidget(
       MaterialApp(
