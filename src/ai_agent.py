@@ -3481,6 +3481,25 @@ class FreeDataAIAgent(FormattersMixin):
         ))
 
     @staticmethod
+    def _is_financial_action_query(query: str) -> bool:
+        """Keeps explicit simulations and business-plan requests on deterministic calculation paths."""
+        q = query or ""
+        return bool(
+            re.search(r"\\b(?:business\\s*plan|plan\\s+d['’]?affaires?|etude\\s+de\\s+faisabilite)\\b", q)
+            or re.search(
+                r"\\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
+                r"etablis|fais|genere|chiffre|combien\\s+(?:je|peut|pourrais))\\b.{0,90}"
+                r"\\b(?:marge|profit|benefice|rentabilite|roi|revenu|capital|business|investissement)\\b",
+                q,
+            )
+            or re.search(
+                r"\\b(?:marge|profit|benefice|rentabilite|roi)\\b.{0,60}"
+                r"\\b(?:simul|estim|calcul|prevision|business\\s*plan)\\w*\\b",
+                q,
+            )
+        )
+
+    @staticmethod
     def _is_contextual_explanation_followup(query: str, history: Optional[list[dict]] = None) -> bool:
         """Recognizes short explanatory follow-ups whose subject exists only in conversation history."""
         return bool(
@@ -3782,10 +3801,34 @@ class FreeDataAIAgent(FormattersMixin):
         rag_terms = [contextual_rag_query or _strip_list_prefixes(q).strip()]
         if entities.get("commodity"):
             rag_terms.append(self._fr_commodity(entities["commodity"]))
-        if entities.get("province"):
-            rag_terms.append(str(entities["province"]))
+        for place_key in ("province", "origin_province", "destination_province"):
+            if entities.get(place_key):
+                rag_terms.append(str(entities[place_key]))
+        # Le RAG doit retrouver la méthode qui explique le calcul réellement exécuté,
+        # sans remplacer le moteur déterministe qui produit les chiffres.
+        if intent == "business_simulator":
+            rag_terms.append(
+                "commerce agricole négoce marge brute marge nette résultat opérationnel "
+                "coût rendu achat transport emballage manutention pertes stockage frais fixes "
+                "volume commercialisable chiffre affaires ROI point mort seuil rentabilité"
+            )
+            if entities.get("is_business_plan_request"):
+                rag_terms.append(
+                    "business plan agricole financement BFR CAPEX allocation capital trésorerie "
+                    "projection six mois réinvestissement stress tests hypothèses risques"
+                )
+        elif intent in ("route_revenue", "compare_sell"):
+            rag_terms.append(
+                "comparaison marchés écart prix brut frais transport coûts logistiques marge "
+                "et limites de rentabilité entre provinces"
+            )
+        elif intent == "forecast":
+            rag_terms.append(
+                "méthodologie prévision prix agricole validation chronologique MAE MAPE "
+                "intervalle de prévision 80 pour cent fraîcheur données"
+            )
         rag_query = " ".join(dict.fromkeys(t for t in rag_terms if t))
-        chunks = list(private_chunks or []) + self.provider.retrieve_rag_chunks(rag_query)
+        chunks = list(private_chunks or []) + self.provider.retrieve_rag_chunks(rag_query, match_count=6)
 
         sources = [
             {
@@ -3804,8 +3847,11 @@ class FreeDataAIAgent(FormattersMixin):
         # Les questions de méthode, de provenance et de qualité doivent recevoir le contenu RAG,
         # pas uniquement un modèle de réponse orienté prix qui ne cite que les titres des documents.
         if chunks and (
-            self._is_rag_knowledge_query(q_norm)
-            or self._is_contextual_explanation_followup(q_norm, history)
+            (self._is_rag_knowledge_query(q_norm) and not self._is_financial_action_query(q_norm))
+            or (
+                self._is_contextual_explanation_followup(q_norm, history)
+                and intent != "business_simulator"
+            )
         ):
             evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state, history=history, tier=tier)
             if evidence_answer:
