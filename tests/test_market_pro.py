@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from api import server
-from src.market_pro import MarketWatchlistStore
+from src.market_pro import MarketWatchlistStore, compute_campaign_investment_plan
 from src.monetization import SubscriptionStore
 
 
@@ -140,3 +140,51 @@ def test_forecast_uses_t1_never_the_fitted_value():
     assert sig["predicted_xaf_kg"] == 330.0 and sig["change_pct"] == 10.0
     no_t1 = df.drop(columns=["forecast_t1"])
     assert _extract_crop_market_signals(no_t1, "Lac")["millet"]["predicted_xaf_kg"] is None
+
+
+def test_campaign_plan_never_recommends_negative_margin_or_zero_bags():
+    hist = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "year_month": f"202{y}-{m:02d}", "value": 200.0}
+        for y in (4, 5, 6) for m in range(1, 13)
+    ])
+    forecast = pd.DataFrame([{
+        "commodity_std": "Millet", "province": "Salamat", "last_observed_month": "2026-10",
+        "last_observed_price": 200.0, "forecast_t1": 150.0,
+    }])
+    loss_making = compute_campaign_investment_plan(
+        hist_df=hist, forecast_df=forecast, capital_xaf=100000.0,
+        origin_province="Salamat", crop_id="millet", holding_months=1,
+        bag_weight_kg=100.0, transport_per_bag_xaf=0.0,
+        storage_per_bag_month_xaf=0.0, loss_pct=0.0,
+    )
+    assert loss_making["recommended_plan"] is None
+    assert loss_making["recommendation_status"] == "no_viable_opportunity"
+    assert loss_making["all_opportunities"][0]["recommendation_eligible"] is False
+    assert loss_making["all_opportunities"][0]["recommendation_status"] == "negative_central_margin"
+
+    no_bag = compute_campaign_investment_plan(
+        hist_df=hist, forecast_df=forecast, capital_xaf=1.0,
+        origin_province="Salamat", crop_id="millet", holding_months=1,
+    )
+    assert no_bag["recommended_plan"] is None
+    assert no_bag["all_opportunities"][0]["recommendation_status"] == "capital_insufficient"
+
+
+def test_campaign_plan_uses_observation_month_and_exposes_data_scope():
+    hist = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "year_month": f"202{y}-{m:02d}", "value": 200.0 + m}
+        for y in (4, 5, 6) for m in range(1, 13)
+    ])
+    forecast = pd.DataFrame([{
+        "commodity_std": "Millet", "province": "Salamat", "last_observed_month": "2026-08",
+        "last_observed_price": 210.0, "forecast_t1": 240.0,
+    }])
+    result = compute_campaign_investment_plan(
+        hist_df=hist, forecast_df=forecast, capital_xaf=1000000.0,
+        origin_province="Salamat", crop_id="millet", holding_months=2,
+    )
+    item = result["all_opportunities"][0]
+    assert item["last_observed_month"] == "2026-08"
+    assert item["data_scope"] == "province"
+    assert item["used_national_fallback"] is False
+    assert item["history_year_count"] == 3
