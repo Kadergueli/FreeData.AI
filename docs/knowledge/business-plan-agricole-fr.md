@@ -7,6 +7,8 @@
 
 Un business plan agricole ou de négoce doit relier le marché, l'opération, les besoins de financement, les flux de trésorerie et les risques. Il doit permettre au lecteur de distinguer les données vérifiées, les hypothèses du porteur de projet et les résultats calculés.
 
+**Limite de périmètre :** le moteur déterministe `build_professional_business_plan` décrit ici couvre principalement le négoce (achat, transport et revente de produits agricoles). Il ne constitue pas, à lui seul, un modèle complet de production à la ferme : budget cultural, itinéraire technique, rendement parcellaire, main-d'œuvre, intrants et calendrier de récolte nécessitent des données et un moteur de production dédiés. Si la demande concerne la production agricole, l'assistant ne doit pas présenter le simulateur de négoce comme un business plan de ferme.
+
 Un document utile comprend généralement :
 - résumé du projet et objectif commercial ;
 - produit, qualité, zone d'approvisionnement et débouchés ;
