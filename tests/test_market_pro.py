@@ -270,3 +270,47 @@ def test_spatial_arbitrage_compares_only_the_latest_common_forecast_month():
     assert {r["origin_province"] for r in result["routes"]} == {"Salamat"}
     assert {r["dest_province"] for r in result["routes"]} == {"N'Djamena"}
     assert result["routes"][0]["spread_xaf_kg"] == 90.0
+
+def test_spatial_arbitrage_falls_back_to_latest_month_shared_by_two_provinces():
+    from src.market_pro import compute_spatial_arbitrage_detailed
+
+    forecasts = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "forecast_month": "2026-11",
+         "forecast_t1": 220.0, "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "N'Djamena", "forecast_month": "2026-11",
+         "forecast_t1": 310.0, "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "Mandoul", "forecast_month": "2026-12",
+         "forecast_t1": 410.0, "source": "PAM-WFP"},
+    ])
+
+    result = compute_spatial_arbitrage_detailed(
+        forecasts, {}, crop_id="millet",
+    )
+
+    assert result["status"] == "ok"
+    assert result["forecast_month"] == "2026-11"
+    assert len(result["routes"]) == 1
+    assert result["routes"][0]["origin_province"] == "Salamat"
+    assert result["routes"][0]["dest_province"] == "N'Djamena"
+    assert result["routes"][0]["spread_xaf_kg"] == 90.0
+
+def test_legacy_market_overview_arbitrage_uses_latest_shared_month():
+    from src.market_pro import compute_inter_province_arbitrage
+
+    forecasts = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "forecast_month": "2026-11",
+         "forecast_t1": 220.0},
+        {"commodity_std": "Millet", "province": "N'Djamena", "forecast_month": "2026-11",
+         "forecast_t1": 310.0},
+        {"commodity_std": "Millet", "province": "Mandoul", "forecast_month": "2026-12",
+         "forecast_t1": 410.0},
+    ])
+
+    result = compute_inter_province_arbitrage(forecasts, crop_id="millet")
+
+    assert len(result) == 1
+    assert result[0]["forecast_month"] == "2026-11"
+    assert result[0]["origin_province"] == "Salamat"
+    assert result[0]["dest_province"] == "N'Djamena"
+    assert result[0]["spread_xaf_kg"] == 90.0
+
