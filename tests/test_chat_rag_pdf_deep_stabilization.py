@@ -304,3 +304,36 @@ def test_rag_methodology_question_uses_retrieved_evidence_even_with_market_entit
     assert answer["intent"] == "rag_answer"
     assert "validation chronologique" in answer["reply"]
     assert answer["sources"][0]["titre"] == "Méthode de prévision"
+
+
+def test_llm_clarify_router_cannot_bypass_relevant_rag_evidence(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    from src import ai_agent
+
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        replace(ai_agent.settings, llm_api_key="gsk_test_key", llm_routing=True),
+    )
+    monkeypatch.setattr(agent, "_route_with_llm", lambda *args, **kwargs: {"intent": "clarify"})
+    expected_chunk = {
+        "titre": "Méthodologie des prix",
+        "editeur": "FreeData.AI",
+        "page": 3,
+        "content": "Les prix sont contrôlés par cohérence des unités, détection des doublons et validation des dates.",
+        "similarity": 0.86,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [expected_chunk],
+    )
+
+    answer = agent.answer(
+        "Comment fonctionne le contrôle qualité du prix du mil au Salamat ?",
+        tier="premium",
+    )
+
+    assert answer["intent"] == "rag_answer"
+    assert "détection des doublons" in answer["reply"]
