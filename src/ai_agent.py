@@ -3476,7 +3476,12 @@ class FreeDataAIAgent(FormattersMixin):
             r"\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
             r"definition|algorithme|validation|couverture(?:\s+du\s+corpus)?|"
             r"comment\s+fonctionne|comment\s+est\s+calcule|comment\s+sont\s+calcules|"
-            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques)\b",
+            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques|"
+            r"explique(?:r)?\s+(?:moi\s+)?(?:la\s+|le\s+|les\s+)?"
+            r"(?:marge|rentabilite|roi|point\s+mort|bfr|capex|prevision|business\s*plan)|"
+            r"difference\s+entre\s+(?:la\s+)?marge|"
+            r"comment\s+(?:calculer|interpreter)\s+(?:la\s+)?"
+            r"(?:marge|rentabilite|roi|point\s+mort|bfr|capex|prevision))\b",
             query or "",
         ))
 
@@ -3484,9 +3489,13 @@ class FreeDataAIAgent(FormattersMixin):
     def _is_financial_action_query(query: str) -> bool:
         """Keeps explicit simulations and business-plan requests on deterministic calculation paths."""
         q = query or ""
+        if re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q):
+            return True
+        if re.match(r"^(?:comment|explique|decris|quelle\s+difference|qu['’]est-ce\s+que)\b", q):
+            if not re.search(r"\b(?:simule|estime|fais|prepare|redige|construis|etablis|genere)\b", q):
+                return False
         return bool(
-            re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q)
-            or re.search(
+            re.search(
                 r"\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
                 r"etablis|fais|genere|chiffre|combien\s+(?:je|peut|pourrais))\b.{0,90}"
                 r"\b(?:marge|profit|benefice|rentabilite|roi|revenu|capital|business|investissement)\b",
@@ -3614,6 +3623,18 @@ class FreeDataAIAgent(FormattersMixin):
         entities["is_business_plan_request"] = bool(
             _BUSINESS_PLAN_RE.search(q_norm) or _BUSINESS_PLAN_RE.search(hist_user_norm)
         )
+
+        # Une demande d'explication pure doit être traitée comme une question documentaire,
+        # même si le lexique "marge" a déclenché le simulateur métier. Une demande d'estimation
+        # ou de business plan explicite reste prioritaire et passe par les calculs déterministes.
+        if self._is_rag_knowledge_query(q_norm) and not self._is_financial_action_query(q_norm):
+            evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+            evidence_answer = self._rag_evidence_response(
+                q, evidence, entities, client_state, history=history, tier=tier
+            )
+            if evidence_answer:
+                evidence_answer["client_state"] = client_state
+                return evidence_answer
 
         # Demande trop floue : si l'utilisateur a des documents privés pertinents, on analyse ses documents avec Jina + Groq !
         has_context = bool(
