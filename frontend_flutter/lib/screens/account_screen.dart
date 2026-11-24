@@ -9,6 +9,7 @@ import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
 import '../services/auth_token_storage.dart';
 import '../services/conversation_storage.dart';
+import '../services/session_logout.dart';
 import '../widgets/auth_dialog.dart';
 import 'subscription_screen.dart';
 import '../core/utils/error_text.dart';
@@ -82,6 +83,7 @@ class _AccountScreenState extends State<AccountScreen> {
   bool _savingAgroProfile = false;
   bool _changingPass = false;
   bool _syncing = false;
+  bool _loggingOut = false;
 
   @override
   void initState() {
@@ -278,7 +280,7 @@ class _AccountScreenState extends State<AccountScreen> {
         if (mounted) setState(() => _savingProfile = false);
       }
     } finally {
-      // Le contrôleur local est libéré après l'animation de fermeture du dialogue.
+      ctrl.dispose();
     }
   }
 
@@ -375,7 +377,9 @@ class _AccountScreenState extends State<AccountScreen> {
         if (mounted) setState(() => _changingPass = false);
       }
     } finally {
-      // Les contrôleurs locaux sont libérés après l'animation de fermeture du dialogue.
+      curCtrl.dispose();
+      nextCtrl.dispose();
+      confirmCtrl.dispose();
     }
   }
 
@@ -427,15 +431,34 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _logout() async {
-    // Effacer le cache du compte avant que logoutAccount ne réinitialise l'identité.
-    await LocalConversationStorage.instance.clearCurrentUserCache();
-    await widget.apiService.logoutAccount();
-    await AuthTokenStorage.delete();
-    widget.onSessionChanged?.call();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Déconnexion effectuée.')));
-    Navigator.of(context).pop();
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+    try {
+      final result = await SessionLogout.perform(apiService: widget.apiService);
+      widget.onSessionChanged?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.cacheCleared
+                ? 'Déconnexion effectuée.'
+                : 'Déconnexion effectuée. Le cache local n’a pas pu être entièrement effacé.',
+          ),
+        ),
+      );
+      Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Déconnexion impossible. Votre session est conservée ; réessayez.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   Future<void> _confirmDeleteAccount() async {
@@ -492,6 +515,8 @@ class _AccountScreenState extends State<AccountScreen> {
       final userError = errText(e);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(userError)));
+    } finally {
+      passCtrl.dispose();
     }
   }
 
