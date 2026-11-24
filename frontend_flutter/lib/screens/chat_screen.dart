@@ -153,7 +153,9 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
         ..showSnackBar(const SnackBar(
-          content: Text('Le domaine est sélectionné, mais sa préférence n’a pas pu être sauvegardée.'),
+          content: Text(
+            'Le domaine est sélectionné, mais sa préférence n’a pas pu être sauvegardée.',
+          ),
         ));
     }
   }
@@ -179,7 +181,10 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _documentsError = 'Impossible de charger vos documents. Vérifiez votre connexion puis réessayez.');
+      setState(() {
+        _documentsError =
+            'Impossible de charger vos documents. Vérifiez votre connexion puis réessayez.';
+      });
     }
   }
 
