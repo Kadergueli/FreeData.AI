@@ -337,7 +337,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Détails du calcul'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Indice de stabilité : 65/100 calculé sur 32 mois observés'),
+    expect(
+        find.textContaining(
+            'Indice de stabilité : 65/100 calculé sur 32 mois observés'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
   });
