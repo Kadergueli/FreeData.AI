@@ -67,7 +67,7 @@ class _PolishFakeApiService extends ApiService {
   Future<List<dynamic>> getCreditPassports({
     String? province,
     String? commodity,
-    int loanAmount = 1000000,
+    int collateralValueXaf = 1000000,
   }) async =>
       [
         {
@@ -1390,7 +1390,7 @@ class _FullCatalogFakeApi extends ApiService {
   Future<List<dynamic>> getCreditPassports({
     String? province,
     String? commodity,
-    int loanAmount = 1000000,
+    int collateralValueXaf = 1000000,
   }) async =>
       const [];
 
