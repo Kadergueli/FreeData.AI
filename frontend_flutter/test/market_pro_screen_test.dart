@@ -115,8 +115,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('arbitrage results can be explained or turned into a business plan by AI',
-      (tester) async {
+  testWidgets(
+    'arbitrage results can be explained or turned into a business plan by AI',
+    (tester) async {
     tester.view.physicalSize = const Size(1280, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
