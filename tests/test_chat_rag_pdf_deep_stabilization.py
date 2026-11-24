@@ -347,3 +347,26 @@ def test_llm_clarify_router_cannot_bypass_relevant_rag_evidence(monkeypatch):
     assert answer["intent"] == "rag_answer"
     assert "détection des doublons" in answer["reply"]
     assert synthesis_calls and synthesis_calls[0]["rag_only"] is True
+
+
+def test_pure_margin_explanation_uses_rag_instead_of_asking_for_business_capital(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    expected_chunk = {
+        "titre": "Guide de calcul des marges",
+        "editeur": "FreeData.td",
+        "page": 3,
+        "content": "La marge brute se distingue du résultat opérationnel net, qui déduit les coûts inclus dans le scénario.",
+        "similarity": 0.9,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [expected_chunk],
+    )
+
+    answer = agent.answer("Explique la marge brute et la marge nette", tier="free")
+
+    assert answer["intent"] == "rag_answer"
+    assert "marge brute" in answer["reply"].lower()
+    assert answer["sources"][0]["titre"] == "Guide de calcul des marges"
