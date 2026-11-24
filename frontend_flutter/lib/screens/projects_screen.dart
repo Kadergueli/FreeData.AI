@@ -1194,8 +1194,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                               FDErrorState(
                                 message:
                                     'Impossible de charger les audits parcellaires : $_projectAssessmentsError',
-                                onRetry: () =>
-                                    _openWorkspace(proj, silent: true),
+                                onRetry: () => _openWorkspace(
+                                  proj,
+                                  silent: true,
+                                ),
                               ),
                             ] else if (_projectAgroAssessments.isNotEmpty) ...[
                               const SizedBox(height: 12),
@@ -1476,8 +1478,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         FDErrorState(
                           message:
                               'Impossible de charger les documents du projet : $_projectDocumentsError',
-                          onRetry: () =>
-                              _openWorkspace(proj, silent: true),
+                          onRetry: () => _openWorkspace(
+                            proj,
+                            silent: true,
+                          ),
                         )
                       else if (_projectDocuments.isEmpty)
                         const FDCard(
