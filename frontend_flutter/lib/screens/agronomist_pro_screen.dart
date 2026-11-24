@@ -358,7 +358,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       return;
     }
     final area = _parseOpt(_areaCtrl);
-    if (area == null || area <= 0 || area > 500000) {
+    if (area == null || !area.isFinite || area <= 0 || area > 500000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
@@ -373,6 +373,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         const SnackBar(
             content: Text(
                 'Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+      );
+      return;
+    }
+    if (latitude != null &&
+        (!latitude.isFinite ||
+            !longitude!.isFinite ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Coordonnées GPS invalides : latitude entre -90 et 90, longitude entre -180 et 180.',
+          ),
+        ),
       );
       return;
     }
@@ -1708,6 +1724,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final pointProvenance = pointSatellite['provenance'] is Map
         ? Map<String, dynamic>.from(pointSatellite['provenance'] as Map)
         : const <String, dynamic>{};
+    final pointSeason = pointSatellite['growing_season'] is Map
+        ? Map<String, dynamic>.from(pointSatellite['growing_season'] as Map)
+        : const <String, dynamic>{};
+    final precipitationText = pointSeason['precipitation_mean'] == null
+        ? '—'
+        : '${pointSeason['precipitation_mean']} mm/jour';
+    final temperatureText = pointSeason['temperature_mean_c'] == null
+        ? '—'
+        : '${pointSeason['temperature_mean_c']} °C';
     final siteContext = scores['site_context'] is Map
         ? Map<String, dynamic>.from(scores['site_context'] as Map)
         : const <String, dynamic>{};
@@ -1851,6 +1876,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                       pointProvenance['retrieved_at_utc']?.toString() ??
                           pointSatellite['retrieved_at_utc']?.toString() ??
                           '—',
+                    ),
+                    _kvRow(
+                      'Humidité racinaire / surface',
+                      '${pointSeason['root_zone_wetness_mean'] ?? '—'} / ${pointSeason['surface_wetness_mean'] ?? '—'} (fraction 0–1)',
+                      shaded: true,
+                    ),
+                    _kvRow(
+                      'Précipitations / température',
+                      '$precipitationText / $temperatureText',
+                    ),
+                    _kvRow(
+                      'Résolution annoncée',
+                      pointProvenance['resolution']?.toString() ??
+                          pointSatellite['spatial_resolution']?.toString() ??
+                          'Variable selon le paramètre',
+                      shaded: true,
                     ),
                     _kvRow(
                       'Portée spatiale',
