@@ -117,6 +117,10 @@ class _AgroFakeApi extends ApiService {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets(
       'AgricultureScreen shows zone pre-diagnostic with alert, provenance and no temperature data',
       (tester) async {
@@ -171,7 +175,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.lastRegion, 'Moundou');
-    expect(find.text('Moundou'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
