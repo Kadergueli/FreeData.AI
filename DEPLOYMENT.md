@@ -14,7 +14,9 @@
 
 ## Database Migrations
 Apply SQL scripts in order in Supabase SQL Editor:
-`sql/01_silver_v_clean_markets.sql` → ... → `sql/09_lock_premium_tables_rls.sql` → `sql/10_projects_and_study_versions.sql` → `sql/11_subscriptions_and_usage_metering.sql` → `sql/12_admin_rbac_and_audit.sql`.
+`sql/01_silver_v_clean_markets.sql` → ... → `sql/09_lock_premium_tables_rls.sql` → `sql/10_projects_and_study_versions.sql` → `sql/11_subscriptions_and_usage_metering.sql` → `sql/12_admin_rbac_and_audit.sql` → `sql/13_app_private_schema.sql` → `sql/16_public_rag.sql`.
+
+Le moteur RAG documentaire public utilise `public.rag_documents`, `public.rag_chunks` et la RPC `match_chunks`. La migration `sql/16_public_rag.sql` installe pgvector (1024 dimensions pour Jina v3), active une lecture publique limitée aux documents explicitement autorisés à la redistribution et réserve l'écriture au rôle `service_role`. Après avoir ajouté les PDF autorisés dans `docs/` et vérifié `docs/manifest.json`, lancer `python scripts/build_vector_store.py --dry-run`, puis `python scripts/build_vector_store.py` depuis un environnement disposant de `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` et `EMBED_API_KEY`. Le dépôt ne doit jamais déclarer un PDF absent comme indexé.
 
 ## Environments & CI/CD Workflow
 - **Development**: Local `.venv` + `uvicorn api.server:app --reload`, `ALLOW_LOCALHOST_CORS=1`, `REQUIRE_SIGNED_USER_AUTH=0`.

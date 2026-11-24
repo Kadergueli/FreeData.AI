@@ -224,3 +224,126 @@ def test_multi_intent_single_turn_executes_primary_and_secondary_tools():
     assert ans["entities"].get("secondary_intents")
 
 
+
+
+def test_rag_evidence_prevents_generic_clarification_when_public_docs_match(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    expected_chunk = {
+        "titre": "Méthodologie de validation",
+        "editeur": "FreeData.AI",
+        "page": 4,
+        "url_source": "https://example.org/methodologie",
+        "content": "La qualité des prix est évaluée par validation des unités, contrôle des doublons et comparaison temporelle.",
+        "similarity": 0.81,
+    }
+    seen_queries = []
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: (seen_queries.append(query) or [expected_chunk]),
+    )
+
+    answer = agent.answer("Comment la qualité des prix est-elle vérifiée ?", tier="free")
+
+    assert answer["intent"] == "rag_answer"
+    assert "validation des unités" in answer["reply"]
+    assert answer["sources"][0]["titre"] == "Méthodologie de validation"
+    assert seen_queries
+
+
+def test_rag_short_followup_uses_recent_user_context_instead_of_generic_reply(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    expected_chunk = {
+        "titre": "Méthodologie",
+        "editeur": "WFP",
+        "page": 2,
+        "content": "Le suivi combine les prix observés et les contrôles de cohérence.",
+        "similarity": 0.79,
+    }
+    seen_queries = []
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: (seen_queries.append(query) or [expected_chunk]),
+    )
+    history = [
+        {"role": "user", "content": "Explique la méthodologie de contrôle des prix du mil au Salamat."},
+        {"role": "assistant", "content": "La méthodologie combine plusieurs contrôles."},
+    ]
+
+    answer = agent.answer("Pourquoi ?", history=history, tier="free")
+
+    assert answer["intent"] == "rag_answer"
+    assert "mil au salamat" in seen_queries[0].lower()
+    assert "contrôles de cohérence" in answer["reply"]
+
+
+def test_rag_methodology_question_uses_retrieved_evidence_even_with_market_entities(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    expected_chunk = {
+        "titre": "Méthode de prévision",
+        "editeur": "FreeData.AI",
+        "page": 6,
+        "content": "La prévision combine une validation chronologique, un modèle de référence et une régression Ridge.",
+        "similarity": 0.84,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [expected_chunk],
+    )
+
+    answer = agent.answer(
+        "Quelle est la méthodologie de calcul de la prévision du mil au Salamat ?",
+        tier="free",
+    )
+
+    assert answer["intent"] == "rag_answer"
+    assert "validation chronologique" in answer["reply"]
+    assert answer["sources"][0]["titre"] == "Méthode de prévision"
+
+
+def test_llm_clarify_router_cannot_bypass_relevant_rag_evidence(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    from src import ai_agent
+
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        replace(ai_agent.settings, llm_api_key="gsk_test_key", llm_routing=True),
+    )
+    monkeypatch.setattr(agent, "_route_with_llm", lambda *args, **kwargs: {"intent": "clarify"})
+    expected_chunk = {
+        "titre": "Méthodologie des prix",
+        "editeur": "FreeData.AI",
+        "page": 3,
+        "content": "Les prix sont contrôlés par cohérence des unités, détection des doublons et validation des dates.",
+        "similarity": 0.86,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [expected_chunk],
+    )
+    synthesis_calls = []
+    monkeypatch.setattr(
+        agent,
+        "_synthesize_with_llm",
+        lambda query, facts, chunks, **kwargs: (
+            synthesis_calls.append({"query": query, "facts": facts, "chunks": chunks, **kwargs})
+            or "Le document décrit trois contrôles : cohérence des unités, détection des doublons et validation des dates."
+        ),
+    )
+
+    answer = agent.answer(
+        "Comment fonctionne le contrôle qualité du prix du mil au Salamat ?",
+        tier="premium",
+    )
+
+    assert answer["intent"] == "rag_answer"
+    assert "détection des doublons" in answer["reply"]
+    assert synthesis_calls and synthesis_calls[0]["rag_only"] is True

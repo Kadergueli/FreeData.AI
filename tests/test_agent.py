@@ -122,7 +122,7 @@ def test_rag_graceful_degradation_when_empty_or_timeout(agent, monkeypatch):
 
     # 1. Timeout > 5s sur Jina/Supabase : repli propre sur [] sans lever d'exception
     def timeout_post(*args, **kwargs):
-        assert kwargs.get("timeout") == 5
+        assert kwargs.get("timeout") == 8
         raise requests.Timeout("Délai dépassé")
 
     monkeypatch.setattr(ai_agent.requests, "post", timeout_post)
@@ -167,11 +167,11 @@ def test_rag_and_llm_synthesis_grounds_numbers_and_propagates_sources(agent, mon
             def json(self):
                 if url == "https://api.jina.ai/v1/embeddings":
                     assert kwargs["json"]["model"] == "jina-embeddings-v3"
-                    assert kwargs["timeout"] == 5
-                    return {"data": [{"embedding": [0.1, 0.2]}]}
+                    assert kwargs["timeout"] == 8
+                    return {"data": [{"embedding": [0.1] * 1024}]}
                 if "match_chunks" in url:
                     assert kwargs["headers"]["apikey"] == "anon-key"
-                    assert kwargs["timeout"] == 5
+                    assert kwargs["timeout"] == 8
                     return [
                         {
                             "titre": "Bulletin PAM Juin",
@@ -248,8 +248,8 @@ def test_build_vector_store_get_embeddings_uses_embed_settings(monkeypatch):
             def json(self):
                 return {
                     "data": [
-                        {"index": 1, "embedding": [0.3, 0.4]},
-                        {"index": 0, "embedding": [0.1, 0.2]},
+                        {"index": 1, "embedding": [0.3] * 1024},
+                        {"index": 0, "embedding": [0.1] * 1024},
                     ]
                 }
 
@@ -257,7 +257,7 @@ def test_build_vector_store_get_embeddings_uses_embed_settings(monkeypatch):
 
     monkeypatch.setattr(build_vector_store.requests, "post", fake_post)
     vectors = build_vector_store.get_embeddings(["alpha", "beta"])
-    assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+    assert vectors == [[0.1] * 1024, [0.3] * 1024]
 
 
 def test_build_vector_store_raise_for_api_error_includes_status_and_detail():
@@ -799,7 +799,7 @@ def test_provider_retrieve_rag_chunks_empty_and_populated(gold_tables, monkeypat
 
             def json(self):
                 if url == "https://api.jina.ai/v1/embeddings":
-                    return {"data": [{"embedding": [0.1] * 4}]}
+                    return {"data": [{"embedding": [0.1] * 1024}]}
                 assert "rpc/match_chunks" in url
                 assert kwargs["headers"]["apikey"] == "anon-key"
                 return rpc_payload
@@ -869,7 +869,7 @@ def test_agent_free_mode_skips_llm_and_renders_rag_sources_section(agent, monkey
 
             def json(self):
                 if url == "https://api.jina.ai/v1/embeddings":
-                    return {"data": [{"embedding": [0.1, 0.2]}]}
+                    return {"data": [{"embedding": [0.1] * 1024}]}
                 return [
                     {
                         "titre": "Bulletin PAM Octobre",

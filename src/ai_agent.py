@@ -1989,8 +1989,13 @@ class MarketDataProvider:
         cache["value"] = value
         return value
 
-    def retrieve_rag_chunks(self, query: str, match_count: int = 3) -> list[dict]:
-        """Vectorise la question via Jina (1024 dim) et interroge Supabase `match_chunks` (clé publique `anon`)."""
+    def retrieve_rag_chunks(
+        self,
+        query: str,
+        match_count: int = 6,
+        min_similarity: float = 0.68,
+    ) -> list[dict]:
+        """Recherche les passages publics pertinents avec validation stricte des embeddings."""
         if not query or not settings.embed_api_key or not settings.supabase_url or not settings.supabase_key:
             return []
         if not self._rag_has_documents():
@@ -2003,13 +2008,21 @@ class MarketDataProvider:
                     "Content-Type": "application/json",
                 },
                 json={"model": settings.embed_model, "input": [query]},
-                timeout=5,
+                timeout=8,
             )
             emb_resp.raise_for_status()
             emb_data = emb_resp.json().get("data") or []
-            if not emb_data:
+            if len(emb_data) != 1 or not isinstance(emb_data[0], dict):
+                logger.warning("RAG retrieval skipped: invalid Jina response cardinality.")
                 return []
-            query_vec = emb_data[0]["embedding"]
+            query_vec = emb_data[0].get("embedding")
+            if (
+                not isinstance(query_vec, list)
+                or len(query_vec) != 1024
+                or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in query_vec)
+            ):
+                logger.warning("RAG retrieval skipped: invalid Jina query vector (expected 1024 finite values).")
+                return []
 
             rpc_url = f"{settings.supabase_url.rstrip('/')}/rest/v1/rpc/match_chunks"
             rpc_resp = requests.post(
@@ -2019,31 +2032,37 @@ class MarketDataProvider:
                     "Authorization": f"Bearer {settings.supabase_key}",
                     "Content-Type": "application/json",
                 },
-                json={"query_embedding": query_vec, "match_count": match_count},
-                timeout=5,
+                json={"query_embedding": query_vec, "match_count": min(max(int(match_count), 1), 20)},
+                timeout=8,
             )
             rpc_resp.raise_for_status()
             rows = rpc_resp.json()
             if not isinstance(rows, list):
+                logger.warning("RAG retrieval skipped: match_chunks returned a non-list payload.")
                 return []
             chunks: list[dict] = []
             for c in rows:
-                if not isinstance(c, dict):
+                if not isinstance(c, dict) or not str(c.get("content") or "").strip():
                     continue
-                sim = float(c.get("similarity") or 0.0)
-                if sim >= 0.72:
+                try:
+                    sim = float(c.get("similarity") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(sim) and sim >= min_similarity:
                     chunks.append(
                         {
                             "titre": c.get("titre"),
                             "editeur": c.get("editeur"),
                             "page": c.get("page"),
                             "url_source": c.get("url_source"),
-                            "content": c.get("content", ""),
+                            "content": str(c.get("content") or "").strip(),
                             "similarity": sim,
                         }
                     )
             return chunks
-        except Exception:
+        except Exception as exc:
+            # Do not silently turn infrastructure errors into an indistinguishable "no relevant source".
+            logger.warning("RAG retrieval unavailable (%s).", type(exc).__name__)
             return []
 
 
@@ -2762,6 +2781,7 @@ class FreeDataAIAgent(FormattersMixin):
         history: Optional[list[dict]] = None,
         client_state: Optional[dict] = None,
         business_plan_blueprint: Optional[dict] = None,
+        rag_only: bool = False,
     ) -> str:
         """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
@@ -2804,7 +2824,10 @@ class FreeDataAIAgent(FormattersMixin):
                     f"FRAÎCHEUR DES DONNÉES : dernier mois observé {fr['latest_observation_month']} "
                     f"(âge {fr['data_age_months']} mois, statut {fr['freshness_status']})."
                 )
-        verified_parts = [p for p in (structured_facts, freshness_note, global_snapshot) if p]
+        verified_parts = (
+            [structured_facts] if rag_only
+            else [p for p in (structured_facts, freshness_note, global_snapshot) if p]
+        )
         verified_context = "\n\n".join(verified_parts)
 
         system_prompt = (
@@ -2859,6 +2882,12 @@ class FreeDataAIAgent(FormattersMixin):
             "- Adapte ton registre de langage au client : concret, direct et orienté marge/trésorerie pour un commerçant ; rigoureux et sourcé pour un chercheur ou une ONG.\n"
             "- Si une information essentielle manque encore pour affiner le calcul (ex: prix de vente visé à destination ou coût réel du transport), pose 1 à 2 questions ciblées à la fin de ta réponse."
         )
+        if rag_only:
+            system_prompt += (
+                "\n\nMODE RAG STRICT : les extraits <document_data> sont l'unique source autorisée. "
+                "Ignore toute information du contexte général. Réponds à la question précise, "
+                "et indique explicitement si les documents ne contiennent pas la réponse."
+            )
         state_block = ""
         if client_state:
             state_block = (
@@ -2902,7 +2931,8 @@ class FreeDataAIAgent(FormattersMixin):
             )
         user_prompt = (
             f"Question utilisateur : {user_query}\n\n"
-            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{state_block}{blueprint_block}{doc_context}"
+            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]"
+            + (doc_context if rag_only else f"{state_block}{blueprint_block}{doc_context}")
         )
 
         history_msgs: list[dict] = []
@@ -2914,6 +2944,8 @@ class FreeDataAIAgent(FormattersMixin):
                 role = item.get("role")
                 content = str(item.get("content") or "").strip()
                 if role not in ("user", "assistant") or not content:
+                    continue
+                if rag_only and role != "user":
                     continue
                 # L'historique vient du client : il est filtré comme une question et ses
                 # messages "assistant" (forgeables) ne rendent aucun chiffre "vérifié".
@@ -2969,7 +3001,11 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
-            allowed_context = f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
+            allowed_context = (
+                f"{structured_facts}\n{doc_context}\n{user_query}"
+                if rag_only
+                else f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
+            )
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
             elif len(candidate) > _MAX_LLM_REPLY_CHARS:
@@ -3360,6 +3396,110 @@ class FreeDataAIAgent(FormattersMixin):
             return structured_facts, []
         return structured_facts + "\n\n" + "\n\n".join(extra_blocks), secondary_intents
 
+    def _rag_evidence_response(
+        self,
+        query: str,
+        chunks: Optional[list[dict]],
+        entities: Optional[dict] = None,
+        client_state: Optional[dict] = None,
+        history: Optional[list[dict]] = None,
+        tier: Literal["free", "premium"] = "free",
+    ) -> Optional[dict]:
+        """Returns traceable source excerpts instead of a generic answer when RAG has evidence."""
+        valid = [
+            c for c in (chunks or [])
+            if isinstance(c, dict) and str(c.get("content") or "").strip()
+        ]
+        if not valid:
+            return None
+        valid.sort(key=lambda c: float(c.get("similarity") or 0.0), reverse=True)
+        selected = valid[:4]
+        source_rows = []
+        excerpts = []
+        for chunk in selected:
+            title = str(chunk.get("titre") or chunk.get("title") or "Document source")
+            publisher = str(chunk.get("editeur") or chunk.get("source") or "Source documentaire")
+            page = chunk.get("page")
+            url = chunk.get("url_source")
+            detail = f"{publisher}" + (f" · p.{page}" if page is not None else "")
+            source_rows.append({
+                "titre": title,
+                "editeur": publisher,
+                "page": page,
+                "url_source": url,
+                "title": title,
+                "source": publisher,
+                "details": detail,
+                "similarity": chunk.get("similarity"),
+            })
+            excerpt = str(chunk.get("content") or "").strip()
+            if len(excerpt) > 1100:
+                excerpt = excerpt[:1097].rsplit(" ", 1)[0] + "…"
+            excerpts.append(f"**{title}** ({detail})\n> {excerpt}")
+        reply = (
+            "J’ai retrouvé des passages documentaires correspondant à votre question. "
+            "Voici les éléments disponibles dans les sources indexées :\n\n"
+            + "\n\n".join(excerpts)
+            + "\n\n*Ces extraits sont des éléments documentaires ; ils ne remplacent pas les indicateurs calculés par les moteurs de données et de ML.*"
+        )
+        if tier == "premium" and settings.llm_api_key:
+            rag_facts = (
+                "RAG DOCUMENTAIRE UNIQUEMENT. Réponds directement à la question en t'appuyant exclusivement "
+                "sur les extraits des documents fournis. N'utilise pas le contexte général, les données de marché "
+                "ou des connaissances externes. Distingue explicitement les faits du document et tes explications. "
+                "Si les extraits ne permettent pas de répondre, dis-le clairement. N'invente aucun chiffre, date, "
+                "source ou causalité."
+            )
+            synthesized = self._synthesize_with_llm(
+                query,
+                rag_facts,
+                selected,
+                history=history,
+                client_state=client_state,
+                rag_only=True,
+            )
+            if synthesized and synthesized.strip() != rag_facts:
+                reply = synthesized
+        return {
+            "reply": reply,
+            "intent": "rag_answer",
+            "entities": entities or {},
+            "sources": source_rows,
+            "chart": None,
+            "client_state": client_state,
+        }
+
+    @staticmethod
+    def _is_rag_knowledge_query(query: str) -> bool:
+        """Identifies questions that require documentary explanation rather than a market-price template."""
+        return bool(re.search(
+            r"\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
+            r"definition|algorithme|validation|couverture(?:\s+du\s+corpus)?|"
+            r"comment\s+fonctionne|comment\s+est\s+calcule|comment\s+sont\s+calcules|"
+            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques)\b",
+            query or "",
+        ))
+
+    @staticmethod
+    def _is_contextual_explanation_followup(query: str, history: Optional[list[dict]] = None) -> bool:
+        """Recognizes short explanatory follow-ups whose subject exists only in conversation history."""
+        return bool(
+            history
+            and len((query or "").split()) <= 5
+            and re.match(r"^(?:et\s+)?(?:pourquoi|comment|explique(?:-moi)?|precise|detaille|developpe)\b", query or "")
+        )
+
+    @staticmethod
+    def _contextual_rag_query(query: str, history: Optional[list[dict]] = None) -> str:
+        """Adds recent user turns to short follow-ups such as 'pourquoi ?' without trusting assistant text."""
+        prior_user_turns = [
+            str(item.get("content") or "").strip()
+            for item in (history or [])
+            if isinstance(item, dict) and item.get("role", "user") == "user" and str(item.get("content") or "").strip()
+        ]
+        context = prior_user_turns[-2:]
+        return " ".join([*context, query]).strip()[-1800:]
+
     def answer(
         self,
         user_query: str,
@@ -3424,14 +3564,24 @@ class FreeDataAIAgent(FormattersMixin):
                              + " et, si possible, la **province**. Que souhaitez-vous savoir ?",
                     "intent": "clarification", "entities": entities, "sources": [], "chart": None}
 
+        contextual_rag_query = self._contextual_rag_query(q, history)
         family = families.by_intent(entities.get("intent"))
-        ask = family.clarify(self, entities, bool(history)) if (family and family.clarify and not private_chunks) else None
+        # Ne pas interrompre un suivi conversationnel avant d'avoir hérité des paramètres précédents.
+        ask = family.clarify(self, entities, bool(history)) if (family and family.clarify and not private_chunks and not history) else None
         if ask:
+            evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+            evidence_answer = self._rag_evidence_response(q, evidence, entities, history=history, tier=tier)
+            if evidence_answer:
+                return evidence_answer
             return {"reply": ask, "intent": "clarification", "entities": entities, "sources": [], "chart": None}
 
-        # Avant l'héritage de l'historique : « et pour le café ? » ne doit pas reprendre le produit précédent.
+        # Un produit absent des séries de prix peut néanmoins être documenté dans le corpus RAG.
         unknown = self._detect_unknown_product(q_norm, entities) if not private_chunks else None
         if unknown:
+            evidence = self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+            evidence_answer = self._rag_evidence_response(q, evidence, {**entities, "unknown_product": unknown}, history=history, tier=tier)
+            if evidence_answer:
+                return evidence_answer
             return self._unknown_product_response(unknown, entities)
 
         if history:
@@ -3452,6 +3602,12 @@ class FreeDataAIAgent(FormattersMixin):
             or entities.get("intent") not in (None, "forecast")
         )
         if not (has_domain_request or has_context or _FORECAST_HINT_RE.search(q_norm)):
+            if not private_chunks:
+                public_chunks = self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+                evidence_answer = self._rag_evidence_response(q, public_chunks, entities, client_state, history=history, tier=tier)
+                if evidence_answer:
+                    evidence_answer["client_state"] = client_state
+                    return evidence_answer
             if private_chunks:
                 doc_text = " ".join(str(c.get("content") or "") for c in private_chunks)
                 doc_provs, doc_comm = _resolve_provinces_and_commodity(doc_text, provider=self.provider)
@@ -3607,6 +3763,10 @@ class FreeDataAIAgent(FormattersMixin):
             routed = self._route_with_llm(q, entities, history)
             if routed:
                 if routed["intent"] == "clarify":
+                    evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+                    evidence_answer = self._rag_evidence_response(q, evidence, entities, client_state, history=history, tier=tier)
+                    if evidence_answer:
+                        return evidence_answer
                     return self._clarification_response(
                         entities, self._converse_with_llm(q, history, "demande trop vague, ou information manquante pour lancer une analyse")
                     )
@@ -3619,7 +3779,7 @@ class FreeDataAIAgent(FormattersMixin):
         structured_facts, secondary_intents = self._append_secondary_intents(q_norm, intent, entities, structured_facts)
         if secondary_intents:
             entities = {**entities, "secondary_intents": secondary_intents}
-        rag_terms = [_strip_list_prefixes(q).strip()]
+        rag_terms = [contextual_rag_query or _strip_list_prefixes(q).strip()]
         if entities.get("commodity"):
             rag_terms.append(self._fr_commodity(entities["commodity"]))
         if entities.get("province"):
@@ -3640,6 +3800,16 @@ class FreeDataAIAgent(FormattersMixin):
             }
             for c in chunks
         ]
+
+        # Les questions de méthode, de provenance et de qualité doivent recevoir le contenu RAG,
+        # pas uniquement un modèle de réponse orienté prix qui ne cite que les titres des documents.
+        if chunks and (
+            self._is_rag_knowledge_query(q_norm)
+            or self._is_contextual_explanation_followup(q_norm, history)
+        ):
+            evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state, history=history, tier=tier)
+            if evidence_answer:
+                return evidence_answer
 
         free_reply = self._format_free_reply(structured_facts, intent, chunks, entities)
 
