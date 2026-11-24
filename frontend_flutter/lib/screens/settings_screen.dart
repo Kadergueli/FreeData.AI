@@ -4,8 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
-import '../services/auth_token_storage.dart';
-import '../services/conversation_storage.dart';
+import '../services/session_logout.dart';
 import '../widgets/auth_dialog.dart';
 import 'account_screen.dart';
 
@@ -106,21 +105,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_loggingOut) return;
     setState(() => _loggingOut = true);
     try {
-      await widget.apiService.logoutAccount();
-      await AuthTokenStorage.delete();
-      await LocalConversationStorage.instance.saveAll(const []);
+      final result = await SessionLogout.perform(apiService: widget.apiService);
       widget.onSessionChanged?.call();
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Déconnexion effectuée.')),
+        SnackBar(
+          content: Text(
+            result.cacheCleared
+                ? 'Déconnexion effectuée.'
+                : 'Déconnexion effectuée. Le cache local n’a pas pu être entièrement effacé.',
+          ),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'La déconnexion locale a échoué. Réessayez avant de fermer cette session.',
+            'Déconnexion impossible. Votre session est conservée ; réessayez.',
           ),
         ),
       );

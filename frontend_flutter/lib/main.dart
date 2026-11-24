@@ -5,6 +5,7 @@ import 'core/fd_theme.dart';
 import 'core/utils/clean_url.dart';
 import 'services/api_service.dart';
 import 'services/conversation_storage.dart';
+import 'services/session_logout.dart';
 import 'screens/chat_screen.dart';
 import 'screens/explore_screen.dart';
 import 'screens/library_screen.dart';
@@ -74,6 +75,7 @@ class _MainShellState extends State<MainShell> {
   List<ConversationThread> _conversations = const [];
   List<Map<String, dynamic>> _watchlistAlerts = const [];
   int _triggeredWatchlistCount = 0;
+  bool _loggingOut = false;
 
   @override
   void initState() {
@@ -250,7 +252,7 @@ class _MainShellState extends State<MainShell> {
     setState(() {
       _selectedIndex = index;
       _visitedTabs.add(index);
-      if (index == 6) {
+      if (index == 3) {
         _projectsRefreshToken++;
       }
     });
@@ -604,28 +606,50 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _handleLogout() async {
-    // Effacer le cache du compte tant que son identité est encore active.
-    await LocalConversationStorage.instance.clearCurrentUserCache();
-    await _apiService.logoutAccount();
-    _apiService.setRuntimePremiumKey(null);
-    final prefs = await SharedPreferences.getInstance();
-    await AuthTokenStorage.delete();
-    await prefs.remove(_premiumKeyStorageKey);
-    if (!mounted) return;
-    setState(() {
-      _activeConversationId = null;
-      _activeProject = null;
-      _watchlistAlerts = const [];
-      _triggeredWatchlistCount = 0;
-      _selectedIndex = 0;
-    });
-    await _reloadConversations();
-    if (!mounted) return;
-    _showSnackBar(
-      const SnackBar(
-          content: Text('Déconnexion effectuée.'),
-          duration: Duration(seconds: 2)),
-    );
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+    try {
+      final result = await SessionLogout.perform(apiService: _apiService);
+      _apiService.setRuntimePremiumKey(null);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_premiumKeyStorageKey);
+      } catch (_) {
+        // The account session is already safely closed; stale PRO preferences
+        // must not prevent the user from completing logout.
+      }
+      if (!mounted) return;
+      setState(() {
+        _activeConversationId = null;
+        _activeProject = null;
+        _watchlistAlerts = const [];
+        _triggeredWatchlistCount = 0;
+        _selectedIndex = 0;
+      });
+      await _reloadConversations();
+      if (!mounted) return;
+      _showSnackBar(
+        SnackBar(
+          content: Text(
+            result.cacheCleared
+                ? 'Déconnexion effectuée.'
+                : 'Déconnexion effectuée. Le cache local n’a pas pu être entièrement effacé.',
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Déconnexion impossible. Votre session est conservée ; réessayez.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   static String _userInitials(Map<String, dynamic>? user) {
