@@ -220,7 +220,7 @@ class _PassportScreenState extends State<PassportScreen> {
                             ],
                             onChanged: (v) {
                               if (v != null) {
-                                setState(() => _loanAmount = v);
+                                setState(() => _collateralValue = v);
                                 _load();
                               }
                             },
@@ -351,7 +351,7 @@ class _PassportScreenState extends State<PassportScreen> {
                         onPressed: () {
                           final comm = commodityLabelFr(_commodity);
                           widget.onSelectPrompt!(
-                            'Évalue le risque de financer ${formatXaf(_loanAmount)} XAF de $comm au Tchad et compare les meilleures provinces.',
+                            'Compare la stabilité des prix de $comm entre les provinces et explique les limites de cet indicateur.',
                           );
                         },
                         icon: const Icon(Icons.auto_awesome_outlined, size: 16),
