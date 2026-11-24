@@ -545,10 +545,8 @@ class _AccountScreenState extends State<AccountScreen> {
   static String _initials(String name, String email) {
     final src = name.trim().isNotEmpty ? name.trim() : email.trim();
     if (src.isEmpty) return 'FD';
-    final parts = src
-        .split(RegExp(r'[\s@._-]+'))
-        .where((p) => p.isNotEmpty)
-        .toList();
+    final parts =
+        src.split(RegExp(r'[\s@._-]+')).where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
@@ -564,8 +562,8 @@ class _AccountScreenState extends State<AccountScreen> {
     final badgeLabel = isApproved
         ? 'VALIDÉ PAR L’ADMIN'
         : (isPending
-              ? 'EN ATTENTE DE VALIDATION'
-              : (isRejected ? 'REFUSÉ' : 'NON SOUMIS'));
+            ? 'EN ATTENTE DE VALIDATION'
+            : (isRejected ? 'REFUSÉ' : 'NON SOUMIS'));
     final badgeColor = isApproved
         ? AppColors.greenDark
         : (isRejected ? AppColors.danger : AppColors.blue);
@@ -636,8 +634,8 @@ class _AccountScreenState extends State<AccountScreen> {
             label: _savingAgroProfile
                 ? 'Envoi…'
                 : (prof == null
-                      ? 'Renseigner & soumettre mon profil officiel'
-                      : 'Mettre à jour mes informations officielles'),
+                    ? 'Renseigner & soumettre mon profil officiel'
+                    : 'Mettre à jour mes informations officielles'),
             icon: Icons.verified_user_outlined,
             onPressed: _savingAgroProfile ? null : _openSubmitAgroProfileDialog,
           ),
@@ -721,7 +719,8 @@ class _AccountScreenState extends State<AccountScreen> {
                   if (firmCtrl.text.trim().length < 2 ||
                       licCtrl.text.trim().length < 2) {
                     setDlg(
-                      () => err = 'Nom officiel et numéro d’agrément requis (min. 2 caractères).',
+                      () => err =
+                          'Nom officiel et numéro d’agrément requis (min. 2 caractères).',
                     );
                     return;
                   }
@@ -775,11 +774,9 @@ class _AccountScreenState extends State<AccountScreen> {
     final sub = _billing?['subscription'] is Map
         ? _billing!['subscription'] as Map
         : const {};
-    final planId =
-        sub['effective_plan_id']?.toString() ??
+    final planId = sub['effective_plan_id']?.toString() ??
         (widget.apiService.hasPremiumKey ? 'premium' : 'free');
-    final isPro =
-        planId == 'premium' ||
+    final isPro = planId == 'premium' ||
         planId == 'trial' ||
         widget.apiService.hasPremiumKey;
 
@@ -882,9 +879,8 @@ class _AccountScreenState extends State<AccountScreen> {
                                   ),
                                 const SizedBox(height: 6),
                                 FDBadge(
-                                  label: isPro
-                                      ? 'PARTENAIRE PRO'
-                                      : 'PLAN GRATUIT',
+                                  label:
+                                      isPro ? 'PARTENAIRE PRO' : 'PLAN GRATUIT',
                                   color: isPro
                                       ? AppColors.greenDark
                                       : AppColors.blue,
@@ -985,9 +981,8 @@ class _AccountScreenState extends State<AccountScreen> {
                         ),
                         trailing: TextButton(
                           key: const ValueKey('edit-name-btn'),
-                          onPressed: _savingProfile
-                              ? null
-                              : _openEditNameDialog,
+                          onPressed:
+                              _savingProfile ? null : _openEditNameDialog,
                           child: Text(
                             _savingProfile ? 'Enregistrement…' : 'Modifier',
                           ),
@@ -1057,9 +1052,8 @@ class _AccountScreenState extends State<AccountScreen> {
                         ),
                         trailing: TextButton(
                           key: const ValueKey('edit-password-btn'),
-                          onPressed: _changingPass
-                              ? null
-                              : _openChangePasswordDialog,
+                          onPressed:
+                              _changingPass ? null : _openChangePasswordDialog,
                           child: Text(
                             _changingPass ? 'Mise à jour…' : 'Modifier',
                           ),
@@ -1202,9 +1196,8 @@ class _AccountScreenState extends State<AccountScreen> {
                             onPressed: _exportData,
                           ),
                           FDSecondaryButton(
-                            label: _loggingOut
-                                ? 'Déconnexion…'
-                                : 'Se déconnecter',
+                            label:
+                                _loggingOut ? 'Déconnexion…' : 'Se déconnecter',
                             icon: Icons.logout_rounded,
                             onPressed: _loggingOut ? null : _logout,
                           ),
@@ -1236,3 +1229,4 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 }
+
