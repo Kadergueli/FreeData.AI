@@ -73,21 +73,19 @@ class _AdminScreenState extends State<AdminScreen> {
           widget.apiService
               .getAdminPaymentRequests(_token)
               .catchError((Object error) {
-                paymentRequestsError = errText(error);
-                return const <Map<String, dynamic>>[];
-              }),
-          widget.apiService
-              .listAdminProKeys(_token)
-              .catchError((Object error) {
-                proKeysError = errText(error);
-                return const <Map<String, dynamic>>[];
-              }),
+            paymentRequestsError = errText(error);
+            return const <Map<String, dynamic>>[];
+          }),
+          widget.apiService.listAdminProKeys(_token).catchError((Object error) {
+            proKeysError = errText(error);
+            return const <Map<String, dynamic>>[];
+          }),
           widget.apiService
               .getAdminAgroProfiles(_token)
               .catchError((Object error) {
-                agroProfilesError = errText(error);
-                return _agroProfiles;
-              }),
+            agroProfilesError = errText(error);
+            return _agroProfiles;
+          }),
         ]);
         payReqs = billingRes[0];
         proKeys = billingRes[1];
@@ -115,7 +113,6 @@ class _AdminScreenState extends State<AdminScreen> {
       });
     }
   }
-
 
   Widget _sectionLoadWarning(String message) {
     return Padding(
@@ -1355,7 +1352,8 @@ class _AdminScreenState extends State<AdminScreen> {
                     if (_paymentRequestsError != null)
                       _sectionLoadWarning(
                           'Impossible de charger les demandes de paiement : $_paymentRequestsError'),
-                    if (_paymentRequestsError == null && _paymentRequests.isEmpty)
+                    if (_paymentRequestsError == null &&
+                        _paymentRequests.isEmpty)
                       const Text('Aucune demande de paiement enregistrée.',
                           style: TextStyle(color: AppColors.muted))
                     else if (_paymentRequestsError == null)
