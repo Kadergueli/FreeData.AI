@@ -1145,6 +1145,21 @@ def evaluate_field_assessment(
     if surf_parcel is None:
         surf_parcel = (zone.get("latest", {}).get("surface_wetness") or {}).get("value")
     dry_years = float(idw.get("dry_years") or 0.0)
+    point_season = (point_satellite or {}).get("growing_season") or {}
+    point_humidity_available = any(
+        isinstance(point_season.get(key), (int, float))
+        and math.isfinite(float(point_season[key]))
+        for key in ("root_zone_wetness_mean", "surface_wetness_mean")
+    )
+    climate_method_label = (
+        "NASA POWER Point (humidités) + IDW régional (PAR, anomalies et signaux marché)"
+        if point_humidity_available
+        else (
+            "NASA POWER Point indisponible ou incomplet ; repli IDW régional"
+            if gps_logistics.get("gps_provided")
+            else "Données régionales du pôle"
+        )
+    )
 
     requested = [c for c in (target_crops or list(SUPPORTED_AGRO_CROPS)) if c in SUPPORTED_AGRO_CROPS]
     if not requested:
@@ -1551,11 +1566,7 @@ def evaluate_field_assessment(
                 "longitude": gps_logistics.get("gps_lon"),
                 "provided": bool(gps_logistics.get("gps_provided")),
             },
-            "climate_method": (
-                "NASA POWER Point + IDW régional"
-                if point_satellite
-                else ("IDW régional depuis les pôles couverts" if gps_logistics.get("gps_provided") else "Données régionales du pôle")
-            ),
+            "climate_method": climate_method_label,
             "climate_hubs": gps_logistics.get("idw_hubs") or [],
             "soil_method": (
                 "Mesures de sol déclarées par l'utilisateur — non vérifiées"
@@ -1567,6 +1578,8 @@ def evaluate_field_assessment(
             "satellite_values": {
                 "root_zone_wetness": rz_parcel,
                 "surface_wetness": surf_parcel,
+                "precipitation_mean": point_season.get("precipitation_mean"),
+                "temperature_mean_c": point_season.get("temperature_mean_c"),
                 "par_mean": par_val,
                 "dry_years": dry_years,
                 "point_data_available": bool(point_satellite),
