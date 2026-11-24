@@ -365,7 +365,7 @@ def compute_spatial_arbitrage_detailed(
     sub["forecast_t1"] = pd.to_numeric(sub["forecast_t1"], errors="coerce")
     sub = sub[sub["forecast_t1"].notna() & (sub["forecast_t1"] > 0)]
     sub["forecast_month"] = sub["forecast_month"].astype(str).str.strip()
-    sub = sub[sub["forecast_month"].str.match(r"^\\d{4}-\\d{2}$", na=False)]
+    sub = sub[sub["forecast_month"].str.match(r"^\d{4}-\d{2}$", na=False)]
     if sub.empty:
         return {**empty, "status_message": "Aucun prix prévisionnel valide avec un mois de référence explicite."}
 
@@ -445,12 +445,15 @@ def compute_spatial_arbitrage_detailed(
             elif net_margin is not None and net_margin <= 0:
                 signal = "not_viable_after_transport"
                 recommendation = f"Marge après transport déclaré : {net_margin:.1f} FCFA/kg, avant stockage, pertes, manutention et taxes."
-            elif robust_net is not None and robust_net <= 0:
+            elif robust_net is None:
+                signal = "positive_central_only_interval_unavailable"
+                recommendation = f"Marge centrale après transport déclaré : {net_margin:.1f} FCFA/kg. Intervalle de prévision incomplet : résultat central uniquement."
+            elif robust_net <= 0:
                 signal = "uncertain_after_forecast_interval"
                 recommendation = f"Marge centrale après transport : {net_margin:.1f} FCFA/kg, mais l'intervalle de prévision ne confirme pas une marge positive."
             else:
                 signal = "positive_after_declared_transport"
-                recommendation = f"Marge centrale après transport déclaré : {net_margin:.1f} FCFA/kg. Confirmer le fret, les pertes, le stockage, les taxes et la disponibilité du marché."
+                recommendation = f"Marge centrale et borne prudente après transport déclaré positives. Confirmer le fret, les pertes, le stockage, les taxes et la disponibilité du marché."
 
             sources = sorted(set(origin_stats["sources"] + destination_stats["sources"]))
             routes.append({
