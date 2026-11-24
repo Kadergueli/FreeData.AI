@@ -635,14 +635,16 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                     FDSecondaryButton(
                                       label: 'Expliquer avec l’IA',
                                       icon: Icons.auto_awesome_outlined,
-                                      onPressed: () => _askAssistantAboutArbitrage(
+                                      onPressed: () =>
+                                          _askAssistantAboutArbitrage(
                                         createBusinessPlan: false,
                                       ),
                                     ),
                                     FDSecondaryButton(
                                       label: 'Créer un business plan',
                                       icon: Icons.description_outlined,
-                                      onPressed: () => _askAssistantAboutArbitrage(
+                                      onPressed: () =>
+                                          _askAssistantAboutArbitrage(
                                         createBusinessPlan: true,
                                       ),
                                     ),
