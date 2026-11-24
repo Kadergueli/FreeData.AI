@@ -20,6 +20,29 @@ import 'package:freedata_ai/services/auth_token_storage.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
 import 'helpers/memory_auth_token_storage.dart';
 
+class _FailingAdminBillingApi extends _AuditFakeApiService {
+  @override
+  Future<List<Map<String, dynamic>>> getAdminPaymentRequests(
+    String adminToken, {
+    String? status,
+  }) async =>
+      throw Exception('payment requests unavailable');
+
+  @override
+  Future<List<Map<String, dynamic>>> listAdminProKeys(
+    String adminToken, {
+    String? status,
+  }) async =>
+      throw Exception('PRO keys unavailable');
+
+  @override
+  Future<List<Map<String, dynamic>>> getAdminAgroProfiles(
+    String adminToken, {
+    String? status,
+  }) async =>
+      throw Exception('agronomist profiles unavailable');
+}
+
 class _AuditFakeApiService extends ApiService {
   String adminRole = 'read_only_analyst';
   List<String> adminPerms = const ['read_overview'];
@@ -402,6 +425,54 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.lastReviewedRequestId, 'PAY-001');
     expect(api.lastReviewedDecision, 'approved');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'AdminScreen exposes billing section failures instead of empty results',
+      (tester) async {
+    final api = _FailingAdminBillingApi()
+      ..adminRole = 'super_admin'
+      ..adminPerms = const [
+        'read_overview',
+        'manage_system',
+        'manage_subscriptions',
+        'manage_users',
+      ];
+
+    await tester.pumpWidget(MaterialApp(home: AdminScreen(apiService: api)));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byType(TextField).first, 'admin-token-1234567890');
+    await tester.tap(find.text('Charger'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Paiements (0)'));
+    await tester.pumpAndSettle();
+
+    final paymentError =
+        find.textContaining('Impossible de charger les demandes de paiement');
+    await tester.scrollUntilVisible(
+      paymentError,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(paymentError, findsOneWidget);
+
+    final keysError = find.textContaining('Impossible de charger les clés PRO');
+    await tester.scrollUntilVisible(
+      keysError,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(keysError, findsOneWidget);
+
+    await tester.tap(find.text('Agronomes (0)'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Impossible de charger les profils agronomes'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
