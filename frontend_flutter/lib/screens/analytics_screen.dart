@@ -197,14 +197,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final volatileList =
         (_summary?['most_volatile_commodities'] as List? ?? []).cast<Map>();
     final provinces = (_regional?['provinces'] as List? ?? []).cast<Map>();
-    final trendRecords = (_trends?['records'] as List? ?? [])
-        .whereType<Map>()
-        .where((record) {
-          final price =
-              double.tryParse(record['median_price_xaf_kg']?.toString() ?? '');
-          return price != null && price.isFinite && price > 0;
-        })
-        .toList();
+    final trendRecords =
+        (_trends?['records'] as List? ?? []).whereType<Map>().where((record) {
+      final price =
+          double.tryParse(record['median_price_xaf_kg']?.toString() ?? '');
+      return price != null && price.isFinite && price > 0;
+    }).toList();
     final change12m = _trends?['change_12m_pct'];
     final benchModels = (_benchmark?['models'] as List? ?? []).cast<Map>();
 
