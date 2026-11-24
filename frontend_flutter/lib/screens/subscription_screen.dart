@@ -126,26 +126,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final methodsFuture = widget.apiService
           .getPaymentMethods()
           .then<Map<String, dynamic>?>((v) => v)
-          .catchError((Object error) {
-            paymentMethodsError = errText(error);
-            return null;
-          });
+        .catchError((Object error) {
+        paymentMethodsError = errText(error);
+        return null;
+      });
       final meFuture = canReadPrivate
           ? widget.apiService
               .getMyBilling()
               .then<Map<String, dynamic>?>((v) => v)
               .catchError((Object error) {
-                billingError = errText(error);
-                return null;
-              })
+              billingError = errText(error);
+              return null;
+            })
           : Future<Map<String, dynamic>?>.value(null);
       final reqsFuture = canReadPrivate
           ? widget.apiService
               .listMyPaymentRequests()
               .catchError((Object error) {
-                requestsError = errText(error);
-                return const <Map<String, dynamic>>[];
-              })
+              requestsError = errText(error);
+              return const <Map<String, dynamic>>[];
+            })
           : Future<List<Map<String, dynamic>>>.value(
               const <Map<String, dynamic>>[]);
 
@@ -360,7 +360,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
-
   Widget _sectionLoadWarning(String message) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -378,8 +377,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(message,
-                  style: const TextStyle(
-                      fontSize: 12.5, color: AppColors.ink)),
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.ink)),
             ),
             IconButton(
               tooltip: 'Réessayer',
@@ -937,7 +935,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ],
                           ),
                         ),
-                        if (_requestsError != null || _myRequests.isNotEmpty) ...[
+                        if (_requestsError != null ||
+                            _myRequests.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           const Text(
                             'Mes demandes d’activation',
