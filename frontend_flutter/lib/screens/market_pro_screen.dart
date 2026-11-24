@@ -184,9 +184,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
       final total = route['estimated_net_margin_xaf'] ?? 'N/D';
       final roi = route['roi_pct'] ?? 'N/D';
       final isGrossOnly = route['net_margin_xaf_kg'] == null;
-      final marginLabel = isGrossOnly
-          ? 'écart brut'
-          : 'marge après transport déclaré';
+      final marginLabel =
+          isGrossOnly ? 'écart brut' : 'marge après transport déclaré';
       final totalLabel = total == 'N/D' ? 'non calculé' : '$total';
       final roiLabel = roi == 'N/D' ? 'non calculé' : '$roi %';
       final signal = route['commercial_signal'] ?? 'non évalué';
