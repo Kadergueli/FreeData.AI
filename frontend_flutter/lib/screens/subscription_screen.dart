@@ -34,6 +34,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _submittingPayment = false;
   bool _redeemingKey = false;
   String? _error;
+  String? _paymentMethodsError;
+  String? _billingError;
+  String? _requestsError;
 
   String _selectedProvider = 'airtel_money';
   final _phoneCtrl = TextEditingController();
@@ -113,6 +116,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         _error = null;
       });
     }
+    String? paymentMethodsError;
+    String? billingError;
+    String? requestsError;
     try {
       final canReadPrivate = widget.apiService.isAuthenticated ||
           widget.apiService.hasExplicitPremiumKey;
@@ -120,17 +126,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final methodsFuture = widget.apiService
           .getPaymentMethods()
           .then<Map<String, dynamic>?>((v) => v)
-          .catchError((_) => null);
+          .catchError((Object error) {
+        paymentMethodsError = errText(error);
+        return null;
+      });
       final meFuture = canReadPrivate
           ? widget.apiService
               .getMyBilling()
               .then<Map<String, dynamic>?>((v) => v)
-              .catchError((_) => null)
+              .catchError((Object error) {
+              billingError = errText(error);
+              return null;
+            })
           : Future<Map<String, dynamic>?>.value(null);
       final reqsFuture = canReadPrivate
           ? widget.apiService
               .listMyPaymentRequests()
-              .catchError((_) => const <Map<String, dynamic>>[])
+              .catchError((Object error) {
+              requestsError = errText(error);
+              return const <Map<String, dynamic>>[];
+            })
           : Future<List<Map<String, dynamic>>>.value(
               const <Map<String, dynamic>>[]);
 
@@ -155,6 +170,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ((plansRes['plans'] as List?) ?? []).cast<Map<String, dynamic>>();
         _paymentMethods = methods;
         _myRequests = reqs;
+        _paymentMethodsError = paymentMethodsError;
+        _billingError = billingError;
+        _requestsError = requestsError;
         _loading = false;
         _refreshing = false;
       });
@@ -342,6 +360,37 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  Widget _sectionLoadWarning(String message) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFED7AA)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                size: 18, color: AppColors.warning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(message,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.ink)),
+            ),
+            IconButton(
+              tooltip: 'Réessayer',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              onPressed: () => _load(silent: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = widget.apiService.isAuthenticated;
@@ -425,6 +474,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             padding: EdgeInsets.only(bottom: 10),
                             child: LinearProgressIndicator(minHeight: 2),
                           ),
+                        if (_billingError != null)
+                          _sectionLoadWarning(
+                              'Impossible de charger votre abonnement et vos quotas : $_billingError'),
                         if (!hasAccessContext) ...[
                           FDCard(
                             child: Column(
@@ -745,6 +797,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (_paymentMethodsError != null)
+                                _sectionLoadWarning(
+                                    'Les moyens de paiement sont indisponibles : $_paymentMethodsError'),
                               if (_paymentMethods?['premium_price_xaf_month']
                                   is num) ...[
                                 Text(
@@ -880,7 +935,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ],
                           ),
                         ),
-                        if (_myRequests.isNotEmpty) ...[
+                        if (_requestsError != null ||
+                            _myRequests.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           const Text(
                             'Mes demandes d’activation',
@@ -891,6 +947,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                             ),
                           ),
                           const SizedBox(height: 8),
+                          if (_requestsError != null)
+                            _sectionLoadWarning(
+                                'Impossible de charger vos demandes : $_requestsError'),
                           ..._myRequests.map((r) {
                             final st = r['status']?.toString() ?? 'pending';
                             final color = st == 'approved'
