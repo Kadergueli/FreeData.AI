@@ -184,17 +184,23 @@ class _MarketProScreenState extends State<MarketProScreen> {
       final total = route['estimated_net_margin_xaf'] ?? 'N/D';
       final roi = route['roi_pct'] ?? 'N/D';
       final isGrossOnly = route['net_margin_xaf_kg'] == null;
+      final marginLabel = isGrossOnly
+          ? 'écart brut'
+          : 'marge après transport déclaré';
+      final totalLabel = total == 'N/D' ? 'non calculé' : '$total';
+      final roiLabel = roi == 'N/D' ? 'non calculé' : '$roi %';
+      final signal = route['commercial_signal'] ?? 'non évalué';
       return '- $routeOrigin → $routeDestination : '
-          '${isGrossOnly ? 'écart brut' : 'marge après transport déclaré'} $margin XAF/kg ; '
-          'résultat total ${total == 'N/D' ? 'non calculé' : total} XAF ; '
-          'ROI ${roi == 'N/D' ? 'non calculé' : '$roi %'} ; '
-          'signal ${route['commercial_signal'] ?? 'non évalué'}.';
+          '$marginLabel $margin XAF/kg ; résultat total $totalLabel XAF ; '
+          'ROI $roiLabel ; signal $signal.';
     }).join('\n');
 
+    final transportInput = _arbTransportCtrl.text.trim();
+    final tonnageInput = _arbTonnageCtrl.text.trim();
     final commonContext = <String>[
       'Culture : ${_cropLabels[_arbCrop] ?? _arbCrop}.',
-      'Coût de transport déclaré : ${_arbTransportCtrl.text.trim().isEmpty ? 'non renseigné' : '${_arbTransportCtrl.text.trim()} XAF/kg'}.',
-      'Tonnage déclaré : ${_arbTonnageCtrl.text.trim().isEmpty ? 'non renseigné' : '${_arbTonnageCtrl.text.trim()} tonne(s)'}.',
+      'Coût de transport déclaré : ${transportInput.isEmpty ? 'non renseigné' : '$transportInput XAF/kg'}.',
+      'Tonnage déclaré : ${tonnageInput.isEmpty ? 'non renseigné' : '$tonnageInput tonne(s)'}.',
       "MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %.",
       'Résultats du simulateur :',
       routeSummary,
@@ -632,11 +638,18 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                               color: AppColors.ink),
                                         ),
                                       ))),
-                              if ((_arbResult!['recommendations'] as List?)?.isNotEmpty == true) ...[
+                              if ((_arbResult!['recommendations'] as List?)
+                                      ?.isNotEmpty ==
+                                  true) ...[
                                 const SizedBox(height: 6),
                                 Text(
-                                  ((_arbResult!['recommendations'] as List).take(3)).join(' '),
-                                  style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                                  ((_arbResult!['recommendations'] as List)
+                                          .take(3))
+                                      .join(' '),
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.muted,
+                                  ),
                                 ),
                               ],
                               if (widget.onAskAssistant != null &&
