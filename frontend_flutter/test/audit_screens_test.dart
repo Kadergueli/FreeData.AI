@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -345,6 +346,34 @@ class _AuditFakeApiService extends ApiService {
       };
 }
 
+class _DelayedProjectsApiService extends _AuditFakeApiService {
+  final firstProjectsResponse = Completer<List<Map<String, dynamic>>>();
+  int projectRequests = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> listProjects(
+      {bool includeArchived = false}) {
+    projectRequests++;
+    if (projectRequests == 1) return firstProjectsResponse.future;
+    return super.listProjects(includeArchived: includeArchived);
+  }
+}
+
+class _AccountBProjectsApiService extends _AuditFakeApiService {
+  @override
+  Future<List<Map<String, dynamic>>> listProjects(
+      {bool includeArchived = false}) async =>
+      [
+        {
+          'project_id': 'PRJ-B',
+          'name': 'Projet compte B',
+          'status': 'active',
+          'studies_count': 0,
+          'updated_at': '2026-11-24',
+        },
+      ];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -479,6 +508,51 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.lastCreatedTicket?['subject'], 'Erreur PDF');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ProjectsScreen discards stale requests after account switch',
+      (tester) async {
+    final accountA = _DelayedProjectsApiService()
+      ..setAuthSession(
+        token: 'account-a-token',
+        user: const {'email': 'a@example.td'},
+      );
+    final accountB = _AccountBProjectsApiService()
+      ..setAuthSession(
+        token: 'account-b-token',
+        user: const {'email': 'b@example.td'},
+      );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ProjectsScreen(apiService: accountA)),
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ProjectsScreen(apiService: accountB)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Projet compte B'), findsOneWidget);
+
+    accountA.firstProjectsResponse.complete([
+      {
+        'project_id': 'PRJ-A',
+        'name': 'Projet compte A',
+        'status': 'active',
+        'studies_count': 0,
+        'updated_at': '2026-11-23',
+      },
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Projet compte B'), findsOneWidget);
+    expect(find.text('Projet compte A'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
