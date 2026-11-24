@@ -329,6 +329,15 @@ def test_llm_clarify_router_cannot_bypass_relevant_rag_evidence(monkeypatch):
         "retrieve_rag_chunks",
         lambda query, match_count=6, **kwargs: [expected_chunk],
     )
+    synthesis_calls = []
+    monkeypatch.setattr(
+        agent,
+        "_synthesize_with_llm",
+        lambda query, facts, chunks, **kwargs: (
+            synthesis_calls.append({"query": query, "facts": facts, "chunks": chunks, **kwargs})
+            or "Le document décrit trois contrôles : cohérence des unités, détection des doublons et validation des dates."
+        ),
+    )
 
     answer = agent.answer(
         "Comment fonctionne le contrôle qualité du prix du mil au Salamat ?",
@@ -337,3 +346,4 @@ def test_llm_clarify_router_cannot_bypass_relevant_rag_evidence(monkeypatch):
 
     assert answer["intent"] == "rag_answer"
     assert "détection des doublons" in answer["reply"]
+    assert synthesis_calls and synthesis_calls[0]["rag_only"] is True
