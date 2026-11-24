@@ -205,7 +205,8 @@ void main() {
 
     final api = _StudioFakeApiService();
     final csvBytes = Uint8List.fromList(
-      utf8.encode('month,"price, XAF"\n2025-01,300\n2025-02,310\n2025-03,320\n'),
+      utf8.encode(
+          'month,"price, XAF"\n2025-01,300\n2025-02,310\n2025-03,320\n'),
     );
 
     await tester.pumpWidget(
@@ -338,7 +339,8 @@ void main() {
     expect(api.lastDeployedModelId, 'ridge_price_regressor');
     expect(api.lastDeployedVersion, 1);
   });
-  testWidgets('MLBenchmarkStudio confirms rollback before changing model version',
+  testWidgets(
+      'MLBenchmarkStudio confirms rollback before changing model version',
       (tester) async {
     final api = _StudioFakeApiService();
     final overview = _sampleOverview();
@@ -387,5 +389,4 @@ void main() {
     expect(api.rollbackCalls, 1);
     expect(api.lastRollbackTargetVersion, 1);
   });
-
 }
