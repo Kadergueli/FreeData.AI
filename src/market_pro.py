@@ -239,15 +239,36 @@ def compute_inter_province_arbitrage(
     """Calcule les meilleurs écarts de prix entre provinces (excédentaire -> déficitaire) sur les 4 cultures."""
     if forecast_df is None or getattr(forecast_df, "empty", True):
         return []
-    if "province" not in forecast_df.columns or "forecast_t1" not in forecast_df.columns:
+    required = {"province", "forecast_t1", "forecast_month", "commodity_std"}
+    if not required.issubset(set(forecast_df.columns)):
         return []
     target_crops = [_normalize_crop_id(crop_id)] if crop_id else list(SUPPORTED_AGRO_CROPS)
     opportunities: list[dict[str, Any]] = []
     for cid in target_crops:
         meta = SUPPORTED_AGRO_CROPS[cid]
-        sub = forecast_df[forecast_df["commodity_std"] == meta["commodity_std"]]
+        sub = forecast_df[forecast_df["commodity_std"] == meta["commodity_std"]].copy()
         if sub.empty:
             continue
+        sub["forecast_t1"] = pd.to_numeric(sub["forecast_t1"], errors="coerce")
+        sub["forecast_month"] = sub["forecast_month"].astype(str).str.strip()
+        sub = sub[
+            sub["forecast_t1"].notna()
+            & (sub["forecast_t1"] > 0)
+            & sub["forecast_month"].str.match(r"^\\d{4}-\\d{2}$", na=False)
+        ]
+        if sub.empty:
+            continue
+        shared_months = (
+            sub.groupby("forecast_month")["province"]
+            .nunique(dropna=True)
+            .loc[lambda counts: counts >= 2]
+            .index.astype(str)
+            .tolist()
+        )
+        if not shared_months:
+            continue
+        fc_month = max(shared_months)
+        sub = sub[sub["forecast_month"] == fc_month]
         by_prov = sub.groupby("province")["forecast_t1"].mean().dropna()
         if len(by_prov) < 2:
             continue
@@ -258,7 +279,6 @@ def compute_inter_province_arbitrage(
         spread = dest_px - origin_px
         if spread < min_spread_xaf or origin_px <= 0:
             continue
-        fc_month = str(sub["forecast_month"].dropna().iloc[0]) if "forecast_month" in sub.columns and not sub["forecast_month"].dropna().empty else None
         opportunities.append({
             "crop_id": cid,
             "label_fr": meta["label_fr"],
