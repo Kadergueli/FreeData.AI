@@ -82,7 +82,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
   String _status = 'petit_commercant';
   String _province = "N'Djamena";
   String _cropId = '';
-  final _capitalCtrl = TextEditingController(text: '500000');
+  final _capitalCtrl = TextEditingController();
   bool _capitalEdited = false;
   final _monthsCtrl = TextEditingController(text: '1');
   final _coroCtrl = TextEditingController(text: '2.5');
@@ -261,7 +261,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Adapte le timing d’achat, la durée de conservation (récolte → soudure) et le calcul en sacs/coros à votre profil d’entrepreneur.',
+                      'Construisez une stratégie d’achat, de stockage et de revente à partir de votre capital réel, des prix observés et des hypothèses de coûts.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
@@ -302,9 +302,9 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           child: TextField(
                             controller: _capitalCtrl,
                             keyboardType: TextInputType.number,
-                            onChanged: (_) => _capitalEdited = true,
+                            onChanged: (value) => _capitalEdited = (double.tryParse(value.trim()) ?? 0) > 0,
                             decoration: const InputDecoration(
-                              labelText: 'Capital disponible (FCFA)',
+                              labelText: 'Capital réellement disponible (FCFA)',
                               isDense: true,
                             ),
                           ),
@@ -431,6 +431,30 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                   ],
                 ),
               ),
+              if (_result != null && rec == null) ...[
+                const SizedBox(height: 14),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Aucune opportunité suffisamment viable',
+                        style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: AppColors.ink),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _result?['recommendation_message']?.toString() ?? 'Aucune recommandation ne satisfait les critères de rentabilité et de capital disponible.',
+                        style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Vérifiez le capital, les frais de transport et de stockage, les pertes déclarées et la disponibilité des prix locaux avant de relancer la simulation.',
+                        style: TextStyle(fontSize: 12.5, color: AppColors.inkSoft),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (rec != null) ...[
                 const SizedBox(height: 14),
                 FDCard(
@@ -503,6 +527,19 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           color: AppColors.muted,
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Qualité des données : ${rec['data_scope'] == 'province' ? 'prix de la province sélectionnée' : 'repli sur une autre zone pour cette denrée'} · ${rec['history_observations'] ?? '—'} observations · ${rec['history_year_count'] ?? '—'} années couvertes.',
+                        style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                      ),
+                      if (rec['used_national_fallback'] == true)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Attention : les prix ne proviennent pas de la province sélectionnée. Cette estimation ne doit pas être considérée comme un prix local.',
+                            style: TextStyle(fontSize: 11.5, color: AppColors.danger),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       const Text(
                         'Scénarios de sortie temporelle',
