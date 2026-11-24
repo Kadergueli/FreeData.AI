@@ -146,8 +146,109 @@ class _MarketRadarApi extends ApiService {
       };
 }
 
+class _CampaignNoRecommendationApi extends _MarketRadarApi {
+  int campaignCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> computeCampaignPlan({
+    required double capitalXaf,
+    required String originProvince,
+    String entrepreneurStatus = 'petit_commercant',
+    String? cropId,
+    int? holdingMonths,
+    double coroWeightKg = 2.5,
+    double transportPerBagXaf = 0,
+    double storagePerBagMonthXaf = 0,
+    double lossPct = 0,
+  }) async {
+    campaignCalls++;
+    return {
+      'origin_province': originProvince,
+      'recommended_plan': null,
+      'recommendation_message': 'Aucune opportunité viable selon les hypothèses.',
+      'all_opportunities': [
+        {
+          'label_fr': 'Mil',
+          'recommendation_status': 'negative_central_margin',
+          'buy_price_xaf_kg': 250,
+          'bags_count': 10,
+          'breakeven_price_xaf_kg': 280,
+          'data_scope': 'province',
+          'used_nonlocal_fallback': false,
+          'forecast_month': '2026-11',
+          'last_observed_month': '2026-10',
+          'scenarios': [
+            {
+              'label': 'Central',
+              'sell_price_xaf_kg': 260,
+              'net_profit_xaf': -20000,
+              'roi_pct': -8,
+            },
+          ],
+        },
+      ],
+      'strategic_advice': const [],
+    };
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('campaign plan shows why an opportunity was rejected',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _CampaignNoRecommendationApi();
+    await tester.pumpWidget(
+      MaterialApp(home: CampaignPlanScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, '1000000');
+    final simulate = find.text('Simuler mon Plan de Campagne');
+    await tester.ensureVisible(simulate);
+    await tester.tap(simulate);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Diagnostic des cultures évaluées'), findsOneWidget);
+    expect(find.text('Marge centrale négative'), findsOneWidget);
+    expect(find.textContaining('résultat -20 000 FCFA'), findsOneWidget);
+    expect(find.textContaining('Période de prévision : 2026-11'), findsOneWidget);
+    expect(api.campaignCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('campaign plan rejects missing capital instead of simulating defaults',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _CampaignNoRecommendationApi();
+    await tester.pumpWidget(
+      MaterialApp(home: CampaignPlanScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    final simulate = find.text('Simuler mon Plan de Campagne');
+    await tester.ensureVisible(simulate);
+    await tester.tap(simulate);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saisissez un capital valide supérieur à 0 FCFA.'),
+        findsOneWidget);
+    expect(api.campaignCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('radar uses readable metric cards on narrow screens',
       (tester) async {
