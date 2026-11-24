@@ -99,9 +99,11 @@ class LocalConversationStorage implements ConversationRepository {
     return clearStorageKey(key);
   }
 
-  Future<void> clearStorageKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(key);
+  Future<void> clearStorageKey(String key) {
+    return _synchronized(() async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
+    });
   }
 
   void _pushThreadInBackground(ConversationThread thread) {
