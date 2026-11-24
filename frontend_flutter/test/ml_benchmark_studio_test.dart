@@ -374,7 +374,7 @@ void main() {
     await tester.tap(find.text('Rollback → v1'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Confirmer le rollback'), findsOneWidget);
+    expect(find.text('Confirmer le rollback'), findsNWidgets(2));
     expect(api.rollbackCalls, 0);
     await tester.tap(find.text('Annuler'));
     await tester.pumpAndSettle();
