@@ -984,7 +984,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
           Text(
             '${hub['region'] ?? 'Pôle non renseigné'}',
             style: const TextStyle(
-                fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink),
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink),
           ),
           Text(
             'Province : ${hub['province'] ?? '—'}',
@@ -997,7 +999,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
             children: [
               SizedBox(
                 width: 125,
-                child: metric('Anomalie Eau', anomaly != null ? '$anomaly %' : '—'),
+                child: metric(
+                    'Anomalie Eau', anomaly != null ? '$anomaly %' : '—'),
               ),
               SizedBox(
                 width: 125,
@@ -1005,7 +1008,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
               ),
               SizedBox(
                 width: 125,
-                child: metric('Meilleure Culture', '${best['label_fr'] ?? '—'}'),
+                child:
+                    metric('Meilleure Culture', '${best['label_fr'] ?? '—'}'),
               ),
               SizedBox(
                 width: 125,
@@ -1039,6 +1043,4 @@ class _MarketProScreenState extends State<MarketProScreen> {
       ),
     );
   }
-
-
 }
