@@ -254,7 +254,7 @@ def compute_inter_province_arbitrage(
         sub = sub[
             sub["forecast_t1"].notna()
             & (sub["forecast_t1"] > 0)
-            & sub["forecast_month"].str.match(r"^\\d{4}-\\d{2}$", na=False)
+            & sub["forecast_month"].str.match(r"^\d{4}-\d{2}$", na=False)
         ]
         if sub.empty:
             continue
