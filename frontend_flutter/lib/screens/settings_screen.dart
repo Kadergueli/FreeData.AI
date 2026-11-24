@@ -253,9 +253,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             },
                           ),
                           FDSecondaryButton(
-                            label: _loggingOut
-                                ? 'Déconnexion…'
-                                : 'Se déconnecter',
+                            label:
+                                _loggingOut ? 'Déconnexion…' : 'Se déconnecter',
                             icon: Icons.logout_rounded,
                             onPressed: _loggingOut ? null : _logout,
                           ),
