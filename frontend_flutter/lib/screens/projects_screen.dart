@@ -57,7 +57,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _includeArchived = false;
   String? _error;
 
-  String _loadedUserId = '';
+  String _requestedScopeKey = '';
+  int _loadToken = 0;
   Map<String, dynamic>? _selectedProject;
   List<ConversationThread> _projectConversations = [];
   List<Map<String, dynamic>> _projectDocuments = [];
@@ -84,11 +85,29 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     _load();
   }
 
+  String get _currentScopeKey {
+    final user = widget.apiService.authUser;
+    if (widget.apiService.isAuthenticated) {
+      final userId = user?['user_id']?.toString().trim() ?? '';
+      final email = user?['email']?.toString().trim().toLowerCase() ?? '';
+      final identity = userId.isNotEmpty
+          ? userId
+          : (email.isNotEmpty ? email : 'authenticated');
+      return 'account:$identity';
+    }
+    return 'guest:${widget.apiService.userId}';
+  }
+
   @override
   void didUpdateWidget(covariant ProjectsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // L'identifiant d'espace a changé (Réglages) : la liste affichée appartient à l'ancien espace.
-    if (_loadedUserId != widget.apiService.userId && !_loading) {
+    // Le compte Bearer ou l'espace invité a changé : vider l'ancien espace avant rechargement.
+    if (_requestedScopeKey != _currentScopeKey) {
+      _selectedProject = null;
+      _projectConversations = [];
+      _projectDocuments = [];
+      _projectAgroAssessments = [];
+      _loadingWorkspace = false;
       _load();
     }
     if (oldWidget.refreshToken != widget.refreshToken ||
@@ -185,22 +204,25 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       });
       return;
     }
+    final scopeKey = _currentScopeKey;
+    final token = ++_loadToken;
+    _requestedScopeKey = scopeKey;
     setState(() {
       _loading = true;
       _error = null;
     });
-    final uid = widget.apiService.userId;
     try {
       final list = await widget.apiService
           .listProjects(includeArchived: _includeArchived);
-      if (!mounted || uid != widget.apiService.userId) return;
+      if (!mounted || token != _loadToken || scopeKey != _currentScopeKey) {
+        return;
+      }
       setState(() {
         _projects = list;
-        _loadedUserId = uid;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _error = errText(e);
         _loading = false;
