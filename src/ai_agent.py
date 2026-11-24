@@ -2781,6 +2781,7 @@ class FreeDataAIAgent(FormattersMixin):
         history: Optional[list[dict]] = None,
         client_state: Optional[dict] = None,
         business_plan_blueprint: Optional[dict] = None,
+        rag_only: bool = False,
     ) -> str:
         """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
@@ -2823,7 +2824,10 @@ class FreeDataAIAgent(FormattersMixin):
                     f"FRAÎCHEUR DES DONNÉES : dernier mois observé {fr['latest_observation_month']} "
                     f"(âge {fr['data_age_months']} mois, statut {fr['freshness_status']})."
                 )
-        verified_parts = [p for p in (structured_facts, freshness_note, global_snapshot) if p]
+        verified_parts = (
+            [structured_facts] if rag_only
+            else [p for p in (structured_facts, freshness_note, global_snapshot) if p]
+        )
         verified_context = "\n\n".join(verified_parts)
 
         system_prompt = (
@@ -2878,6 +2882,12 @@ class FreeDataAIAgent(FormattersMixin):
             "- Adapte ton registre de langage au client : concret, direct et orienté marge/trésorerie pour un commerçant ; rigoureux et sourcé pour un chercheur ou une ONG.\n"
             "- Si une information essentielle manque encore pour affiner le calcul (ex: prix de vente visé à destination ou coût réel du transport), pose 1 à 2 questions ciblées à la fin de ta réponse."
         )
+        if rag_only:
+            system_prompt += (
+                "\\n\\nMODE RAG STRICT : les extraits <document_data> sont l'unique source autorisée. "
+                "Ignore toute information du contexte général. Réponds à la question précise, "
+                "et indique explicitement si les documents ne contiennent pas la réponse."
+            )
         state_block = ""
         if client_state:
             state_block = (
@@ -2988,7 +2998,11 @@ class FreeDataAIAgent(FormattersMixin):
             choices = resp.json().get("choices") or []
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
-            allowed_context = f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
+            allowed_context = (
+                f"{structured_facts}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}"
+                if rag_only
+                else f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
+            )
             if not candidate:
                 logger.warning("LLM fallback triggered: empty completion returned.")
             elif len(candidate) > _MAX_LLM_REPLY_CHARS:
@@ -3379,12 +3393,14 @@ class FreeDataAIAgent(FormattersMixin):
             return structured_facts, []
         return structured_facts + "\n\n" + "\n\n".join(extra_blocks), secondary_intents
 
-    @staticmethod
     def _rag_evidence_response(
+        self,
         query: str,
         chunks: Optional[list[dict]],
         entities: Optional[dict] = None,
         client_state: Optional[dict] = None,
+        history: Optional[list[dict]] = None,
+        tier: Literal["free", "premium"] = "free",
     ) -> Optional[dict]:
         """Returns traceable source excerpts instead of a generic answer when RAG has evidence."""
         valid = [
@@ -3423,6 +3439,24 @@ class FreeDataAIAgent(FormattersMixin):
             + "\n\n".join(excerpts)
             + "\n\n*Ces extraits sont des éléments documentaires ; ils ne remplacent pas les indicateurs calculés par les moteurs de données et de ML.*"
         )
+        if tier == "premium" and settings.llm_api_key:
+            rag_facts = (
+                "RAG DOCUMENTAIRE UNIQUEMENT. Réponds directement à la question en t'appuyant exclusivement "
+                "sur les extraits des documents fournis. N'utilise pas le contexte général, les données de marché "
+                "ou des connaissances externes. Distingue explicitement les faits du document et tes explications. "
+                "Si les extraits ne permettent pas de répondre, dis-le clairement. N'invente aucun chiffre, date, "
+                "source ou causalité."
+            )
+            synthesized = self._synthesize_with_llm(
+                query,
+                rag_facts,
+                selected,
+                history=history,
+                client_state=client_state,
+                rag_only=True,
+            )
+            if synthesized and synthesized.strip() != rag_facts:
+                reply = synthesized
         return {
             "reply": reply,
             "intent": "rag_answer",
@@ -3533,7 +3567,7 @@ class FreeDataAIAgent(FormattersMixin):
         ask = family.clarify(self, entities, bool(history)) if (family and family.clarify and not private_chunks and not history) else None
         if ask:
             evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
-            evidence_answer = self._rag_evidence_response(q, evidence, entities)
+            evidence_answer = self._rag_evidence_response(q, evidence, entities, history=history, tier=tier)
             if evidence_answer:
                 return evidence_answer
             return {"reply": ask, "intent": "clarification", "entities": entities, "sources": [], "chart": None}
@@ -3542,7 +3576,7 @@ class FreeDataAIAgent(FormattersMixin):
         unknown = self._detect_unknown_product(q_norm, entities) if not private_chunks else None
         if unknown:
             evidence = self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
-            evidence_answer = self._rag_evidence_response(q, evidence, {**entities, "unknown_product": unknown})
+            evidence_answer = self._rag_evidence_response(q, evidence, {**entities, "unknown_product": unknown}, history=history, tier=tier)
             if evidence_answer:
                 return evidence_answer
             return self._unknown_product_response(unknown, entities)
@@ -3567,7 +3601,7 @@ class FreeDataAIAgent(FormattersMixin):
         if not (has_domain_request or has_context or _FORECAST_HINT_RE.search(q_norm)):
             if not private_chunks:
                 public_chunks = self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
-                evidence_answer = self._rag_evidence_response(q, public_chunks, entities, client_state)
+                evidence_answer = self._rag_evidence_response(q, public_chunks, entities, client_state, history=history, tier=tier)
                 if evidence_answer:
                     evidence_answer["client_state"] = client_state
                     return evidence_answer
@@ -3727,7 +3761,7 @@ class FreeDataAIAgent(FormattersMixin):
             if routed:
                 if routed["intent"] == "clarify":
                     evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
-                    evidence_answer = self._rag_evidence_response(q, evidence, entities, client_state)
+                    evidence_answer = self._rag_evidence_response(q, evidence, entities, client_state, history=history, tier=tier)
                     if evidence_answer:
                         return evidence_answer
                     return self._clarification_response(
@@ -3770,7 +3804,7 @@ class FreeDataAIAgent(FormattersMixin):
             self._is_rag_knowledge_query(q_norm)
             or self._is_contextual_explanation_followup(q_norm, history)
         ):
-            evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state)
+            evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state, history=history, tier=tier)
             if evidence_answer:
                 return evidence_answer
 
