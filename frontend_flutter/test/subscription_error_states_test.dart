@@ -43,8 +43,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final billingWarning = find.textContaining(
-        'Impossible de charger votre abonnement et vos quotas');
+    final billingWarning = find
+        .textContaining('Impossible de charger votre abonnement et vos quotas');
     expect(billingWarning, findsOneWidget);
 
     final paymentWarning =
