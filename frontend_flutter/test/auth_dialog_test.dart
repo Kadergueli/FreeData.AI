@@ -129,4 +129,42 @@ void main() {
     expect(api.isAuthenticated, isTrue);
     expect(storage.token, 'test-session-token');
   });
+
+  testWidgets('Auth dialog presents the FreeData brand and a focused signup',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<bool>(
+                context: context,
+                builder: (_) => AuthDialog(
+                  apiService: _FakeAuthApi(),
+                  initialRegisterMode: true,
+                ),
+              ),
+              child: const Text('Open signup'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open signup'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Transformez vos données en décisions intelligentes.'),
+        findsOneWidget);
+    expect(find.text('by FreeData.td'), findsOneWidget);
+    expect(find.text('IA & Analyse documentaire'), findsOneWidget);
+    expect(find.text('Analyses prédictives & simulations'), findsOneWidget);
+    expect(find.text('Rapports & espaces de travail'), findsOneWidget);
+    expect(find.text('Votre profil principal'), findsNothing);
+    expect(find.textContaining('8 secteurs clés'), findsNothing);
+    expect(find.textContaining('Rapports Certifiés'), findsNothing);
+    expect(find.text('Nom complet ou organisation (facultatif)'),
+        findsOneWidget);
+  });
+
 }
