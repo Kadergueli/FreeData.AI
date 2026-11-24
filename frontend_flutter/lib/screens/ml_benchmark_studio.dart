@@ -193,7 +193,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
         field.write(char);
       }
     }
-    if (quoted) throw const FormatException('CSV header has an unclosed quote.');
+    if (quoted)
+      throw const FormatException('CSV header has an unclosed quote.');
     fields.add(field.toString().trim());
     return fields;
   }
@@ -613,7 +614,9 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
       await widget.onRefreshOverview();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rollback de $modelId vers v$targetVersion effectué.')),
+        SnackBar(
+            content:
+                Text('Rollback de $modelId vers v$targetVersion effectué.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -1621,8 +1624,8 @@ class _MLBenchmarkStudioState extends State<MLBenchmarkStudio> {
                             }
                           } finally {
                             if (mounted) {
-                              setState(() =>
-                                  _domainUpdatesInProgress.remove(domId));
+                              setState(
+                                  () => _domainUpdatesInProgress.remove(domId));
                             }
                           }
                         }
