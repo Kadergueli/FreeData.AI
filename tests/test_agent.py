@@ -248,8 +248,8 @@ def test_build_vector_store_get_embeddings_uses_embed_settings(monkeypatch):
             def json(self):
                 return {
                     "data": [
-                        {"index": 1, "embedding": [0.3, 0.4]},
-                        {"index": 0, "embedding": [0.1, 0.2]},
+                        {"index": 1, "embedding": [0.3] * 1024},
+                        {"index": 0, "embedding": [0.1] * 1024},
                     ]
                 }
 
@@ -257,7 +257,7 @@ def test_build_vector_store_get_embeddings_uses_embed_settings(monkeypatch):
 
     monkeypatch.setattr(build_vector_store.requests, "post", fake_post)
     vectors = build_vector_store.get_embeddings(["alpha", "beta"])
-    assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+    assert vectors == [[0.1] * 1024, [0.3] * 1024]
 
 
 def test_build_vector_store_raise_for_api_error_includes_status_and_detail():
