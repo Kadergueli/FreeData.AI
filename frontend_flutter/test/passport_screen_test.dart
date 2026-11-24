@@ -15,8 +15,7 @@ class _PassportFakeApiService extends ApiService {
     String? province,
     String? commodity,
     int collateralValueXaf = 1000000,
-  }) async =>
-      [
+  }) async => [
         {
           'province': "N'Djamena",
           'commodity_std': commodity ?? 'Millet',
@@ -44,7 +43,9 @@ void main() {
       });
 
       await tester.pumpWidget(
-        MaterialApp(home: PassportScreen(apiService: _PassportFakeApiService())),
+        MaterialApp(
+          home: PassportScreen(apiService: _PassportFakeApiService()),
+        ),
       );
       await tester.pumpAndSettle();
 
