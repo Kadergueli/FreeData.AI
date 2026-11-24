@@ -98,9 +98,22 @@ class _AuthDialogState extends State<AuthDialog> {
             )
           : await widget.apiService.loginAccount(email: email, password: pass);
 
-      final tok = res['token']?.toString() ?? '';
-      if (tok.isNotEmpty) {
+      final tok = res['token']?.toString().trim() ?? '';
+      if (tok.isEmpty) {
+        widget.apiService.clearAuthSession();
+        throw StateError(
+          'Le serveur n’a pas renvoyé de jeton de session. Réessayez.',
+        );
+      }
+      try {
         await AuthTokenStorage.write(tok);
+      } catch (_) {
+        // Never leave a memory-only session that will disappear on reload.
+        widget.apiService.clearAuthSession();
+        try {
+          await AuthTokenStorage.delete();
+        } catch (_) {}
+        rethrow;
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
