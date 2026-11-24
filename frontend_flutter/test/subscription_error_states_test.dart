@@ -29,7 +29,8 @@ class _FailingSubscriptionApi extends ApiService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('subscription screen distinguishes failed sections from empty data',
+  testWidgets(
+      'subscription screen distinguishes failed sections from empty data',
       (tester) async {
     final api = _FailingSubscriptionApi()
       ..setAuthSession(
@@ -42,7 +43,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Impossible de charger votre abonnement et vos quotas'),
+    expect(
+        find.textContaining(
+            'Impossible de charger votre abonnement et vos quotas'),
         findsOneWidget);
     expect(find.textContaining('Les moyens de paiement sont indisponibles'),
         findsOneWidget);
