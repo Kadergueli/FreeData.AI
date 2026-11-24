@@ -169,9 +169,8 @@ class _FarmOperatingAccountScreenState
         }
       }
     }
-    final targetYield = _yieldCtrl.text.trim().isEmpty
-        ? null
-        : _parseNumber(_yieldCtrl);
+    final targetYield =
+        _yieldCtrl.text.trim().isEmpty ? null : _parseNumber(_yieldCtrl);
     if (validationError == null &&
         _yieldCtrl.text.trim().isNotEmpty &&
         (targetYield == null || targetYield <= 0 || targetYield > 50000)) {
@@ -228,16 +227,16 @@ class _FarmOperatingAccountScreenState
     final scenarios = (result['scenarios'] as List? ?? const [])
         .whereType<Map>()
         .map((scenario) {
-          final label = scenario['label'] ?? 'Scénario';
-          final price = scenario['farmgate_price_xaf_kg'] ?? 'N/D';
-          final revenue = scenario['gross_revenue_xaf'] ?? 'N/D';
-          final ebitda = scenario['ebitda_margin_xaf'] ?? 'N/D';
-          final net = scenario['net_profit_after_capex_xaf'] ?? 'N/D';
-          final roi = scenario['roi_on_opex_pct'] ?? 'N/D';
-          final dscr = scenario['dscr'] ?? 'N/D';
-          return '- $label : prix bord-champ $price XAF/kg ; CA $revenue XAF ; '
-              'marge EBITDA $ebitda XAF ; résultat net $net XAF ; ROI OPEX $roi % ; DSCR $dscr.';
-        }).join('\n');
+      final label = scenario['label'] ?? 'Scénario';
+      final price = scenario['farmgate_price_xaf_kg'] ?? 'N/D';
+      final revenue = scenario['gross_revenue_xaf'] ?? 'N/D';
+      final ebitda = scenario['ebitda_margin_xaf'] ?? 'N/D';
+      final net = scenario['net_profit_after_capex_xaf'] ?? 'N/D';
+      final roi = scenario['roi_on_opex_pct'] ?? 'N/D';
+      final dscr = scenario['dscr'] ?? 'N/D';
+      return '- $label : prix bord-champ $price XAF/kg ; CA $revenue XAF ; '
+          'marge EBITDA $ebitda XAF ; résultat net $net XAF ; ROI OPEX $roi % ; DSCR $dscr.';
+    }).join('\n');
 
     final commonContext = <String>[
       'Province : ${result['province'] ?? _province}.',
