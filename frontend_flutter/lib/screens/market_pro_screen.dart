@@ -1014,27 +1014,24 @@ class _MarketProScreenState extends State<MarketProScreen> {
               ),
             ],
           ),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text('Risque Crédit',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted)),
-              const SizedBox(width: 6),
-              Text(risk,
+              Text('Risque Crédit : $risk',
                   style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
                       color: riskColor)),
-              const Spacer(),
               if (doubleVulnerability)
-                const Flexible(
-                  child: FDBadge(
-                    label: 'DOUBLE VULNÉRABILITÉ',
-                    color: AppColors.danger,
-                    backgroundColor: Color(0xFFFEE2E2),
-                  ),
+                const FDBadge(
+                  label: 'DOUBLE VULNÉRABILITÉ',
+                  color: AppColors.danger,
+                  backgroundColor: Color(0xFFFEE2E2),
                 )
               else
-                const Text('Normal',
+                const Text('Alerte : Normal',
                     style: TextStyle(fontSize: 12, color: AppColors.muted)),
             ],
           ),
