@@ -571,19 +571,20 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             ),
                           FDSecondaryButton(
                             label: 'Copier le résumé WhatsApp',
-                        icon: Icons.copy_rounded,
-                        onPressed: () async {
-                          final txt = rec['whatsapp_summary']?.toString() ?? '';
-                          if (txt.isEmpty) return;
-                          await Clipboard.setData(ClipboardData(text: txt));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Plan de campagne copié pour WhatsApp !'),
-                            ),
-                          );
-                        },
+                            icon: Icons.copy_rounded,
+                            onPressed: () async {
+                              final txt =
+                                  rec['whatsapp_summary']?.toString() ?? '';
+                              if (txt.isEmpty) return;
+                              await Clipboard.setData(ClipboardData(text: txt));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Plan de campagne copié pour WhatsApp !'),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
