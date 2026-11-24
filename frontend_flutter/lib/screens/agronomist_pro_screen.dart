@@ -358,7 +358,7 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
       return;
     }
     final area = _parseOpt(_areaCtrl);
-    if (area == null || area <= 0 || area > 500000) {
+    if (area == null || !area.isFinite || area <= 0 || area > 500000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
@@ -373,6 +373,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
         const SnackBar(
             content: Text(
                 'Pour l’analyse GPS, saisissez latitude et longitude ensemble.')),
+      );
+      return;
+    }
+    if (latitude != null &&
+        (!latitude.isFinite ||
+            !longitude!.isFinite ||
+            latitude < -90 ||
+            latitude > 90 ||
+            longitude < -180 ||
+            longitude > 180)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Coordonnées GPS invalides : latitude entre -90 et 90, longitude entre -180 et 180.',
+          ),
+        ),
       );
       return;
     }
@@ -401,9 +417,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     try {
       final res = await widget.apiService.createAgroFieldAssessment(
         provinceHub: _hub,
-        gpsLat: _parseOpt(_latCtrl),
-        gpsLon: _parseOpt(_lonCtrl),
-        areaHectares: _parseOpt(_areaCtrl),
+        gpsLat: latitude,
+        gpsLon: longitude,
+        areaHectares: area,
         labSoilInputs: lab,
         agronomistFieldNotes: _notesCtrl.text,
         targetCrops: _selectedCrops.toList(),
@@ -1705,6 +1721,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
     final pointSatellite = scores['point_satellite_data'] is Map
         ? Map<String, dynamic>.from(scores['point_satellite_data'] as Map)
         : const <String, dynamic>{};
+    final pointSeason = pointSatellite['growing_season'] is Map
+        ? Map<String, dynamic>.from(pointSatellite['growing_season'] as Map)
+        : const <String, dynamic>{};
     final pointProvenance = pointSatellite['provenance'] is Map
         ? Map<String, dynamic>.from(pointSatellite['provenance'] as Map)
         : const <String, dynamic>{};
@@ -1851,6 +1870,22 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                       pointProvenance['retrieved_at_utc']?.toString() ??
                           pointSatellite['retrieved_at_utc']?.toString() ??
                           '—',
+                    ),
+                    _kvRow(
+                      'Humidité racinaire / surface',
+                      '${pointSeason['root_zone_wetness_mean'] ?? '—'} / ${pointSeason['surface_wetness_mean'] ?? '—'} (fraction 0–1)',
+                      shaded: true,
+                    ),
+                    _kvRow(
+                      'Précipitations / température',
+                      '${pointSeason['precipitation_mean'] ?? '—'} mm/jour / ${pointSeason['temperature_mean_c'] ?? '—'} °C',
+                    ),
+                    _kvRow(
+                      'Résolution annoncée',
+                      pointProvenance['resolution']?.toString() ??
+                          pointSatellite['spatial_resolution']?.toString() ??
+                          'Variable selon le paramètre',
+                      shaded: true,
                     ),
                     _kvRow(
                       'Portée spatiale',
