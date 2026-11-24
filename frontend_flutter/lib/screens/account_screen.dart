@@ -217,7 +217,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final ctrl = TextEditingController(text: currentName);
     String? errorText;
     try {
-      final newName = await showDialog<String>(
+      final route = DialogRoute<String>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setDialogState) => AlertDialog(
@@ -262,6 +262,8 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         ),
       );
+      final newName = await Navigator.of(context).push<String>(route);
+      await route.completed;
       if (newName == null || !mounted) return;
       setState(() => _savingProfile = true);
       try {
@@ -291,7 +293,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final confirmCtrl = TextEditingController();
     String? errorText;
     try {
-      final result = await showDialog<Map<String, String>>(
+      final route = DialogRoute<Map<String, String>>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setDialogState) => AlertDialog(
@@ -358,6 +360,9 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         ),
       );
+      final result =
+          await Navigator.of(context).push<Map<String, String>>(route);
+      await route.completed;
       if (result == null || !mounted) return;
       setState(() => _changingPass = true);
       try {
@@ -464,7 +469,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _confirmDeleteAccount() async {
     final passCtrl = TextEditingController();
     try {
-      final ok = await showDialog<bool>(
+      final route = DialogRoute<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Supprimer définitivement mon compte ?'),
@@ -499,6 +504,8 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
         ),
       );
+      final ok = await Navigator.of(context).push<bool>(route);
+      await route.completed;
       if (ok != true || passCtrl.text.isEmpty) return;
       final conversationStorage = LocalConversationStorage.instance;
       final accountCacheKey = conversationStorage.activeStorageKey;
@@ -634,7 +641,7 @@ class _AccountScreenState extends State<AccountScreen> {
     String? err;
 
     try {
-      final submitted = await showDialog<bool>(
+      final route = DialogRoute<bool>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setDlg) => AlertDialog(
@@ -702,6 +709,8 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         ),
       );
+      final submitted = await Navigator.of(context).push<bool>(route);
+      await route.completed;
       if (submitted != true || !mounted) return;
       setState(() => _savingAgroProfile = true);
       try {
