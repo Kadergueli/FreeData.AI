@@ -171,7 +171,7 @@ def test_rag_and_llm_synthesis_grounds_numbers_and_propagates_sources(agent, mon
                     return {"data": [{"embedding": [0.1] * 1024}]}
                 if "match_chunks" in url:
                     assert kwargs["headers"]["apikey"] == "anon-key"
-                    assert kwargs["timeout"] == 5
+                    assert kwargs["timeout"] == 8
                     return [
                         {
                             "titre": "Bulletin PAM Juin",
