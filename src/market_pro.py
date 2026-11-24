@@ -358,6 +358,24 @@ def compute_spatial_arbitrage_detailed(
     limit: int = 12,
 ) -> dict[str, Any]:
     """Compare des prévisions provinciales sur un même mois sans assimiler un écart brut à un bénéfice."""
+    if not math.isfinite(float(area_hectares)) or not 0 < float(area_hectares) <= 500_000:
+        raise ValueError("La superficie doit être comprise entre 0 et 500 000 hectares.")
+    if not math.isfinite(float(farmgate_discount_pct)) or not 0 <= float(farmgate_discount_pct) <= 50:
+        raise ValueError("La décote bord-champ doit être comprise entre 0 et 50 %.")
+    numeric_inputs = (
+        seed_cost_per_ha_xaf, fertilizer_cost_per_ha_xaf, labor_cost_per_ha_xaf,
+        land_prep_irrigation_per_ha_xaf, harvest_postharvest_per_ha_xaf,
+        other_opex_per_ha_xaf, capex_total_xaf, loan_amount_xaf, interest_rate_pct,
+    )
+    if any(not math.isfinite(float(value)) or float(value) < 0 for value in numeric_inputs):
+        raise ValueError("Les coûts, le financement et le taux d’intérêt doivent être des nombres positifs ou nuls.")
+    if float(interest_rate_pct) > 100:
+        raise ValueError("Le taux d’intérêt doit être compris entre 0 et 100 %.")
+    if target_yield_kg_ha is not None and (
+        not math.isfinite(float(target_yield_kg_ha)) or not 0 < float(target_yield_kg_ha) <= 50_000
+    ):
+        raise ValueError("Le rendement cible doit être compris entre 0 et 50 000 kg/ha.")
+
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
     comm = meta["commodity_std"]
@@ -1057,8 +1075,8 @@ def compute_farm_operating_account(
 
     hub = canonical_region(province)
     prov_name = HUB_PROVINCE.get(hub, province) if (hub and hub != "national") else province.strip()
-    area = max(0.01, float(area_hectares))
-    disc_ratio = max(0.0, min(0.5, float(farmgate_discount_pct) / 100.0))
+    area = float(area_hectares)
+    disc_ratio = float(farmgate_discount_pct) / 100.0
 
     # Rendement : le proxy national est une référence indicative, jamais une mesure parcellaire.
     yield_is_proxy = not (target_yield_kg_ha is not None and target_yield_kg_ha > 0)
@@ -1187,7 +1205,8 @@ def compute_farm_operating_account(
         net_after_capex = round(ca - total_investment)
         roi_opex = round((ebitda / opex_total) * 100.0, 1) if opex_total > 0 else None
         roi_total = round((net_after_capex / total_investment) * 100.0, 1) if total_investment > 0 else None
-        dscr = round(ebitda / debt_service, 2) if debt_service > 0 else None
+        # No repayment tenor or schedule is supplied: a true DSCR cannot be calculated.
+        dscr = None
         return {
             "id": sid,
             "label": label,
@@ -1218,8 +1237,21 @@ def compute_farm_operating_account(
     notes: list[str] = []
     if opex_total == 0 and capex_total == 0:
         notes.append("Aucun coût OPEX/CAPEX saisi : renseignez vos coûts réels (semences, engrais, main-d'œuvre, aménagement) pour obtenir la marge nette.")
-    if yield_is_proxy:
-        notes.append(f"Rendement basé sur le proxy céréalier national World Bank ({y_ha:.1f} kg/ha) : saisir un rendement parcellaire cible pour un dossier investisseur.")
+    if yield_source_type == "world_bank_national_proxy":
+        notes.append(f"Rendement basé sur un proxy céréalier national World Bank ({y_ha:.1f} kg/ha), non spécifique à la culture ni à la parcelle : saisir un rendement local vérifié.")
+    elif yield_source_type == "technical_fallback":
+        notes.append("Aucune donnée de rendement World Bank admissible disponible : la valeur technique de repli n’est pas une observation et ne doit pas servir seule à une décision d’investissement.")
+    if loan_val > 0:
+        notes.append("DSCR non calculé : la durée, la périodicité et l’échéance du prêt ne sont pas renseignées. Aucun ratio de couverture de dette fiable ne peut être fourni.")
+    if history_scope == "national_fallback" and history_rows_used:
+        notes.append("Prix historiques de repli national : aucune observation exploitable n’a été trouvée pour la province sélectionnée.")
+    if forecast_scope == "national_fallback" and forecast_rows_used:
+        notes.append("Prévisions de repli nationales : aucune prévision exploitable n’a été trouvée pour la province sélectionnée.")
+    if not history_rows_used:
+        notes.append("Aucun historique de prix exploitable pour cette culture : les scénarios historiques ne sont pas disponibles.")
+    if not forecast_rows_used:
+        notes.append("Aucune prévision positive valide disponible pour cette culture : le scénario central ML n’est pas disponible.")
+
     if isinstance(mape, (int, float)):
         notes.append(f"Incertitude prix ML hors-temps : ±{round(float(mape), 1)}% MAPE historique sur {meta['label_fr']}.")
 
@@ -1231,6 +1263,7 @@ def compute_farm_operating_account(
         "area_hectares": round(area, 2),
         "yield_kg_ha": round(y_ha, 1),
         "yield_source": y_source,
+        "yield_source_type": yield_source_type,
         "yield_is_proxy": yield_is_proxy,
         "production_kg": production_kg,
         "farmgate_discount_pct": round(float(farmgate_discount_pct), 1),
@@ -1244,13 +1277,22 @@ def compute_farm_operating_account(
         "capex_total_xaf": capex_total,
         "total_investment_xaf": total_investment,
         "loan_amount_xaf": round(loan_val),
-        "debt_service_xaf": debt_service,
+        "debt_service_xaf": None,
+        "dscr_available": False,
         "breakeven_price_opex_xaf_kg": be_opex_px,
         "breakeven_price_total_xaf_kg": be_total_px,
         "breakeven_yield_kg_ha": be_yield_ha,
         "scenarios": scenarios,
+        "history_data_scope": history_scope,
+        "forecast_data_scope": forecast_scope,
+        "history_reference_month": history_reference_month,
+        "forecast_reference_month": forecast_reference_month,
+        "history_rows_used": history_rows_used,
+        "forecast_rows_used": forecast_rows_used,
+        "history_sources": history_sources,
+        "forecast_sources": forecast_sources,
         "investor_readiness_notes": notes,
-        "sources": ["WFP", "FEWS NET", "World Bank"],
+        "sources": sorted(set(history_sources + forecast_sources + (["World Bank"] if yield_source_type == "world_bank_national_proxy" else []))),
         "license": "CC BY-IGO 3.0 / CC BY 4.0 / Attribution Required (FreeData.td)",
     }
 
