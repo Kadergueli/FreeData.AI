@@ -62,7 +62,9 @@ jobs:
       - name: Installer les paquets Flutter
         run: flutter pub get
       - name: Vérifier le formatage Dart
-        run: dart format --output=none --set-exit-if-changed lib test
+        run: |
+          dart format --output=show lib/screens/campaign_plan_screen.dart lib/screens/farm_operating_account_screen.dart test/market_pro_screen_test.dart
+          dart format --output=none --set-exit-if-changed lib test
       - name: Analyse statique Flutter
         run: flutter analyze --no-fatal-infos
       - name: Tests Flutter
