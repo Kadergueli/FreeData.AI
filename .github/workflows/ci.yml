@@ -61,6 +61,8 @@ jobs:
           cache: true
       - name: Installer les paquets Flutter
         run: flutter pub get
+      - name: Inspecter le format Dart temporairement
+        run: dart format --output=show lib/screens/account_screen.dart
       - name: Vérifier le formatage Dart
         run: dart format --output=none --set-exit-if-changed lib test
       - name: Analyse statique Flutter
