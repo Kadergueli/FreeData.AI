@@ -5,11 +5,13 @@ from pathlib import Path
 from scripts import build_vector_store as bvs
 
 
-def test_repo_rag_manifest_reports_missing_source_instead_of_claiming_ready():
+def test_repo_rag_manifest_uses_first_party_corpus_and_defers_missing_pam_source():
     res = bvs.validate_manifest(bvs.MANIFEST_PATH, bvs.DOCS_DIR)
-    assert res["status"] == "invalid"
-    assert res["missing_files"] == ["pam_tchad_2026_06.pdf"]
-    assert any("introuvable" in error for error in res["errors"])
+    assert res["status"] == "ok"
+    assert res["missing_files"] == []
+    assert res["deferred_files"] == ["pam_tchad_2026_06.pdf"]
+    assert len(res["present_files"]) == 3
+    assert res["errors"] == []
 
 
 def test_rag_dry_run_catches_invalid_manifest_and_passes_valid(tmp_path):
@@ -40,12 +42,12 @@ def test_rag_manifest_rejects_path_traversal_and_non_pdf_files(tmp_path):
     docs_dir.mkdir()
     outside = tmp_path / "outside.pdf"
     outside.write_bytes(b"%PDF-1.4 fake")
-    (docs_dir / "notes.txt").write_text("rapport marche agricole", encoding="utf-8")
+    (docs_dir / "notes.csv").write_text("rapport marche agricole", encoding="utf-8")
     manifest = tmp_path / "manifest.json"
     manifest.write_text(
         json.dumps([
             {"filename": "../outside.pdf", "titre": "Outside", "editeur": "WFP"},
-            {"filename": "notes.txt", "titre": "Notes", "editeur": "WFP"},
+            {"filename": "notes.csv", "titre": "Notes", "editeur": "WFP"},
         ]),
         encoding="utf-8",
     )
@@ -87,3 +89,28 @@ def test_public_rag_migration_enforces_approved_document_visibility():
     assert "ENABLE ROW LEVEL SECURITY" in migration
     assert "GRANT ALL PRIVILEGES" in migration
     assert "match_chunks" in migration
+
+
+
+def test_manifest_allows_deferred_missing_pdf_and_indexes_markdown(tmp_path):
+    docs_dir = tmp_path / "docs"
+    (docs_dir / "knowledge").mkdir(parents=True)
+    (docs_dir / "knowledge" / "method.md").write_text(
+        "# Méthode\nLes marges distinguent le prix brut et les coûts opérationnels.",
+        encoding="utf-8",
+    )
+    manifest = docs_dir / "manifest.json"
+    manifest.write_text(
+        json.dumps([
+            {"filename": "pam_missing.pdf", "titre": "PAM", "editeur": "WFP", "enabled": False},
+            {"filename": "knowledge/method.md", "titre": "Méthode", "editeur": "FreeData.td", "enabled": True},
+        ]),
+        encoding="utf-8",
+    )
+
+    result = bvs.validate_manifest(manifest, docs_dir)
+    assert result["status"] == "ok"
+    assert result["deferred_files"] == ["pam_missing.pdf"]
+    assert result["present_files"] == ["knowledge/method.md"]
+    assert result["missing_files"] == []
+    assert result["errors"] == []
