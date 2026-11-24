@@ -1117,7 +1117,6 @@ def compute_farm_operating_account(
     total_investment = opex_total + capex_total
 
     loan_val = max(0.0, float(loan_amount_xaf))
-    rate_val = max(0.0, float(interest_rate_pct))
 
     def _positive_frame(frame: Any, commodity: str, *, province_name: str) -> tuple[Any, str]:
         if frame is None or getattr(frame, "empty", True) or "commodity_std" not in frame.columns:
@@ -1144,7 +1143,7 @@ def compute_farm_operating_account(
         selected = selected[
             selected["_value"].notna()
             & (selected["_value"] > 0)
-            & selected["_month"].str.match(r"^\\d{4}-(0[1-9]|1[0-2])$")
+            & selected["_month"].str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
         ]
         return selected
 
@@ -1184,6 +1183,10 @@ def compute_farm_operating_account(
 
     if central_px is not None and stress_px is not None:
         stress_px = min(stress_px, central_px)
+    if history_rows_used == 0:
+        history_scope = "unavailable"
+    if forecast_rows_used == 0:
+        forecast_scope = "unavailable"
 
     def _build_pnl(sid: str, label: str, mkt_px: Optional[float]) -> dict[str, Any]:
         if mkt_px is None or mkt_px <= 0:
@@ -1221,7 +1224,7 @@ def compute_farm_operating_account(
         }
 
     scenarios = [
-        _build_pnl("stress_floor", "Plancher Stress (min. 2024–2026)", stress_px),
+        _build_pnl("stress_floor", "Plancher Stress (12 derniers mois observés)", stress_px),
         _build_pnl("central_ml", "Scénario Central (Prévision ML t+1)", central_px),
         _build_pnl("storage_median", "Médiane Historique (Stockage)", storage_px),
     ]
