@@ -1,10 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:freedata_ai/services/api_service.dart';
 import 'package:freedata_ai/services/auth_token_storage.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
 import 'package:freedata_ai/services/session_logout.dart';
+
+class _NoopHttpClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    return http.StreamedResponse(const Stream<List<int>>.empty(), 204);
+  }
+}
 
 class _MemoryTokenStorage implements AuthTokenStorageBackend {
   String? token;
@@ -39,7 +47,7 @@ void main() {
   tearDown(AuthTokenStorage.resetBackend);
 
   test('logout clears the account-scoped cache and local session', () async {
-    final api = ApiService()
+    final api = ApiService(client: _NoopHttpClient())
       ..setAuthSession(
         token: 'test-token',
         user: {'id': 'user-1', 'email': 'user@example.com'},
