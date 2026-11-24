@@ -108,6 +108,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       _projectDocuments = [];
       _projectAgroAssessments = [];
       _loadingWorkspace = false;
+      _loadToken++;
       _load();
     }
     if (oldWidget.refreshToken != widget.refreshToken ||
