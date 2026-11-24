@@ -669,6 +669,7 @@ def compute_campaign_investment_plan(
             if not h_comm.empty:
                 h_prov = h_comm[h_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if "province" in h_comm.columns else h_comm
                 h_scope = h_prov if not h_prov.empty else h_comm
+                used_national_fallback = bool(h_prov.empty)
 
         f_scope = None
         if forecast_df is not None and not getattr(forecast_df, "empty", True):
@@ -679,7 +680,9 @@ def compute_campaign_investment_plan(
 
         buy_px: Optional[float] = None
         pred_t1: Optional[float] = None
-        cur_month = 11
+        # Ancre temporelle : dernière observation réellement disponible, sinon mois courant UTC.
+        cur_month = datetime.now(timezone.utc).month
+        observed_month = None
         if f_scope is not None and not f_scope.empty:
             if "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
                 pred_t1 = float(f_scope["forecast_t1"].dropna().mean())
@@ -687,11 +690,21 @@ def compute_campaign_investment_plan(
             if obs_col and not f_scope[obs_col].dropna().empty:
                 buy_px = float(f_scope[obs_col].dropna().mean())
             if "last_observed_month" in f_scope.columns and not f_scope["last_observed_month"].dropna().empty:
+                observed_month = str(f_scope["last_observed_month"].dropna().astype(str).sort_values().iloc[-1])
                 try:
-                    cur_month = int(str(f_scope["last_observed_month"].dropna().iloc[0])[5:7])
-                except Exception:
-                    pass
+                    parsed_month = int(observed_month[5:7])
+                    if 1 <= parsed_month <= 12:
+                        cur_month = parsed_month
+                except (ValueError, IndexError):
+                    observed_month = None
 
+        history_observations = 0
+        history_years: list[int] = []
+        used_national_fallback = False
+        if h_scope is not None and not h_scope.empty:
+            history_observations = int(h_scope["value"].dropna().shape[0]) if "value" in h_scope.columns else 0
+            if "year_month" in h_scope.columns:
+                history_years = sorted({int(str(v)[:4]) for v in h_scope["year_month"].dropna().astype(str) if str(v)[:4].isdigit()})
         hist_vals = h_scope["value"].dropna().astype(float) if (h_scope is not None and not h_scope.empty and "value" in h_scope.columns) else None
         if buy_px is None and hist_vals is not None and not hist_vals.empty:
             buy_px = float(hist_vals.iloc[-1])
@@ -774,8 +787,12 @@ def compute_campaign_investment_plan(
             _build_scen("peak_soudure", "Scénario Pic Soudure historique", peak_px),
         ]
         central_roi = scenarios[1]["roi_pct"]
-        # Score d'opportunité (timing + ROI central)
-        opp_score = round(max(0.0, min(100.0, (100.0 - percentile_pct) * 0.5 + max(-20.0, min(50.0, central_roi)) )), 1)
+        # Une opportunité n'est recommandable que si le capital achète au moins un sac
+        # et si le scénario central reste bénéficiaire après les coûts déclarés.
+        recommendation_eligible = bool(bags_count > 0 and central_roi > 0 and sellable_kg > 0)
+        # Le score classe les opportunités viables ; il ne transforme jamais un ROI négatif en opportunité.
+        raw_score = (100.0 - percentile_pct) * 0.5 + max(-20.0, min(50.0, central_roi))
+        opp_score = round(max(0.0, min(100.0, raw_score)) if recommendation_eligible else 0.0, 1)
         rec_tr = (track_record or {}).get(comm) or {}
         mape = rec_tr.get("mape_pct") if rec_tr.get("mape_pct") is not None else rec_tr.get("MAPE_pct")
 
@@ -795,6 +812,14 @@ def compute_campaign_investment_plan(
             "commodity_std": comm,
             "label_fr": meta["label_fr"],
             "opportunity_score": opp_score,
+            "recommendation_eligible": recommendation_eligible,
+            "recommendation_status": "viable" if recommendation_eligible else ("capital_insufficient" if bags_count <= 0 else "negative_central_margin"),
+            "data_scope": "province" if not used_national_fallback else "commodity_fallback",
+            "used_national_fallback": used_national_fallback,
+            "history_observations": history_observations,
+            "history_years": history_years,
+            "history_year_count": len(history_years),
+            "last_observed_month": observed_month,
             "buy_price_xaf_kg": round(buy_px, 1),
             "buy_price_bag_100kg_xaf": round(buy_px * bag_kg),
             "buy_price_coro_xaf": round(buy_px * coro_kg),
@@ -817,8 +842,8 @@ def compute_campaign_investment_plan(
             "whatsapp_summary": whatsapp_summary,
         })
 
-    evaluated.sort(key=lambda x: x["opportunity_score"], reverse=True)
-    best = evaluated[0] if evaluated else None
+    evaluated.sort(key=lambda x: (x["recommendation_eligible"], x["opportunity_score"]), reverse=True)
+    best = next((item for item in evaluated if item["recommendation_eligible"]), None)
     return {
         "entrepreneur_status": status_key,
         "entrepreneur_label": profile["label"],
@@ -827,6 +852,8 @@ def compute_campaign_investment_plan(
         "holding_months": months_hold,
         "strategic_advice": profile["advice"],
         "recommended_plan": best,
+        "recommendation_status": "viable_opportunity" if best else "no_viable_opportunity",
+        "recommendation_message": ("Au moins une stratégie présente une marge centrale positive selon les hypothèses saisies." if best else "Aucune opportunité ne satisfait actuellement les critères minimaux : capital permettant d'acheter au moins un sac et marge centrale positive après coûts déclarés. Modifiez les hypothèses ou attendez de nouvelles données."),
         "all_opportunities": evaluated,
         "sources": ["WFP", "FEWS NET"],
         "license": "CC BY-IGO 3.0 / Attribution Required (FreeData.td)",
