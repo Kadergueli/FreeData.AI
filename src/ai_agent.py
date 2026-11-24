@@ -2884,7 +2884,7 @@ class FreeDataAIAgent(FormattersMixin):
         )
         if rag_only:
             system_prompt += (
-                "\\n\\nMODE RAG STRICT : les extraits <document_data> sont l'unique source autorisée. "
+                "\n\nMODE RAG STRICT : les extraits <document_data> sont l'unique source autorisée. "
                 "Ignore toute information du contexte général. Réponds à la question précise, "
                 "et indique explicitement si les documents ne contiennent pas la réponse."
             )
@@ -2931,7 +2931,8 @@ class FreeDataAIAgent(FormattersMixin):
             )
         user_prompt = (
             f"Question utilisateur : {user_query}\n\n"
-            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]{state_block}{blueprint_block}{doc_context}"
+            f"[DONNÉES VÉRIFIÉES]\n{verified_context}\n[/DONNÉES VÉRIFIÉES]"
+            + (doc_context if rag_only else f"{state_block}{blueprint_block}{doc_context}")
         )
 
         history_msgs: list[dict] = []
@@ -2943,6 +2944,8 @@ class FreeDataAIAgent(FormattersMixin):
                 role = item.get("role")
                 content = str(item.get("content") or "").strip()
                 if role not in ("user", "assistant") or not content:
+                    continue
+                if rag_only and role != "user":
                     continue
                 # L'historique vient du client : il est filtré comme une question et ses
                 # messages "assistant" (forgeables) ne rendent aucun chiffre "vérifié".
@@ -2999,7 +3002,7 @@ class FreeDataAIAgent(FormattersMixin):
             candidate = (choices[0]["message"]["content"] if choices else "").strip()
             history_blob = "\n".join(history_text_parts)
             allowed_context = (
-                f"{structured_facts}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}"
+                f"{structured_facts}\n{doc_context}\n{user_query}"
                 if rag_only
                 else f"{structured_facts}\n\n{freshness_note}\n\n{global_snapshot}\n{doc_context}\n{user_query}\n{history_blob}\n{state_block}\n{blueprint_block}"
             )
