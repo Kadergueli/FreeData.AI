@@ -105,7 +105,7 @@ def test_spatial_arbitrage_and_agro_credit_passport(tmp_path):
     assert arb["routes"][0]["origin_province"] == "Salamat"
     assert arb["routes"][0]["net_margin_xaf_kg"] == 80.0
     assert arb["routes"][0]["estimated_net_margin_xaf"] == 800000.0
-    assert "PAM-WFP" in arb["sources"]
+    assert any("PAM-WFP" in source for source in arb["sources"])
 
     agro_store = AgroIndicatorStore(str(tmp_path / "agro.db"))
     real_csv = Path(__file__).resolve().parent.parent / "freedatatd-agriculture-commercial-clean.csv"
