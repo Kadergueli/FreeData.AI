@@ -662,21 +662,29 @@ def compute_campaign_investment_plan(
         meta = SUPPORTED_AGRO_CROPS[cid]
         comm = meta["commodity_std"]
 
-        # Données historiques province (ou repli national sur la denrée)
+        # La provenance est suivie séparément pour l'historique et les prévisions.
+        used_history_fallback = False
+        used_forecast_fallback = False
+        used_national_fallback = False
+
+        # Données historiques province (ou repli sur une autre zone pour la denrée)
         h_scope = None
         if hist_df is not None and not getattr(hist_df, "empty", True):
             h_comm = hist_df[hist_df["commodity_std"] == comm]
             if not h_comm.empty:
-                h_prov = h_comm[h_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if "province" in h_comm.columns else h_comm
+                has_province = "province" in h_comm.columns
+                h_prov = h_comm[h_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if has_province else h_comm.iloc[0:0]
                 h_scope = h_prov if not h_prov.empty else h_comm
-                used_national_fallback = bool(h_prov.empty)
+                used_history_fallback = bool(not has_province or h_prov.empty)
 
         f_scope = None
         if forecast_df is not None and not getattr(forecast_df, "empty", True):
             f_comm = forecast_df[forecast_df["commodity_std"] == comm]
             if not f_comm.empty:
-                f_prov = f_comm[f_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if "province" in f_comm.columns else f_comm
+                has_province = "province" in f_comm.columns
+                f_prov = f_comm[f_comm["province"].astype(str).str.lower() == origin_province.strip().lower()] if has_province else f_comm.iloc[0:0]
                 f_scope = f_prov if not f_prov.empty else f_comm
+                used_forecast_fallback = bool(not has_province or f_prov.empty)
 
         buy_px: Optional[float] = None
         pred_t1: Optional[float] = None
@@ -700,7 +708,7 @@ def compute_campaign_investment_plan(
 
         history_observations = 0
         history_years: list[int] = []
-        used_national_fallback = False
+        used_national_fallback = used_history_fallback or used_forecast_fallback
         if h_scope is not None and not h_scope.empty:
             history_observations = int(h_scope["value"].dropna().shape[0]) if "value" in h_scope.columns else 0
             if "year_month" in h_scope.columns:
@@ -816,6 +824,9 @@ def compute_campaign_investment_plan(
             "recommendation_status": "viable" if recommendation_eligible else ("capital_insufficient" if bags_count <= 0 else "negative_central_margin"),
             "data_scope": "province" if not used_national_fallback else "commodity_fallback",
             "used_national_fallback": used_national_fallback,
+            "used_nonlocal_fallback": used_national_fallback,
+            "history_data_scope": "province" if not used_history_fallback else "commodity_fallback",
+            "forecast_data_scope": "province" if not used_forecast_fallback else "commodity_fallback",
             "history_observations": history_observations,
             "history_years": history_years,
             "history_year_count": len(history_years),
