@@ -251,3 +251,46 @@ def test_invalid_numeric_inputs_are_rejected():
                 commodity="Millet", commodity_fr="Mil", origin_province="Lac", dest_province=None,
                 buy_price_per_kg=bad, sell_price_per_kg=300.0, volatility_cv_pct=None, credit_score=None,
             )
+
+
+
+def test_business_plan_action_is_not_short_circuited_by_methodology_rag(monkeypatch):
+    hist_df = pd.DataFrame([
+        {"province": "Lac", "market_name": "Bol", "commodity_std": "Millet", "date": "2026-07-01", "price": 210.0},
+        {"province": "N'Djamena", "market_name": "Dembe", "commodity_std": "Millet", "date": "2026-07-01", "price": 340.0},
+    ])
+    fc_df = pd.DataFrame([
+        {"province": "Lac", "market_name": "Bol", "commodity_std": "Millet", "forecast_month": "2026-08", "forecast_t1": 220.0, "last_observed_price": 210.0, "change_pct": 4.8},
+        {"province": "N'Djamena", "market_name": "Dembe", "commodity_std": "Millet", "forecast_month": "2026-08", "forecast_t1": 350.0, "last_observed_price": 340.0, "change_pct": 2.9},
+    ])
+    cp_df = pd.DataFrame([
+        {"province": "Lac", "commodity_std": "Millet", "score_global": 82.0, "grade": "A", "cv_pct": 8.5, "ltv_pct": 70.0, "max_drawdown_pct": 6.0},
+    ])
+    agent = FreeDataAIAgent(hist_df=hist_df, forecast_df=fc_df, passport_df=cp_df)
+    retrieved_queries = []
+    method_chunk = {
+        "titre": "Guide de calcul des marges",
+        "editeur": "FreeData.td",
+        "page": 2,
+        "content": "Le coût rendu additionne achat, transport et emballage. Le business plan distingue BFR, CAPEX et réserve.",
+        "similarity": 0.91,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: (retrieved_queries.append(query) or [method_chunk]),
+    )
+
+    result = agent.answer(
+        "Explique comment est calculée la marge et fais un business plan pour acheter du mil à Lac "
+        "et vendre à N'Djamena avec 1 000 000 FCFA",
+        tier="free",
+    )
+
+    assert result["intent"] == "business_simulator"
+    assert "Business Plan Financier" in result["reply"]
+    assert "800 000" in result["reply"]
+    assert result["sources"][0]["titre"] == "Guide de calcul des marges"
+    query = retrieved_queries[-1].lower()
+    for term in ("bfr", "capex", "point mort", "marge nette", "transport", "stress tests"):
+        assert term in query
