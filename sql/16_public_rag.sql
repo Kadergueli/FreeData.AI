@@ -2,6 +2,7 @@
 -- Apply once in Supabase SQL Editor. This schema stores only explicitly approved public/reference documents.
 -- Private user uploads remain in the isolated freedata_app document store and are NOT exposed here.
 
+CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 SET search_path = public, extensions;
 
