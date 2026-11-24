@@ -1187,6 +1187,27 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                 ],
+                if (_documentsError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _documentsError!,
+                            style: const TextStyle(
+                              color: FDTheme.danger,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loadUserDocuments,
+                          child: const Text('Réessayer'),
+                        ),
+                      ],
+                    ),
+                  ),
                 TextField(
                   controller: _controller,
                   minLines: 1,
