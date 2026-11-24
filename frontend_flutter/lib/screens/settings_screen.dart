@@ -61,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _defaultDomain = 'auto';
   String _defaultAgroHub = "N'Djamena";
   bool _saving = false;
+  bool _loggingOut = false;
 
   @override
   void initState() {
@@ -102,15 +103,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _logout() async {
-    await widget.apiService.logoutAccount();
-    await AuthTokenStorage.delete();
-    await LocalConversationStorage.instance.saveAll(const []);
-    widget.onSessionChanged?.call();
-    if (!mounted) return;
-    setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Déconnexion effectuée.')),
-    );
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+    try {
+      await widget.apiService.logoutAccount();
+      await AuthTokenStorage.delete();
+      await LocalConversationStorage.instance.saveAll(const []);
+      widget.onSessionChanged?.call();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Déconnexion effectuée.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'La déconnexion locale a échoué. Réessayez avant de fermer cette session.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   Future<void> _save() async {
@@ -124,6 +140,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Préférences enregistrées.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossible d’enregistrer les préférences. Vos modifications ne sont pas confirmées.',
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -228,9 +253,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             },
                           ),
                           FDSecondaryButton(
-                            label: 'Se déconnecter',
+                            label:
+                                _loggingOut ? 'Déconnexion…' : 'Se déconnecter',
                             icon: Icons.logout_rounded,
-                            onPressed: _logout,
+                            onPressed: _loggingOut ? null : _logout,
                           ),
                         ],
                       ),
