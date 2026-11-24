@@ -166,5 +166,4 @@ void main() {
     expect(find.text('Nom complet ou organisation (facultatif)'),
         findsOneWidget);
   });
-
 }
