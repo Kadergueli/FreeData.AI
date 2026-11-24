@@ -1263,10 +1263,13 @@ class _MainShellState extends State<MainShell> {
                                 style: TextStyle(
                                     fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
-                          _buildWatchlistNotificationButton(),
-                          _buildUtilityMenu(includeAccount: false),
                         ],
                       ],
+                    ),
+                    _buildWatchlistNotificationButton(),
+                    _buildUtilityMenu(
+                      includeSubscription: true,
+                      includeAccount: false,
                     ),
                   ),
                   Expanded(
@@ -1714,23 +1717,24 @@ class _SidebarContentState extends State<_SidebarContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Bouton primaire Nouvelle conversation
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-          child: FilledButton.icon(
-            onPressed: widget.onNewConversation,
-            icon: const Icon(Icons.add_rounded, size: 20),
-            label: const Text('Nouvelle conversation',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-            style: FilledButton.styleFrom(
-              backgroundColor: FDTheme.blue,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(46),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+        // Le mobile possède déjà l'action « Nouvelle conversation » dans l'AppBar.
+        if (!widget.isDrawer)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: FilledButton.icon(
+              onPressed: widget.onNewConversation,
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('Nouvelle conversation',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              style: FilledButton.styleFrom(
+                backgroundColor: FDTheme.blue,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(46),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
-        ),
         // Zone défilante : Espace de travail + Espace PRO + Historique récent
         Expanded(
           child: ListView(
