@@ -126,7 +126,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final methodsFuture = widget.apiService
           .getPaymentMethods()
           .then<Map<String, dynamic>?>((v) => v)
-        .catchError((Object error) {
+          .catchError((Object error) {
         paymentMethodsError = errText(error);
         return null;
       });
