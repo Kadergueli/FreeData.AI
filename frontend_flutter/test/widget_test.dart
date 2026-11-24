@@ -70,7 +70,7 @@ void main() {
     expect(find.text('Marchés & Crédit'), findsOneWidget);
     expect(find.text('Nouvelle conversation'), findsOneWidget);
     expect(find.text('+ Nouvelle conversation'), findsNothing);
-    expect(find.byTooltip('Plus d\\'options'), findsOneWidget);
+    expect(find.byTooltip("Plus d'options"), findsOneWidget);
     expect(find.byTooltip('Notifications Watchlist'), findsOneWidget);
   });
 }
