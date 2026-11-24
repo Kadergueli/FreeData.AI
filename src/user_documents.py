@@ -285,11 +285,20 @@ def compute_jina_embeddings(texts: list[str]) -> Optional[list[list[float]]]:
             )
             resp.raise_for_status()
             data = resp.json().get("data") or []
+            if not isinstance(data, list) or len(data) != len(batch):
+                logger.warning("Jina Embeddings returned an incomplete batch; using local hybrid retrieval.")
+                return None
             ordered = [
                 item["embedding"]
                 for _, item in sorted(enumerate(data), key=lambda pair: pair[1].get("index", pair[0]))
             ]
-            if len(ordered) != len(batch):
+            if any(
+                not isinstance(vector, list)
+                or len(vector) != 1024
+                or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector)
+                for vector in ordered
+            ):
+                logger.warning("Jina Embeddings returned invalid vectors; using local hybrid retrieval.")
                 return None
             all_vecs.extend(ordered)
         return all_vecs
