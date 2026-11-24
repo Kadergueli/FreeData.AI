@@ -82,6 +82,7 @@ class _AccountScreenState extends State<AccountScreen> {
   bool _savingAgroProfile = false;
   bool _changingPass = false;
   bool _syncing = false;
+  bool _loggingOut = false;
 
   @override
   void initState() {
@@ -427,15 +428,58 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _logout() async {
-    // Effacer le cache du compte avant que logoutAccount ne réinitialise l'identité.
-    await LocalConversationStorage.instance.clearCurrentUserCache();
-    await widget.apiService.logoutAccount();
-    await AuthTokenStorage.delete();
-    widget.onSessionChanged?.call();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Déconnexion effectuée.')));
-    Navigator.of(context).pop();
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+
+    var cacheCleanupFailed = false;
+    try {
+      // Capture and clear this account's cache before logoutAccount resets identity.
+      try {
+        await LocalConversationStorage.instance.clearCurrentUserCache();
+      } catch (_) {
+        cacheCleanupFailed = true;
+      }
+
+      // Keep the in-memory session intact if secure token deletion fails.
+      try {
+        await AuthTokenStorage.delete();
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Déconnexion impossible : le jeton sécurisé n’a pas pu être supprimé. Réessayez.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      // This clears the in-memory session; remote revocation is best-effort.
+      await widget.apiService.logoutAccount();
+      widget.onSessionChanged?.call();
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            cacheCleanupFailed
+                ? 'Déconnexion effectuée. Le cache local n’a pas pu être entièrement nettoyé.'
+                : 'Déconnexion effectuée.',
+          ),
+        ),
+      );
+      Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Une erreur a empêché la déconnexion. Réessayez.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   Future<void> _confirmDeleteAccount() async {
@@ -1091,9 +1135,9 @@ class _AccountScreenState extends State<AccountScreen> {
                             onPressed: _exportData,
                           ),
                           FDSecondaryButton(
-                            label: 'Se déconnecter',
+                            label: _loggingOut ? 'Déconnexion…' : 'Se déconnecter',
                             icon: Icons.logout_rounded,
-                            onPressed: _logout,
+                            onPressed: _loggingOut ? null : _logout,
                           ),
                         ],
                       ),
