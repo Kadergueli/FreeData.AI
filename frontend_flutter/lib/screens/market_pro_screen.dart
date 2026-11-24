@@ -545,7 +545,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
+                        'Analyse d’arbitrage interprovincial (écart brut et rentabilité conditionnelle)',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -611,6 +611,51 @@ class _MarketProScreenState extends State<MarketProScreen> {
                             ),
                             if (_arbResult != null) ...[
                               const SizedBox(height: 10),
+                              if ((_arbResult!['forecast_month']?.toString() ?? '').isNotEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.blue.withValues(alpha: 0.06),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: AppColors.line),
+                                  ),
+                                  child: Text(
+                                    'Période commune de comparaison : ${_arbResult!['forecast_month']}',
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                ),
+                              if (((_arbResult!['status']?.toString() ?? '') == 'insufficient_data') ||
+                                  (((_arbResult!['routes'] as List?) ?? const []).isEmpty)) ...[
+                                const SizedBox(height: 8),
+                                FDCard(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.info_outline_rounded,
+                                          color: AppColors.muted, size: 19),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _arbResult!['status_message']?.toString().isNotEmpty == true
+                                              ? _arbResult!['status_message'].toString()
+                                              : 'Données insuffisantes pour établir une comparaison interprovinciale fiable sur une période commune. Aucune opportunité n’est affichée.',
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            color: AppColors.muted,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               Text(
                                 'MAPE historique modèle : ${_arbResult!['historical_mape_pct'] ?? 'N/D'} %',
                                 style: const TextStyle(
@@ -637,6 +682,17 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                               color: AppColors.ink),
                                         ),
                                       ))),
+                              if (((_arbResult!['routes'] as List?) ?? const []).isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'L’écart de prix est un indicateur brut. Il ne constitue pas un bénéfice garanti : stockage, pertes, manutention, taxes, financement et disponibilité réelle des marchandises doivent être vérifiés séparément.',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.muted,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
                               if ((_arbResult!['recommendations'] as List?)
                                       ?.isNotEmpty ==
                                   true) ...[
@@ -721,9 +777,17 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                           ),
                                           const SizedBox(height: 3),
                                           Text(
-                                            '${a['origin_predicted_xaf_kg']} → ${a['dest_predicted_xaf_kg']} XAF/kg (${a['forecast_month'] ?? ''})',
+                                            '${a['origin_predicted_xaf_kg']} → ${a['dest_predicted_xaf_kg']} XAF/kg',
                                             style: const TextStyle(
                                               fontSize: 12.5,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            'Prévisions comparées sur ${a['forecast_month'] ?? 'période non précisée'} · écart brut, hors coûts logistiques',
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
                                               color: AppColors.muted,
                                             ),
                                           ),
