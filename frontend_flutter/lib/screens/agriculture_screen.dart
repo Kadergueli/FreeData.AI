@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
@@ -93,9 +94,21 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
       final available = res['data_available'] == true && zones.isNotEmpty;
       String? region = _selectedRegion;
       if (region == null || !zones.any((z) => z['region'] == region)) {
-        region = zones.any((z) => z['region'] == "N'Djamena")
-            ? "N'Djamena"
-            : (zones.isNotEmpty ? zones.first['region']?.toString() : null);
+        String? preferredRegion;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          preferredRegion = prefs.getString('fd_pref_agro_hub');
+        } catch (_) {
+          // Le choix par défaut reste facultatif si les préférences sont indisponibles.
+        }
+        if (preferredRegion != null &&
+            zones.any((z) => z['region'] == preferredRegion)) {
+          region = preferredRegion;
+        } else {
+          region = zones.any((z) => z['region'] == "N'Djamena")
+              ? "N'Djamena"
+              : (zones.isNotEmpty ? zones.first['region']?.toString() : null);
+        }
       }
       setState(() {
         _zones = zones;
