@@ -808,7 +808,7 @@ def compute_campaign_investment_plan(
             else:
                 forecast_rows = forecast_rows.iloc[0:0]
             if "forecast_month" in forecast_rows.columns:
-                valid_month = forecast_rows["forecast_month"].astype(str).str.match(r"^\\d{4}-(0[1-9]|1[0-2])$")
+                valid_month = forecast_rows["forecast_month"].astype(str).str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
                 forecast_rows = forecast_rows[valid_month]
                 if not forecast_rows.empty:
                     forecast_month = str(forecast_rows["forecast_month"].max())
@@ -824,7 +824,7 @@ def compute_campaign_investment_plan(
                 observed_rows[obs_col] = pd.to_numeric(observed_rows[obs_col], errors="coerce")
                 observed_rows = observed_rows[observed_rows[obs_col] > 0]
                 if "last_observed_month" in observed_rows.columns:
-                    valid_obs = observed_rows["last_observed_month"].astype(str).str.match(r"^\\d{4}-(0[1-9]|1[0-2])$")
+                    valid_obs = observed_rows["last_observed_month"].astype(str).str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
                     observed_rows = observed_rows[valid_obs]
                     if not observed_rows.empty:
                         observed_month = str(observed_rows["last_observed_month"].max())
