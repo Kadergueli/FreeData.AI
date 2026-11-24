@@ -487,6 +487,107 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           color: AppColors.inkSoft,
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Diagnostic des cultures évaluées',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (allOpps.isEmpty)
+                        const Text(
+                          'Aucune culture ne dispose actuellement de données suffisantes pour établir une estimation. Vérifiez la couverture des prix avant de modifier votre capital.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.muted,
+                            height: 1.4,
+                          ),
+                        ),
+                      for (final o in allOpps.whereType<Map>())
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.canvas,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.line),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      o['label_fr']?.toString() ?? 'Culture',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.ink,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    o['recommendation_status'] == 'capital_insufficient'
+                                        ? 'Capital insuffisant'
+                                        : (o['recommendation_status'] == 'negative_central_margin'
+                                            ? 'Marge centrale négative'
+                                            : 'Non évaluable'),
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.danger,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                'Prix d’achat estimé : ${o['buy_price_xaf_kg'] ?? 'N/D'} XAF/kg · sacs finançables : ${o['bags_count'] ?? 'N/D'} · point mort : ${o['breakeven_price_xaf_kg'] ?? 'N/D'} XAF/kg',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppColors.inkSoft,
+                                ),
+                              ),
+                              if (o['scenarios'] is List)
+                                for (final scenario in (o['scenarios'] as List).whereType<Map>())
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '${scenario['label'] ?? 'Scénario'} : ${scenario['sell_price_xaf_kg'] ?? 'N/D'} XAF/kg · résultat ${_fmtXaf(scenario['net_profit_xaf'])} (${scenario['roi_pct'] ?? 'N/D'} %)',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  ),
+                              const SizedBox(height: 4),
+                              Text(
+                                o['used_nonlocal_fallback'] == true
+                                    ? 'Données de repli : les prix utilisés ne sont pas propres à la province sélectionnée.'
+                                    : 'Périmètre : ${o['data_scope'] == 'province' ? 'données de la province sélectionnée' : 'périmètre géographique à confirmer'}.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: o['used_nonlocal_fallback'] == true
+                                      ? AppColors.danger
+                                      : AppColors.muted,
+                                ),
+                              ),
+                              if ((o['forecast_month']?.toString() ?? '').isNotEmpty)
+                                Text(
+                                  'Période de prévision : ${o['forecast_month']} · dernière observation : ${o['last_observed_month'] ?? 'N/D'}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),
