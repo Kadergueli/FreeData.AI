@@ -231,7 +231,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ),
                         ),
                       ),
-                      IconButton(
+                      if (!compact)
+                        IconButton(
                         icon: const Icon(Icons.refresh_rounded,
                             size: 22, color: Color(0xFF64748B)),
                         tooltip: 'Rafraîchir',
@@ -244,7 +245,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Espace centralisé de vos conversations sauvegardées, analyses et gestion de la corbeille locale.',
+                    'Retrouvez vos conversations, vos favoris et les éléments placés dans la corbeille.',
                     style: TextStyle(
                       color: FDTheme.muted,
                       fontSize: 15,
@@ -305,7 +306,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 : const Color(0xFF64748B),
                           ),
                           label: Text(
-                              'Sauvegardes (${activeConversations.length})'),
+                              'Toutes (${activeConversations.length})'),
                           selected: !_showTrash && !_filterSavedOnly,
                           selectedColor: const Color(0xFFEFF6FF),
                           labelStyle: TextStyle(
@@ -394,10 +395,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       child: FDEmptyState(
                         title: _showTrash
                             ? 'Corbeille vide'
-                            : 'Aucune conversation enregistrée',
+                            : 'Aucune conversation pour le moment',
                         subtitle: _showTrash
                             ? 'Les conversations mises à la corbeille peuvent être restaurées ici.'
-                            : 'Les conversations sauvegardées apparaîtront ici une fois que vous aurez échangé avec l’IA.',
+                            : 'Vos échanges apparaîtront ici après votre première conversation avec l’IA.',
                         icon: _showTrash
                             ? Icons.delete_outline_rounded
                             : Icons.history_rounded,
