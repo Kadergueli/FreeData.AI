@@ -784,13 +784,6 @@ class _MarketProScreenState extends State<MarketProScreen> {
           'Marché PRO — Watchlists & Arbitrage',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Export CSV institutionnel',
-            icon: const Icon(Icons.download_outlined),
-            onPressed: _exportingCsv ? null : _exportCsv,
-          ),
-        ],
       ),
       body: body,
     );
