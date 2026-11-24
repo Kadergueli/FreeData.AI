@@ -14,7 +14,9 @@ class _MemoryTokenStorage implements AuthTokenStorageBackend {
   Future<String?> read() async => token;
 
   @override
-  Future<void> write(String value) async => token = value;
+  Future<void> write(String value) async {
+    token = value;
+  }
 
   @override
   Future<void> delete() async {
