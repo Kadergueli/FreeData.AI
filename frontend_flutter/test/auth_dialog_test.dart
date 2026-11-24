@@ -111,7 +111,7 @@ void main() {
     await _openAndSubmit(tester, api);
 
     expect(find.text('Connexion à votre espace'), findsOneWidget);
-    expect(find.textContaining('Impossible de sécuriser votre session'),
+    expect(find.textContaining('impossible de sécuriser votre session'),
         findsOneWidget);
     expect(api.isAuthenticated, isFalse);
     expect(api.logoutCalls, 1);
