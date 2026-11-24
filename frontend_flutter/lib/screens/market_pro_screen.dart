@@ -179,14 +179,14 @@ class _MarketProScreenState extends State<MarketProScreen> {
       final margin = route['net_margin_xaf_kg'] ?? route['spread_xaf_kg'] ?? 'N/D';
       final total = route['estimated_net_margin_xaf'] ?? 'N/D';
       final roi = route['roi_pct'] ?? 'N/D';
-      return '- ${route['origin_province']} → ${route['dest_province']} : marge nette affichée ${margin} XAF/kg ; résultat estimé ${total} XAF ; ROI ${roi} %.';
-    }).join('\\n');
+      return "- ${route['origin_province']} → ${route['dest_province']} : marge nette affichée ${margin} XAF/kg ; résultat estimé ${total} XAF ; ROI ${roi} %.";
+    }).join('\n');
 
     final commonContext = 'Culture : ${_cropLabels[_arbCrop] ?? _arbCrop}. '
         'Transport saisi : ${_arbTransportCtrl.text.trim()} XAF/kg. '
         'Volume saisi : ${_arbTonnageCtrl.text.trim()} tonne(s). '
-        'MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %. '
-        'Résultats du simulateur :\\n$routeSummary';
+        "MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %. "
+        "Résultats du simulateur :\n$routeSummary";
 
     final prompt = createBusinessPlan
         ? 'Prépare un business plan agricole professionnel pour la commercialisation de '
