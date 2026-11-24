@@ -67,7 +67,7 @@ void main() {
   });
 
   test('secure token deletion failure preserves the active session', () async {
-    final api = ApiService()
+    final api = ApiService(client: _NoopHttpClient())
       ..setAuthSession(
         token: 'test-token',
         user: {'id': 'user-2', 'email': 'user2@example.com'},
