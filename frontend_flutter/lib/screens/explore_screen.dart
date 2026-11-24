@@ -286,10 +286,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               ),
                             ),
                             FDBadge(
-                              label: 'OPÉRATIONNEL',
-                              color: FDTheme.green,
+                              label: products.isNotEmpty || markets.isNotEmpty
+                                  ? 'OPÉRATIONNEL'
+                                  : 'AUCUNE DONNÉE',
+                              color: products.isNotEmpty || markets.isNotEmpty
+                                  ? FDTheme.green
+                                  : FDTheme.subtle,
                               backgroundColor:
-                                  FDTheme.green.withValues(alpha: 0.10),
+                                  products.isNotEmpty || markets.isNotEmpty
+                                      ? FDTheme.green.withValues(alpha: 0.10)
+                                      : FDTheme.canvasSoft,
                             ),
                           ],
                         ),
@@ -327,6 +333,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 icon: Icons.source_outlined),
                           ],
                         ),
+                        if (products.isEmpty && markets.isEmpty) ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Aucune donnée de marché exploitable n’est actuellement renvoyée par le catalogue. Réessayez plus tard.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: FDTheme.muted,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         const Text(
                           'Périmètre : séries actives des 3 derniers mois (prévisions temps réel) · L’onglet Credit Passport couvre l’historique multi-annuel complet.',
