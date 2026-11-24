@@ -61,6 +61,10 @@ jobs:
           cache: true
       - name: Installer les paquets Flutter
         run: flutter pub get
+      - name: Diagnostic formatage test abonnement
+        run: |
+          dart format --output=show test/subscription_error_states_test.dart > /tmp/subscription_test_formatted.dart
+          diff -u test/subscription_error_states_test.dart /tmp/subscription_test_formatted.dart || true
       - name: Vérifier le formatage Dart
         run: dart format --output=none --set-exit-if-changed lib test
       - name: Analyse statique Flutter
