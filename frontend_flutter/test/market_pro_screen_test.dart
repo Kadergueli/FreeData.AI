@@ -114,8 +114,6 @@ void main() {
     expect(find.text('Risque Crédit'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-}
-
 
   testWidgets('arbitrage results can be explained or turned into a business plan by AI',
       (tester) async {
@@ -162,3 +160,4 @@ void main() {
     expect(capturedPrompt, contains('business plan agricole professionnel'));
     expect(capturedPrompt, contains('demande-le avant de produire les projections'));
   });
+}
