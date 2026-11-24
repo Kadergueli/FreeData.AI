@@ -8,6 +8,7 @@ import '../core/utils/error_text.dart';
 
 class FarmOperatingAccountScreen extends StatefulWidget {
   final ApiService apiService;
+  final void Function(String prompt)? onSelectPrompt;
   final String? initialProvince;
   final String? initialCropId;
   final double? initialAreaHectares;
@@ -16,6 +17,7 @@ class FarmOperatingAccountScreen extends StatefulWidget {
   const FarmOperatingAccountScreen({
     super.key,
     required this.apiService,
+    this.onSelectPrompt,
     this.initialProvince,
     this.initialCropId,
     this.initialAreaHectares,
@@ -157,6 +159,62 @@ class _FarmOperatingAccountScreenState
         _loading = false;
       });
     }
+  }
+
+  void _askAssistantAboutFarmAccount({required bool createBusinessPlan}) {
+    final result = _result;
+    if (result == null || widget.onSelectPrompt == null) return;
+
+    final scenarios = (result['scenarios'] as List? ?? const [])
+        .whereType<Map>()
+        .map((scenario) {
+      final label = scenario['label'] ?? 'Scénario';
+      final price = scenario['farmgate_price_xaf_kg'] ?? 'N/D';
+      final revenue = scenario['gross_revenue_xaf'] ?? 'N/D';
+      final ebitda = scenario['ebitda_margin_xaf'] ?? 'N/D';
+      final net = scenario['net_profit_after_capex_xaf'] ?? 'N/D';
+      final roi = scenario['roi_on_opex_pct'] ?? 'N/D';
+      final dscr = scenario['dscr'] ?? 'N/D';
+      return '- $label : prix bord-champ $price XAF/kg ; CA $revenue XAF ; '
+          'marge EBITDA $ebitda XAF ; résultat net $net XAF ; ROI OPEX $roi % ; DSCR $dscr.';
+    }).join('\n');
+
+    final commonContext = <String>[
+      'Province : ${result['province'] ?? _province}.',
+      'Culture : ${result['label_fr'] ?? _cropId}.',
+      'Superficie : ${result['area_hectares'] ?? _areaCtrl.text.trim()} ha.',
+      'Rendement : ${result['yield_kg_ha'] ?? 'N/D'} kg/ha ; source : ${result['yield_source'] ?? 'non précisée'}.',
+      'Production estimée : ${result['production_kg'] ?? 'N/D'} kg.',
+      'OPEX total : ${result['opex_total_xaf'] ?? 'N/D'} XAF.',
+      'CAPEX initial saisi : ${result['capex_total_xaf'] ?? 'N/D'} XAF.',
+      'Investissement total : ${result['total_investment_xaf'] ?? 'N/D'} XAF.',
+      'Prêt demandé : ${_num(_loanCtrl)} XAF ; taux saisi : ${_num(_rateCtrl, 12)} %. ',
+      'Seuil de rentabilité OPEX : ${result['breakeven_price_opex_xaf_kg'] ?? 'N/D'} XAF/kg.',
+      'Rendement au point mort : ${result['breakeven_yield_kg_ha'] ?? 'N/D'} kg/ha.',
+      'Scénarios calculés :',
+      scenarios.isEmpty ? 'Aucun scénario détaillé disponible.' : scenarios,
+      'Notes de transparence : ${(result['investor_readiness_notes'] as List? ?? const []).join('; ')}',
+    ].join('\n');
+
+    final prompt = createBusinessPlan
+        ? <String>[
+            'Prépare un business plan agricole et un dossier de financement pour cette exploitation.',
+            commonContext,
+            if ((_num(_capexCtrl) <= 0) && (_num(_loanCtrl) <= 0))
+              'Le capital initial et le financement ne sont pas renseignés : demande le capital réellement disponible et les besoins de financement avant toute projection financière.',
+            'Utilise les résultats du compte d’exploitation comme données de départ, pas comme preuves indépendantes. '
+                'Distingue les coûts déclarés, les données de marché observées, les prévisions et les hypothèses.',
+            'Ne fabrique aucun prix, rendement, coût, taux, calendrier ou source. Signale les informations manquantes et les risques agronomiques, commerciaux et financiers.',
+          ].join('\n')
+        : <String>[
+            'Explique le compte d’exploitation agricole et la rentabilité de cette parcelle.',
+            commonContext,
+            'Explique la différence entre chiffre d’affaires, OPEX, marge EBITDA, résultat net après CAPEX, ROI, DSCR et seuil de rentabilité.',
+            'Analyse les écarts entre scénarios, les postes de coûts qui pèsent le plus et la sensibilité au prix bord-champ et au rendement.',
+            'Ne modifie pas les chiffres du simulateur. Sépare clairement les valeurs saisies, les références de marché, les prévisions et les limites de calcul.',
+          ].join('\n');
+
+    widget.onSelectPrompt!(prompt);
   }
 
   String _fmtXaf(dynamic val) {
@@ -514,8 +572,28 @@ class _FarmOperatingAccountScreenState
                           ),
                       ],
                       const SizedBox(height: 10),
-                      FDSecondaryButton(
-                        label: 'Copier la synthèse investisseur',
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (widget.onSelectPrompt != null)
+                            FDSecondaryButton(
+                              label: 'Expliquer avec l’IA',
+                              icon: Icons.auto_awesome_outlined,
+                              onPressed: () => _askAssistantAboutFarmAccount(
+                                createBusinessPlan: false,
+                              ),
+                            ),
+                          if (widget.onSelectPrompt != null)
+                            FDSecondaryButton(
+                              label: 'Créer un business plan',
+                              icon: Icons.description_outlined,
+                              onPressed: () => _askAssistantAboutFarmAccount(
+                                createBusinessPlan: true,
+                              ),
+                            ),
+                          FDSecondaryButton(
+                            label: 'Copier la synthèse investisseur',
                         icon: Icons.copy_rounded,
                         onPressed: () async {
                           final cScen =
@@ -536,6 +614,8 @@ class _FarmOperatingAccountScreenState
                             ),
                           );
                         },
+                          ),
+                        ],
                       ),
                     ],
                   ),
