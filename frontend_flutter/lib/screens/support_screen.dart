@@ -76,7 +76,7 @@ class _SupportScreenState extends State<SupportScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loadError = 'Impossible de charger vos demandes ($e).';
+          _loadError = 'Impossible de charger vos demandes (${errText(e)}).';
           _loading = false;
         });
       }
