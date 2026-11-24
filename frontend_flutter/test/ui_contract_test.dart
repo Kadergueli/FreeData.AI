@@ -115,7 +115,7 @@ void main() {
     }
 
     expect(find.text('Bibliothèque'), findsOneWidget);
-    expect(find.text('Aucune conversation enregistrée'), findsOneWidget);
+    expect(find.text('Aucune conversation pour le moment'), findsOneWidget);
     expect(find.text('Analyses'), findsOneWidget);
     expect(find.text('Stockage local'), findsOneWidget);
   });
