@@ -49,8 +49,8 @@ class _MarketProScreenState extends State<MarketProScreen> {
   final _provinceCtrl = TextEditingController();
 
   String _arbCrop = 'millet';
-  final _arbTransportCtrl = TextEditingController(text: '35');
-  final _arbTonnageCtrl = TextEditingController(text: '10');
+  final _arbTransportCtrl = TextEditingController();
+  final _arbTonnageCtrl = TextEditingController();
   Map<String, dynamic>? _arbResult;
   bool _loadingArb = false;
 
@@ -183,15 +183,23 @@ class _MarketProScreenState extends State<MarketProScreen> {
           route['net_margin_xaf_kg'] ?? route['spread_xaf_kg'] ?? 'N/D';
       final total = route['estimated_net_margin_xaf'] ?? 'N/D';
       final roi = route['roi_pct'] ?? 'N/D';
+      final isGrossOnly = route['net_margin_xaf_kg'] == null;
+      final marginLabel =
+          isGrossOnly ? 'écart brut' : 'marge après transport déclaré';
+      final totalLabel = total == 'N/D' ? 'non calculé' : '$total';
+      final roiLabel = roi == 'N/D' ? 'non calculé' : '$roi %';
+      final signal = route['commercial_signal'] ?? 'non évalué';
       return '- $routeOrigin → $routeDestination : '
-          'marge nette affichée $margin XAF/kg ; résultat estimé $total XAF ; '
-          'ROI $roi %.';
+          '$marginLabel $margin XAF/kg ; résultat total $totalLabel XAF ; '
+          'ROI $roiLabel ; signal $signal.';
     }).join('\n');
 
+    final transportInput = _arbTransportCtrl.text.trim();
+    final tonnageInput = _arbTonnageCtrl.text.trim();
     final commonContext = <String>[
       'Culture : ${_cropLabels[_arbCrop] ?? _arbCrop}.',
-      'Transport saisi : ${_arbTransportCtrl.text.trim()} XAF/kg.',
-      'Volume saisi : ${_arbTonnageCtrl.text.trim()} tonne(s).',
+      'Coût de transport déclaré : ${transportInput.isEmpty ? 'non renseigné' : '$transportInput XAF/kg'}.',
+      'Tonnage déclaré : ${tonnageInput.isEmpty ? 'non renseigné' : '$tonnageInput tonne(s)'}.',
       "MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %.",
       'Résultats du simulateur :',
       routeSummary,
@@ -577,7 +585,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                         const TextInputType.numberWithOptions(
                                             decimal: true),
                                     decoration: const InputDecoration(
-                                        labelText: 'Transport (XAF/kg)'),
+                                        labelText: 'Transport réel (XAF/kg)'),
                                   ),
                                 ),
                                 SizedBox(
@@ -588,7 +596,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                         const TextInputType.numberWithOptions(
                                             decimal: true),
                                     decoration: const InputDecoration(
-                                        labelText: 'Tonnage (t)'),
+                                        labelText: 'Tonnage prévu (t)'),
                                   ),
                                 ),
                               ],
@@ -597,7 +605,7 @@ class _MarketProScreenState extends State<MarketProScreen> {
                             FDPrimaryButton(
                               label: _loadingArb
                                   ? 'Calcul…'
-                                  : 'Simuler marge & ROI',
+                                  : 'Calculer écart / marge',
                               icon: Icons.calculate_outlined,
                               onPressed: _loadingArb ? null : _runArbitrageSim,
                             ),
@@ -618,12 +626,31 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                         padding:
                                             const EdgeInsets.only(bottom: 4),
                                         child: Text(
-                                          '• ${r['origin_province']} → ${r['dest_province']} : marge nette ${r['net_margin_xaf_kg'] ?? r['spread_xaf_kg']} XAF/kg · Total ${r['estimated_net_margin_xaf'] ?? '—'} XAF · ROI ${r['roi_pct'] ?? '—'} %',
+                                          '• ${r['origin_province']} → ${r['dest_province']} : '
+                                          '${r['net_margin_xaf_kg'] == null ? 'écart brut' : 'marge après transport saisi'} '
+                                          '${r['net_margin_xaf_kg'] ?? r['spread_xaf_kg']} XAF/kg'
+                                          ' · Résultat total ${r['estimated_net_margin_xaf'] ?? 'non calculé'} XAF'
+                                          ' · ROI ${r['roi_pct'] == null ? 'non calculé' : '${r['roi_pct']} %'}'
+                                          ' · ${r['commercial_signal'] ?? 'signal non évalué'}',
                                           style: const TextStyle(
                                               fontSize: 12.5,
                                               color: AppColors.ink),
                                         ),
                                       ))),
+                              if ((_arbResult!['recommendations'] as List?)
+                                      ?.isNotEmpty ==
+                                  true) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  ((_arbResult!['recommendations'] as List)
+                                          .take(3))
+                                      .join(' '),
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ],
                               if (widget.onAskAssistant != null &&
                                   (((_arbResult!['routes'] as List?) ??
                                           const [])

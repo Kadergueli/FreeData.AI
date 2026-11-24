@@ -227,7 +227,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final simulate = find.text('Simuler marge & ROI');
+    final simulate = find.text('Calculer écart / marge');
     await tester.scrollUntilVisible(
       simulate,
       240,
@@ -245,7 +245,7 @@ void main() {
     await tester.tap(explain);
     expect(capturedPrompt, contains('Explique les résultats'));
     expect(capturedPrompt, contains('Salamat'));
-    expect(capturedPrompt, contains('marge nette affichée'));
+    expect(capturedPrompt, contains('marge après transport déclaré'));
 
     final businessPlan = find.text('Créer un business plan');
     await tester.tap(businessPlan);
