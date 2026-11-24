@@ -449,7 +449,10 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                       Text(
                         _result?['recommendation_message']?.toString() ??
                             'Aucune recommandation ne satisfait les critères de rentabilité et de capital disponible.',
-                        style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.muted,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -538,14 +541,20 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                       const SizedBox(height: 6),
                       Text(
                         'Qualité des données : ${rec['data_scope'] == 'province' ? 'prix de la province sélectionnée' : 'repli sur une autre zone pour cette denrée'} · ${rec['history_observations'] ?? '—'} observations · ${rec['history_year_count'] ?? '—'} années couvertes.',
-                        style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.muted,
+                        ),
                       ),
                       if (rec['used_national_fallback'] == true)
                         const Padding(
                           padding: EdgeInsets.only(top: 4),
                           child: Text(
                             'Attention : les prix ne proviennent pas de la province sélectionnée. Cette estimation ne doit pas être considérée comme un prix local.',
-                            style: TextStyle(fontSize: 11.5, color: AppColors.danger),
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.danger,
+                            ),
                           ),
                         ),
                       const SizedBox(height: 12),
