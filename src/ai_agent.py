@@ -3485,16 +3485,16 @@ class FreeDataAIAgent(FormattersMixin):
         """Keeps explicit simulations and business-plan requests on deterministic calculation paths."""
         q = query or ""
         return bool(
-            re.search(r"\\b(?:business\\s*plan|plan\\s+d['’]?affaires?|etude\\s+de\\s+faisabilite)\\b", q)
+            re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q)
             or re.search(
-                r"\\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
-                r"etablis|fais|genere|chiffre|combien\\s+(?:je|peut|pourrais))\\b.{0,90}"
-                r"\\b(?:marge|profit|benefice|rentabilite|roi|revenu|capital|business|investissement)\\b",
+                r"\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
+                r"etablis|fais|genere|chiffre|combien\s+(?:je|peut|pourrais))\b.{0,90}"
+                r"\b(?:marge|profit|benefice|rentabilite|roi|revenu|capital|business|investissement)\b",
                 q,
             )
             or re.search(
-                r"\\b(?:marge|profit|benefice|rentabilite|roi)\\b.{0,60}"
-                r"\\b(?:simul|estim|calcul|prevision|business\\s*plan)\\w*\\b",
+                r"\b(?:marge|profit|benefice|rentabilite|roi)\b.{0,60}"
+                r"\b(?:simul|estim|calcul|prevision|business\s*plan)\w*\b",
                 q,
             )
         )
