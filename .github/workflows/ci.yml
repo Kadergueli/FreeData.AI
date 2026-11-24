@@ -62,7 +62,7 @@ jobs:
       - name: Installer les paquets Flutter
         run: flutter pub get
       - name: Vérifier le formatage Dart
-        run: dart format lib/screens/market_pro_screen.dart && git --no-pager diff -- lib/screens/market_pro_screen.dart && exit 1
+        run: dart format --output=none --set-exit-if-changed lib test
       - name: Analyse statique Flutter
         run: flutter analyze --no-fatal-infos
       - name: Tests Flutter
