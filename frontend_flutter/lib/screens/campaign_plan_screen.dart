@@ -8,8 +8,13 @@ import '../core/utils/error_text.dart';
 
 class CampaignPlanScreen extends StatefulWidget {
   final ApiService apiService;
+  final void Function(String prompt)? onSelectPrompt;
 
-  const CampaignPlanScreen({super.key, required this.apiService});
+  const CampaignPlanScreen({
+    super.key,
+    required this.apiService,
+    this.onSelectPrompt,
+  });
 
   @override
   State<CampaignPlanScreen> createState() => _CampaignPlanScreenState();
@@ -78,6 +83,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
   String _province = "N'Djamena";
   String _cropId = '';
   final _capitalCtrl = TextEditingController(text: '500000');
+  bool _capitalEdited = false;
   final _monthsCtrl = TextEditingController(text: '1');
   final _coroCtrl = TextEditingController(text: '2.5');
   final _transportCtrl = TextEditingController(text: '0');
@@ -138,6 +144,78 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
         _loading = false;
       });
     }
+  }
+
+  void _askAssistantAboutCampaign({required bool createBusinessPlan}) {
+    final result = _result;
+    final recommendation = result?['recommended_plan'] as Map<String, dynamic>?;
+    if (result == null ||
+        recommendation == null ||
+        widget.onSelectPrompt == null) {
+      return;
+    }
+
+    final profile = _profiles
+        .firstWhere(
+          (item) => item.id == _status,
+          orElse: () => _profiles.first,
+        )
+        .label;
+    final crop = _crops
+        .firstWhere(
+          (item) => item.id == _cropId,
+          orElse: () => _crops.first,
+        )
+        .label;
+    final scenarios = ((recommendation['scenarios'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((scenario) {
+      return '- ${scenario['label'] ?? 'Scénario'} : prix de vente ${scenario['sell_price_xaf_kg'] ?? 'N/D'} XAF/kg ; résultat net ${scenario['net_profit_xaf'] ?? 'N/D'} XAF ; ROI ${scenario['roi_pct'] ?? 'N/D'} %.';
+    }).join('\n');
+
+    final capitalContext = _capitalEdited
+        ? 'Capital saisi par l’utilisateur : ${_capitalCtrl.text.trim()} XAF.'
+        : 'Le champ capital contient encore sa valeur initiale préremplie : le capital réel de l’utilisateur n’est pas confirmé. Ne traite pas cette valeur par défaut comme un budget validé ; demande le capital réellement disponible avant un business plan.';
+    final commonContext = <String>[
+      'Profil : $profile.',
+      'Province de départ : ${result['origin_province'] ?? _province}.',
+      'Culture choisie : $crop.',
+      capitalContext,
+      'Horizon : ${_monthsCtrl.text.trim()} mois.',
+      'Poids du coro : ${_coroCtrl.text.trim()} kg.',
+      'Transport par sac : ${_transportCtrl.text.trim()} XAF.',
+      'Stockage par sac et par mois : ${_storageCtrl.text.trim()} XAF.',
+      'Pertes déclarées : ${_lossCtrl.text.trim()} %. ',
+      'Recommandation : ${recommendation['label_fr'] ?? 'N/D'} ; signal : ${recommendation['timing_label'] ?? 'N/D'} ; percentile historique : ${recommendation['percentile_rank_pct'] ?? 'N/D'} %.',
+      'Quantité : ${recommendation['bags_count'] ?? 'N/D'} sacs de 100 kg ; équivalent : ${recommendation['coros_equiv'] ?? 'N/D'} coros.',
+      'Prix d’achat : ${recommendation['buy_price_xaf_kg'] ?? 'N/D'} XAF/kg ; point mort : ${recommendation['breakeven_price_xaf_kg'] ?? 'N/D'} XAF/kg.',
+      'Réserve de trésorerie : ${recommendation['cash_reserve_xaf'] ?? 'N/D'} XAF.',
+      'Calendrier : achat optimal ${(recommendation['cheapest_months'] as List? ?? const []).join(', ')} ; pic historique ${(recommendation['peak_months'] as List? ?? const []).join(', ')} ; sortie visée ${recommendation['target_exit_month'] ?? 'N/D'}.',
+      'Scénarios calculés :',
+      scenarios.isEmpty ? 'Aucun scénario détaillé disponible.' : scenarios,
+    ].join('\n');
+
+    final prompt = createBusinessPlan
+        ? <String>[
+            'Prépare un business plan commercial agricole structuré à partir de ce plan de campagne FreeData.AI.',
+            commonContext,
+            if (!_capitalEdited)
+              'Avant les projections financières, demande et confirme le capital réellement disponible. Ne réutilise pas la valeur préremplie comme un montant confirmé.',
+            'Présente le modèle économique, le besoin en fonds de roulement, les achats, le stockage, le transport, les pertes, les ventes, la trésorerie, les risques et des scénarios prudent, central et favorable.',
+            'Recoupe les prix avec les données observées et les prévisions disponibles. Cite les sources, indique leur date et distingue les observations des prévisions et hypothèses.',
+            'Ne crée aucun prix, coût, volume, calendrier ou rendement absent des données.',
+          ].join('\n')
+        : <String>[
+            'Explique la recommandation et les résultats de ce plan de campagne agricole.',
+            commonContext,
+            if (!_capitalEdited)
+              'Le simulateur a utilisé une valeur de capital préremplie non confirmée. Ne la présente pas comme le capital réellement disponible.',
+            'Explique le prix d’achat, le point mort, la réserve de trésorerie, le calendrier saisonnier, la marge nette et le ROI des scénarios.',
+            'Analyse la sensibilité au prix de vente, aux frais de transport, au stockage et aux pertes.',
+            'Ne modifie pas les résultats calculés. Distingue les données historiques, les prix observés, les prévisions et les hypothèses.',
+          ].join('\n');
+
+    widget.onSelectPrompt!(prompt);
   }
 
   String _fmtXaf(dynamic val) {
@@ -224,6 +302,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           child: TextField(
                             controller: _capitalCtrl,
                             keyboardType: TextInputType.number,
+                            onChanged: (_) => _capitalEdited = true,
                             decoration: const InputDecoration(
                               labelText: 'Capital disponible (FCFA)',
                               isDense: true,
@@ -470,21 +549,44 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           ),
                         ),
                       const SizedBox(height: 10),
-                      FDSecondaryButton(
-                        label: 'Copier le résumé WhatsApp',
-                        icon: Icons.copy_rounded,
-                        onPressed: () async {
-                          final txt = rec['whatsapp_summary']?.toString() ?? '';
-                          if (txt.isEmpty) return;
-                          await Clipboard.setData(ClipboardData(text: txt));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'Plan de campagne copié pour WhatsApp !'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (widget.onSelectPrompt != null)
+                            FDSecondaryButton(
+                              label: 'Expliquer avec l’IA',
+                              icon: Icons.auto_awesome_outlined,
+                              onPressed: () => _askAssistantAboutCampaign(
+                                createBusinessPlan: false,
+                              ),
                             ),
-                          );
-                        },
+                          if (widget.onSelectPrompt != null)
+                            FDSecondaryButton(
+                              label: 'Créer un business plan',
+                              icon: Icons.description_outlined,
+                              onPressed: () => _askAssistantAboutCampaign(
+                                createBusinessPlan: true,
+                              ),
+                            ),
+                          FDSecondaryButton(
+                            label: 'Copier le résumé WhatsApp',
+                            icon: Icons.copy_rounded,
+                            onPressed: () async {
+                              final txt =
+                                  rec['whatsapp_summary']?.toString() ?? '';
+                              if (txt.isEmpty) return;
+                              await Clipboard.setData(ClipboardData(text: txt));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Plan de campagne copié pour WhatsApp !'),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
