@@ -1135,7 +1135,9 @@ class _AccountScreenState extends State<AccountScreen> {
                             onPressed: _exportData,
                           ),
                           FDSecondaryButton(
-                            label: _loggingOut ? 'Déconnexion…' : 'Se déconnecter',
+                            label: _loggingOut
+                                ? 'Déconnexion…'
+                                : 'Se déconnecter',
                             icon: Icons.logout_rounded,
                             onPressed: _loggingOut ? null : _logout,
                           ),
