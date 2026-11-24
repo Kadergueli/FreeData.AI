@@ -302,7 +302,8 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           child: TextField(
                             controller: _capitalCtrl,
                             keyboardType: TextInputType.number,
-                            onChanged: (value) => _capitalEdited = (double.tryParse(value.trim()) ?? 0) > 0,
+                            onChanged: (value) => _capitalEdited =
+                                (double.tryParse(value.trim()) ?? 0) > 0,
                             decoration: const InputDecoration(
                               labelText: 'Capital réellement disponible (FCFA)',
                               isDense: true,
