@@ -1,0 +1,15 @@
+name: Temporary Account Format Inspection
+on:
+  push:
+    branches: [fix/account-screen-resilient-logout]
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Show formatter output
+        working-directory: frontend_flutter
+        run: dart format --output=show lib/screens/account_screen.dart
