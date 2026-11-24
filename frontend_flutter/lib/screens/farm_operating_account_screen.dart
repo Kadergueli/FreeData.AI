@@ -510,63 +510,36 @@ class _FarmOperatingAccountScreenState
                             const SizedBox(height: 6),
                             Text(
                               'Historique : ${res['history_reference_month'] ?? 'indisponible'} · ${res['history_data_scope'] == 'province' ? 'province sélectionnée' : res['history_data_scope'] == 'national_fallback' ? 'repli national' : 'aucune donnée'} · ${res['history_rows_used'] ?? 0} observations.',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.muted,
+                              ),
                             ),
                             Text(
                               'Prévision : ${res['forecast_reference_month'] ?? 'indisponible'} · ${res['forecast_data_scope'] == 'province' ? 'province sélectionnée' : res['forecast_data_scope'] == 'national_fallback' ? 'repli national' : 'aucune donnée'} · ${res['forecast_rows_used'] ?? 0} lignes.',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.muted,
+                              ),
                             ),
                             Text(
                               'Sources historiques : ${(res['history_sources'] as List? ?? const []).join(', ').isEmpty ? 'non précisées' : (res['history_sources'] as List).join(', ')}',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.muted,
+                              ),
                             ),
                             Text(
                               'Sources des prévisions : ${(res['forecast_sources'] as List? ?? const []).join(', ').isEmpty ? 'non précisées' : (res['forecast_sources'] as List).join(', ')}',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.muted,
+                              ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.canvas,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.line),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Traçabilité des données de marché',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.ink,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Historique : ${res['history_reference_month'] ?? 'indisponible'} · ${res['history_data_scope'] == 'province' ? 'province sélectionnée' : res['history_data_scope'] == 'national_fallback' ? 'repli national' : 'aucune donnée'} · ${res['history_rows_used'] ?? 0} observations.',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
-                            ),
-                            Text(
-                              'Prévision : ${res['forecast_reference_month'] ?? 'indisponible'} · ${res['forecast_data_scope'] == 'province' ? 'province sélectionnée' : res['forecast_data_scope'] == 'national_fallback' ? 'repli national' : 'aucune donnée'} · ${res['forecast_rows_used'] ?? 0} lignes.',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
-                            ),
-                            Text(
-                              'Sources historiques : ${(res['history_sources'] as List? ?? const []).join(', ').isEmpty ? 'non précisées' : (res['history_sources'] as List).join(', ')}',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
-                            ),
-                            Text(
-                              'Sources des prévisions : ${(res['forecast_sources'] as List? ?? const []).join(', ').isEmpty ? 'non précisées' : (res['forecast_sources'] as List).join(', ')}',
-                              style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
-                            ),
-                          ],
-                        ),
-                      ),
                       const SizedBox(height: 10),
                       Wrap(
                         spacing: 10,
