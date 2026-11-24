@@ -233,8 +233,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       if (!compact)
                         IconButton(
-                          icon: const Icon(Icons.refresh_rounded,
-                              size: 22, color: Color(0xFF64748B)),
+                          icon: const Icon(
+                            Icons.refresh_rounded,
+                            size: 22,
+                            color: Color(0xFF64748B),
+                          ),
                           tooltip: 'Rafraîchir',
                           onPressed: () {
                             _load();
