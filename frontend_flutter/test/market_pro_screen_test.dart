@@ -116,8 +116,8 @@ void main() {
   });
 
   testWidgets(
-    'arbitrage results can be explained or turned into a business plan by AI',
-    (tester) async {
+      'arbitrage results can be explained or turned into a business plan by AI',
+      (tester) async {
     tester.view.physicalSize = const Size(1280, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -159,6 +159,7 @@ void main() {
     final businessPlan = find.text('Créer un business plan');
     await tester.tap(businessPlan);
     expect(capturedPrompt, contains('business plan agricole professionnel'));
-    expect(capturedPrompt, contains('demande-le avant de produire les projections'));
+    expect(capturedPrompt,
+        contains('demande-le avant de produire les projections'));
   });
 }
