@@ -165,7 +165,8 @@ class _CampaignNoRecommendationApi extends _MarketRadarApi {
     return {
       'origin_province': originProvince,
       'recommended_plan': null,
-      'recommendation_message': 'Aucune opportunité viable selon les hypothèses.',
+      'recommendation_message':
+          'Aucune opportunité viable selon les hypothèses.',
       'all_opportunities': [
         {
           'label_fr': 'Mil',
@@ -219,12 +220,14 @@ void main() {
     expect(find.text('Diagnostic des cultures évaluées'), findsOneWidget);
     expect(find.text('Marge centrale négative'), findsOneWidget);
     expect(find.textContaining('résultat -20 000 FCFA'), findsOneWidget);
-    expect(find.textContaining('Période de prévision : 2026-11'), findsOneWidget);
+    expect(
+        find.textContaining('Période de prévision : 2026-11'), findsOneWidget);
     expect(api.campaignCalls, 1);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('campaign plan rejects missing capital instead of simulating defaults',
+  testWidgets(
+      'campaign plan rejects missing capital instead of simulating defaults',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 1000);
     tester.view.devicePixelRatio = 1;
