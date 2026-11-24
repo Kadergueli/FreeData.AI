@@ -383,7 +383,7 @@ void main() {
     await tester.ensureVisible(find.text('Rollback → v1'));
     await tester.tap(find.text('Rollback → v1'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirmer le rollback'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Confirmer le rollback'));
     await tester.pumpAndSettle();
     expect(api.rollbackCalls, 1);
     expect(api.lastRollbackTargetVersion, 1);
