@@ -156,13 +156,17 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
     }
 
     final profile = _profiles
-        .where((item) => item.id == _status)
-        .map((item) => item.label)
-        .firstOrNull ?? _status;
+        .firstWhere(
+          (item) => item.id == _status,
+          orElse: () => _profiles.first,
+        )
+        .label;
     final crop = _crops
-        .where((item) => item.id == _cropId)
-        .map((item) => item.label)
-        .firstOrNull ?? recommendation['label_fr']?.toString() ?? 'Culture recommandée';
+        .firstWhere(
+          (item) => item.id == _cropId,
+          orElse: () => _crops.first,
+        )
+        .label;
     final scenarios = ((recommendation['scenarios'] as List?) ?? const [])
         .whereType<Map>()
         .map((scenario) {
@@ -176,7 +180,6 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
       'Profil : $profile.',
       'Province de départ : ${result['origin_province'] ?? _province}.',
       'Culture choisie : $crop.',
-      'Capital affiché dans le simulateur : ${_capitalCtrl.text.trim()} XAF.',
       capitalContext,
       'Horizon : ${_monthsCtrl.text.trim()} mois.',
       'Poids du coro : ${_coroCtrl.text.trim()} kg.',
@@ -205,6 +208,8 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
         : <String>[
             'Explique la recommandation et les résultats de ce plan de campagne agricole.',
             commonContext,
+            if (!_capitalEdited)
+              'Le simulateur a utilisé une valeur de capital préremplie non confirmée. Ne la présente pas comme le capital réellement disponible.',
             'Explique le prix d’achat, le point mort, la réserve de trésorerie, le calendrier saisonnier, la marge nette et le ROI des scénarios.',
             'Analyse la sensibilité au prix de vente, aux frais de transport, au stockage et aux pertes.',
             'Ne modifie pas les résultats calculés. Distingue les données historiques, les prix observés, les prévisions et les hypothèses.',
