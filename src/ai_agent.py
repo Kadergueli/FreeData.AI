@@ -3444,6 +3444,15 @@ class FreeDataAIAgent(FormattersMixin):
         ))
 
     @staticmethod
+    def _is_contextual_explanation_followup(query: str, history: Optional[list[dict]] = None) -> bool:
+        """Recognizes short explanatory follow-ups whose subject exists only in conversation history."""
+        return bool(
+            history
+            and len((query or "").split()) <= 5
+            and re.match(r"^(?:et\\s+)?(?:pourquoi|comment|explique(?:-moi)?|precise|detaille|developpe)\\b", query or "")
+        )
+
+    @staticmethod
     def _contextual_rag_query(query: str, history: Optional[list[dict]] = None) -> str:
         """Adds recent user turns to short follow-ups such as 'pourquoi ?' without trusting assistant text."""
         prior_user_turns = [
@@ -3753,7 +3762,10 @@ class FreeDataAIAgent(FormattersMixin):
 
         # Les questions de méthode, de provenance et de qualité doivent recevoir le contenu RAG,
         # pas uniquement un modèle de réponse orienté prix qui ne cite que les titres des documents.
-        if chunks and self._is_rag_knowledge_query(q_norm):
+        if chunks and (
+            self._is_rag_knowledge_query(q_norm)
+            or self._is_contextual_explanation_followup(q_norm, history)
+        ):
             evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state)
             if evidence_answer:
                 return evidence_answer
