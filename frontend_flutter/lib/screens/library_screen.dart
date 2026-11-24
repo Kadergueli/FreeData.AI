@@ -233,14 +233,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       if (!compact)
                         IconButton(
-                        icon: const Icon(Icons.refresh_rounded,
-                            size: 22, color: Color(0xFF64748B)),
-                        tooltip: 'Rafraîchir',
-                        onPressed: () {
-                          _load();
-                          widget.onConversationsUpdated?.call();
-                        },
-                      ),
+                          icon: const Icon(Icons.refresh_rounded,
+                              size: 22, color: Color(0xFF64748B)),
+                          tooltip: 'Rafraîchir',
+                          onPressed: () {
+                            _load();
+                            widget.onConversationsUpdated?.call();
+                          },
+                        ),
                     ],
                   ),
                   const SizedBox(height: 6),
