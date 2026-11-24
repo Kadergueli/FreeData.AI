@@ -278,3 +278,29 @@ def test_rag_short_followup_uses_recent_user_context_instead_of_generic_reply(mo
     assert answer["intent"] == "rag_answer"
     assert "mil au salamat" in seen_queries[0].lower()
     assert "contrôles de cohérence" in answer["reply"]
+
+
+def test_rag_methodology_question_uses_retrieved_evidence_even_with_market_entities(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    expected_chunk = {
+        "titre": "Méthode de prévision",
+        "editeur": "FreeData.AI",
+        "page": 6,
+        "content": "La prévision combine une validation chronologique, un modèle de référence et une régression Ridge.",
+        "similarity": 0.84,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [expected_chunk],
+    )
+
+    answer = agent.answer(
+        "Quelle est la méthodologie de calcul de la prévision du mil au Salamat ?",
+        tier="free",
+    )
+
+    assert answer["intent"] == "rag_answer"
+    assert "validation chronologique" in answer["reply"]
+    assert answer["sources"][0]["titre"] == "Méthode de prévision"
