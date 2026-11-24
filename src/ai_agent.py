@@ -3449,7 +3449,7 @@ class FreeDataAIAgent(FormattersMixin):
         return bool(
             history
             and len((query or "").split()) <= 5
-            and re.match(r"^(?:et\\s+)?(?:pourquoi|comment|explique(?:-moi)?|precise|detaille|developpe)\\b", query or "")
+            and re.match(r"^(?:et\s+)?(?:pourquoi|comment|explique(?:-moi)?|precise|detaille|developpe)\b", query or "")
         )
 
     @staticmethod
