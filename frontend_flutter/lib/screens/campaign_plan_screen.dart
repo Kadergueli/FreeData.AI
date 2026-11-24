@@ -120,14 +120,21 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
     if (cap == null || !cap.isFinite || cap <= 0) {
       validationError = 'Saisissez un capital valide supérieur à 0 FCFA.';
     } else if (months == null || months < 1 || months > 12) {
-      validationError = 'L’horizon doit être un nombre entier entre 1 et 12 mois.';
+      validationError =
+          'L’horizon doit être un nombre entier entre 1 et 12 mois.';
     } else if (coro == null || !coro.isFinite || coro < 0.5 || coro > 10) {
-      validationError = 'Le poids du coro doit être compris entre 0,5 et 10 kg.';
+      validationError =
+          'Le poids du coro doit être compris entre 0,5 et 10 kg.';
     } else if (transport == null || !transport.isFinite || transport < 0) {
-      validationError = 'Le transport par sac doit être un montant positif ou nul.';
+      validationError =
+          'Le transport par sac doit être un montant positif ou nul.';
     } else if (storage == null || !storage.isFinite || storage < 0) {
-      validationError = 'Le stockage par sac et par mois doit être positif ou nul.';
-    } else if (losses == null || !losses.isFinite || losses < 0 || losses > 40) {
+      validationError =
+          'Le stockage par sac et par mois doit être positif ou nul.';
+    } else if (losses == null ||
+        !losses.isFinite ||
+        losses < 0 ||
+        losses > 40) {
       validationError = 'Les pertes doivent être comprises entre 0 et 40 %.';
     }
 
@@ -532,9 +539,11 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                                     ),
                                   ),
                                   Text(
-                                    o['recommendation_status'] == 'capital_insufficient'
+                                    o['recommendation_status'] ==
+                                            'capital_insufficient'
                                         ? 'Capital insuffisant'
-                                        : (o['recommendation_status'] == 'negative_central_margin'
+                                        : (o['recommendation_status'] ==
+                                                'negative_central_margin'
                                             ? 'Marge centrale négative'
                                             : 'Non évaluable'),
                                     style: const TextStyle(
@@ -554,7 +563,8 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                                 ),
                               ),
                               if (o['scenarios'] is List)
-                                for (final scenario in (o['scenarios'] as List).whereType<Map>())
+                                for (final scenario in (o['scenarios'] as List)
+                                    .whereType<Map>())
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Text(
@@ -577,7 +587,8 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                                       : AppColors.muted,
                                 ),
                               ),
-                              if ((o['forecast_month']?.toString() ?? '').isNotEmpty)
+                              if ((o['forecast_month']?.toString() ?? '')
+                                  .isNotEmpty)
                                 Text(
                                   'Période de prévision : ${o['forecast_month']} · dernière observation : ${o['last_observed_month'] ?? 'N/D'}',
                                   style: const TextStyle(
