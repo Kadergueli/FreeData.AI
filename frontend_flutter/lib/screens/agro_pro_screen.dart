@@ -188,6 +188,7 @@ class _AgroProScreenState extends State<AgroProScreen>
                   MarketProScreen(
                     apiService: widget.apiService,
                     embedded: true,
+                    onAskAssistant: widget.onAskAssistant,
                   )
                 else
                   _AgroProLockCard(onUnlock: widget.onRequestPro),
