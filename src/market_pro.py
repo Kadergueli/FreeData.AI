@@ -369,8 +369,22 @@ def compute_spatial_arbitrage_detailed(
     if sub.empty:
         return {**empty, "status_message": "Aucun prix prévisionnel valide avec un mois de référence explicite."}
 
-    # Une comparaison spatiale doit porter sur le même horizon de prévision.
-    fc_month = sorted(sub["forecast_month"].unique())[-1]
+    # Retenir le mois le plus récent réellement partagé par au moins deux provinces.
+    # Le mois globalement le plus récent peut ne couvrir qu'une seule province alors
+    # qu'une comparaison valide existe au mois précédent.
+    shared_months = (
+        sub.groupby("forecast_month")["province"]
+        .nunique(dropna=True)
+        .loc[lambda counts: counts >= 2]
+        .index.astype(str)
+        .tolist()
+    )
+    if not shared_months:
+        return {
+            **empty,
+            "status_message": "Aucun mois de prévision commun à au moins deux provinces.",
+        }
+    fc_month = max(shared_months)
     sub = sub[sub["forecast_month"] == fc_month].copy()
     grouped = sub.groupby("province", dropna=True)
     by_prov = grouped["forecast_t1"].mean().dropna().sort_values()
