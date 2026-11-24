@@ -12,11 +12,13 @@ import '../core/utils/error_text.dart';
 class MarketProScreen extends StatefulWidget {
   final ApiService apiService;
   final bool embedded;
+  final void Function(String prompt)? onAskAssistant;
 
   const MarketProScreen({
     super.key,
     required this.apiService,
     this.embedded = false,
+    this.onAskAssistant,
   });
 
   @override
@@ -159,6 +161,49 @@ class _MarketProScreenState extends State<MarketProScreen> {
     } finally {
       if (mounted) setState(() => _exportingCsv = false);
     }
+  }
+
+  void _askAssistantAboutArbitrage({required bool createBusinessPlan}) {
+    final result = _arbResult;
+    if (result == null || widget.onAskAssistant == null) return;
+    final routes = ((result['routes'] as List?) ?? const [])
+        .whereType<Map>()
+        .take(3)
+        .toList();
+    if (routes.isEmpty) return;
+
+    final first = routes.first;
+    final origin = first['origin_province']?.toString() ?? '';
+    final destination = first['dest_province']?.toString() ?? '';
+    final routeSummary = routes.map((route) {
+      final margin = route['net_margin_xaf_kg'] ?? route['spread_xaf_kg'] ?? 'N/D';
+      final total = route['estimated_net_margin_xaf'] ?? 'N/D';
+      final roi = route['roi_pct'] ?? 'N/D';
+      return '- ${route['origin_province']} → ${route['dest_province']} : marge nette affichée ${margin} XAF/kg ; résultat estimé ${total} XAF ; ROI ${roi} %.';
+    }).join('\\n');
+
+    final commonContext = 'Culture : ${_cropLabels[_arbCrop] ?? _arbCrop}. '
+        'Transport saisi : ${_arbTransportCtrl.text.trim()} XAF/kg. '
+        'Volume saisi : ${_arbTonnageCtrl.text.trim()} tonne(s). '
+        'MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %. '
+        'Résultats du simulateur :\\n$routeSummary';
+
+    final prompt = createBusinessPlan
+        ? 'Prépare un business plan agricole professionnel pour la commercialisation de '
+            '${_cropLabels[_arbCrop] ?? _arbCrop}, sur le corridor $origin vers $destination. '
+            '$commonContext\\n'
+            'Utilise ces paramètres comme contexte de la simulation affichée, puis recoupe les prix '
+            'avec les données observées et les prévisions disponibles dans FreeData.AI. '
+            'Distingue les données vérifiées des hypothèses. Le capital initial ne m’a pas encore été fourni : '
+            'demande-le avant de produire les projections financières. Ne suppose aucun capital, coût ou prix manquant.'
+        : 'Explique les résultats du simulateur d’arbitrage inter-provinces de FreeData.AI. '
+            '$commonContext\\n'
+            'Explique clairement la différence entre écart brut, marge nette, résultat total et ROI ; '
+            'décris les principaux coûts et risques, explique ce que signifie le MAPE historique, '
+            'et distingue les données observées, les prévisions et les hypothèses. '
+            'Ne modifie pas les résultats affichés et signale toute limite ou donnée manquante.';
+
+    widget.onAskAssistant!(prompt);
   }
 
   Future<void> _runArbitrageSim() async {
@@ -565,6 +610,31 @@ class _MarketProScreenState extends State<MarketProScreen> {
                                               color: AppColors.ink),
                                         ),
                                       ))),
+                              if (widget.onAskAssistant != null &&
+                                  (((_arbResult!['routes'] as List?) ?? const [])
+                                      .isNotEmpty)) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    FDSecondaryButton(
+                                      label: 'Expliquer avec l’IA',
+                                      icon: Icons.auto_awesome_outlined,
+                                      onPressed: () => _askAssistantAboutArbitrage(
+                                        createBusinessPlan: false,
+                                      ),
+                                    ),
+                                    FDSecondaryButton(
+                                      label: 'Créer un business plan',
+                                      icon: Icons.description_outlined,
+                                      onPressed: () => _askAssistantAboutArbitrage(
+                                        createBusinessPlan: true,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ],
                         ),
