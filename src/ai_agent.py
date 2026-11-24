@@ -3436,10 +3436,10 @@ class FreeDataAIAgent(FormattersMixin):
     def _is_rag_knowledge_query(query: str) -> bool:
         """Identifies questions that require documentary explanation rather than a market-price template."""
         return bool(re.search(
-            r"\\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
-            r"definition|algorithme|validation|couverture(?:\\s+du\\s+corpus)?|"
-            r"comment\\s+fonctionne|comment\\s+est\\s+calcule|comment\\s+sont\\s+calcules|"
-            r"comment\\s+verifie|comment\\s+sont\\s+verifies|limites\\s+methodologiques)\\b",
+            r"\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
+            r"definition|algorithme|validation|couverture(?:\s+du\s+corpus)?|"
+            r"comment\s+fonctionne|comment\s+est\s+calcule|comment\s+sont\s+calcules|"
+            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques)\b",
             query or "",
         ))
 
