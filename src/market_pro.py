@@ -20,6 +20,14 @@ from src import db as _db
 from src.agro_engine import SUPPORTED_AGRO_CROPS
 
 
+def _is_positive_number(value: Any) -> bool:
+    try:
+        number = float(value)
+        return math.isfinite(number) and number > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1052,23 +1060,31 @@ def compute_farm_operating_account(
     area = max(0.01, float(area_hectares))
     disc_ratio = max(0.0, min(0.5, float(farmgate_discount_pct) / 100.0))
 
-    # Rendement : saisi par l'opérateur ou proxy World Bank 2020-2024
+    # Rendement : le proxy national est une référence indicative, jamais une mesure parcellaire.
     yield_is_proxy = not (target_yield_kg_ha is not None and target_yield_kg_ha > 0)
     if not yield_is_proxy:
         y_ha = float(target_yield_kg_ha)
         y_source = "Rendement cible saisi par l'opérateur / agronome"
+        yield_source_type = "user_input"
     else:
         wb_vals = [
             float(r["value"])
             for r in (national_agro_rows or [])
-            if national_indicator_key(r["indicator"]) == "cereal_yield" and 2020 <= int(r["reference_date"][:4]) <= 2024
+            if national_indicator_key(r.get("indicator", "")) == "cereal_yield"
+            and 2020 <= int(str(r.get("reference_date", "0"))[:4] or 0) <= 2024
+            and _is_positive_number(r.get("value"))
         ]
-        y_ha = round(sum(wb_vals) / len(wb_vals), 1) if wb_vals else 834.6
-        y_source = f"Proxy céréalier national World Bank 2020–2024 ({y_ha:.1f} kg/ha)"
-
+        if wb_vals:
+            y_ha = round(sum(wb_vals) / len(wb_vals), 1)
+            y_source = f"Proxy céréalier national World Bank 2020–2024 ({y_ha:.1f} kg/ha), non spécifique à la parcelle"
+            yield_source_type = "world_bank_national_proxy"
+        else:
+            y_ha = 834.6
+            y_source = "Valeur technique de repli (834,6 kg/ha), non observée et non vérifiée"
+            yield_source_type = "technical_fallback"
     production_kg = round(area * y_ha, 1)
 
-    # OPEX & CAPEX
+    # OPEX & CAPEX saisis par l'utilisateur.
     opex_items = {
         "Semences": max(0.0, float(seed_cost_per_ha_xaf)),
         "Engrais & intrants": max(0.0, float(fertilizer_cost_per_ha_xaf)),
@@ -1084,31 +1100,69 @@ def compute_farm_operating_account(
 
     loan_val = max(0.0, float(loan_amount_xaf))
     rate_val = max(0.0, float(interest_rate_pct))
-    debt_service = round(loan_val * (1.0 + rate_val / 100.0))
 
-    # Prix vérifiés (WFP/FEWS NET + ML t+1)
+    def _positive_frame(frame: Any, commodity: str, *, province_name: str) -> tuple[Any, str]:
+        if frame is None or getattr(frame, "empty", True) or "commodity_std" not in frame.columns:
+            return pd.DataFrame(), "unavailable"
+        scoped = frame[frame["commodity_std"].astype(str).str.casefold() == commodity.casefold()].copy()
+        if scoped.empty:
+            return scoped, "unavailable"
+        if "province" in scoped.columns:
+            local = scoped[scoped["province"].astype(str).str.casefold() == province_name.casefold()]
+        else:
+            local = pd.DataFrame()
+        if not local.empty:
+            scoped, scope_name = local.copy(), "province"
+        else:
+            scope_name = "national_fallback"
+        return scoped, scope_name
+
+    def _month_values(frame: Any, value_column: str, month_column: str) -> Any:
+        if frame.empty or value_column not in frame.columns or month_column not in frame.columns:
+            return pd.DataFrame()
+        selected = frame.copy()
+        selected["_value"] = pd.to_numeric(selected[value_column], errors="coerce")
+        selected["_month"] = selected[month_column].astype(str)
+        selected = selected[
+            selected["_value"].notna()
+            & (selected["_value"] > 0)
+            & selected["_month"].str.match(r"^\\d{4}-(0[1-9]|1[0-2])$")
+        ]
+        return selected
+
+    # Historique : comparer les indicateurs sur une fenêtre commune récente (12 mois observés).
+    history_frame, history_scope = _positive_frame(hist_df, comm, province_name=prov_name)
+    history = _month_values(history_frame, "value", "year_month")
+    history_reference_month: Optional[str] = None
+    history_rows_used = 0
+    history_sources: list[str] = []
     stress_px: Optional[float] = None
-    central_px: Optional[float] = None
     storage_px: Optional[float] = None
-    if hist_df is not None and not getattr(hist_df, "empty", True):
-        h_comm = hist_df[hist_df["commodity_std"] == comm]
-        h_prov = h_comm[h_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in h_comm.columns else h_comm
-        h_scope = h_prov if not h_prov.empty else h_comm
-        if not h_scope.empty and "value" in h_scope.columns and not h_scope["value"].dropna().empty:
-            storage_px = round(float(h_scope["value"].dropna().median()), 1)
-            if "year_month" in h_scope.columns:
-                recent = h_scope[h_scope["year_month"].astype(str) >= "2024-01"]
-                if not recent.empty and not recent["value"].dropna().empty:
-                    stress_px = round(float(recent["value"].dropna().min()), 1)
-            if stress_px is None:
-                stress_px = round(float(h_scope["value"].dropna().min()), 1)
+    if not history.empty:
+        history_reference_month = str(history["_month"].max())
+        months = sorted(history["_month"].unique())[-12:]
+        recent_history = history[history["_month"].isin(months)]
+        history_rows_used = int(len(recent_history))
+        history_values = recent_history["_value"]
+        stress_px = round(float(history_values.min()), 1)
+        storage_px = round(float(history_values.median()), 1)
+        if "source" in recent_history.columns:
+            history_sources = sorted({str(v).strip() for v in recent_history["source"].dropna() if str(v).strip()})
 
-    if forecast_df is not None and not getattr(forecast_df, "empty", True):
-        f_comm = forecast_df[forecast_df["commodity_std"] == comm]
-        f_prov = f_comm[f_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in f_comm.columns else f_comm
-        f_scope = f_prov if not f_prov.empty else f_comm
-        if not f_scope.empty and "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
-            central_px = round(float(f_scope["forecast_t1"].dropna().mean()), 1)
+    # Prévision : un seul mois cible, le plus récent, sans moyenne entre horizons différents.
+    forecast_frame, forecast_scope = _positive_frame(forecast_df, comm, province_name=prov_name)
+    forecasts = _month_values(forecast_frame, "forecast_t1", "forecast_month")
+    forecast_reference_month: Optional[str] = None
+    forecast_rows_used = 0
+    forecast_sources: list[str] = []
+    central_px: Optional[float] = None
+    if not forecasts.empty:
+        forecast_reference_month = str(forecasts["_month"].max())
+        latest_forecasts = forecasts[forecasts["_month"] == forecast_reference_month]
+        forecast_rows_used = int(len(latest_forecasts))
+        central_px = round(float(latest_forecasts["_value"].median()), 1)
+        if "source" in latest_forecasts.columns:
+            forecast_sources = sorted({str(v).strip() for v in latest_forecasts["source"].dropna() if str(v).strip()})
 
     if central_px is not None and stress_px is not None:
         stress_px = min(stress_px, central_px)
