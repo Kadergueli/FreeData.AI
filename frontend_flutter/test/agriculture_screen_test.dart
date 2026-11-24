@@ -154,8 +154,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'AgricultureScreen applies the saved default agro-climatic hub',
+  testWidgets('AgricultureScreen uses the saved default agro hub',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1.0;
