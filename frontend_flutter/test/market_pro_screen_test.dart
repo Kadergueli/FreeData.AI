@@ -53,7 +53,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Moundou'), findsOneWidget);
+    final radarHub = find.text('Moundou');
+    await tester.scrollUntilVisible(
+      radarHub,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(radarHub, findsOneWidget);
     expect(find.text('Province : Logone Occidental'), findsOneWidget);
     expect(find.text('Anomalie Eau'), findsOneWidget);
     expect(find.text('18.5 %'), findsOneWidget);
