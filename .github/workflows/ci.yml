@@ -61,12 +61,6 @@ jobs:
           cache: true
       - name: Installer les paquets Flutter
         run: flutter pub get
-      - name: Diagnostic formatage Marché PRO
-        run: |
-          dart format --output=show lib/screens/market_pro_screen.dart > /tmp/market_formatted.dart
-          diff -u lib/screens/market_pro_screen.dart /tmp/market_formatted.dart || true
-          dart format --output=show test/market_pro_screen_test.dart > /tmp/market_test_formatted.dart
-          diff -u test/market_pro_screen_test.dart /tmp/market_test_formatted.dart || true
       - name: Vérifier le formatage Dart
         run: dart format --output=none --set-exit-if-changed lib test
       - name: Analyse statique Flutter
