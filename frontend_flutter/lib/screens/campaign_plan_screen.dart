@@ -439,17 +439,25 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                     children: [
                       const Text(
                         'Aucune opportunité suffisamment viable',
-                        style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: AppColors.ink),
+                        style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.ink,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _result?['recommendation_message']?.toString() ?? 'Aucune recommandation ne satisfait les critères de rentabilité et de capital disponible.',
+                        _result?['recommendation_message']?.toString() ??
+                            'Aucune recommandation ne satisfait les critères de rentabilité et de capital disponible.',
                         style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
                       ),
                       const SizedBox(height: 8),
                       const Text(
                         'Vérifiez le capital, les frais de transport et de stockage, les pertes déclarées et la disponibilité des prix locaux avant de relancer la simulation.',
-                        style: TextStyle(fontSize: 12.5, color: AppColors.inkSoft),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.inkSoft,
+                        ),
                       ),
                     ],
                   ),
