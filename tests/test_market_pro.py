@@ -170,6 +170,35 @@ def test_campaign_plan_never_recommends_negative_margin_or_zero_bags():
     assert no_bag["all_opportunities"][0]["recommendation_status"] == "capital_insufficient"
 
 
+
+def test_campaign_plan_uses_latest_forecast_period_and_latest_observation_not_row_order():
+    hist = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "year_month": "2026-01", "value": 300.0},
+        {"commodity_std": "Millet", "province": "Salamat", "year_month": "2024-01", "value": 100.0},
+    ])
+    forecast = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "market_name": "Am Timan",
+         "forecast_month": "2026-10", "last_observed_month": "2026-09",
+         "last_observed_price": 220.0, "forecast_t1": 900.0},
+        {"commodity_std": "Millet", "province": "Salamat", "market_name": "Am Timan",
+         "forecast_month": "2026-11", "last_observed_month": "2026-10",
+         "last_observed_price": 240.0, "forecast_t1": 280.0},
+        {"commodity_std": "Millet", "province": "Salamat", "market_name": "Aboudeia",
+         "forecast_month": "2026-11", "last_observed_month": "2026-10",
+         "last_observed_price": 260.0, "forecast_t1": 320.0},
+    ])
+    result = compute_campaign_investment_plan(
+        hist_df=hist, forecast_df=forecast, capital_xaf=1_000_000.0,
+        origin_province="Salamat", crop_id="millet", holding_months=1,
+    )
+    item = result["all_opportunities"][0]
+    assert item["forecast_month"] == "2026-11"
+    assert item["forecast_rows_used"] == 2
+    assert item["last_observed_month"] == "2026-10"
+    assert item["buy_price_xaf_kg"] == 250.0
+    assert result["recommended_plan"]["scenarios"][1]["sell_price_xaf_kg"] == 300.0
+
+
 def test_campaign_plan_uses_observation_month_and_exposes_data_scope():
     hist = pd.DataFrame([
         {"commodity_std": "Millet", "province": "Salamat", "year_month": f"202{y}-{m:02d}", "value": 200.0 + m}

@@ -105,32 +105,63 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
     super.dispose();
   }
 
-  double _num(TextEditingController c, double fallback) =>
-      double.tryParse(c.text.trim().replaceAll(',', '.')) ?? fallback;
+  double? _parseNumber(TextEditingController controller) =>
+      double.tryParse(controller.text.trim().replaceAll(',', '.'));
 
   Future<void> _runSimulation() async {
-    final cap = _num(_capitalCtrl, 0);
-    if (cap <= 0) {
-      setState(() => _error = 'Saisissez un capital supérieur à 0 FCFA.');
+    final cap = _parseNumber(_capitalCtrl);
+    final months = int.tryParse(_monthsCtrl.text.trim());
+    final coro = _parseNumber(_coroCtrl);
+    final transport = _parseNumber(_transportCtrl);
+    final storage = _parseNumber(_storageCtrl);
+    final losses = _parseNumber(_lossCtrl);
+
+    String? validationError;
+    if (cap == null || !cap.isFinite || cap <= 0) {
+      validationError = 'Saisissez un capital valide supérieur à 0 FCFA.';
+    } else if (months == null || months < 1 || months > 12) {
+      validationError =
+          'L’horizon doit être un nombre entier entre 1 et 12 mois.';
+    } else if (coro == null || !coro.isFinite || coro < 0.5 || coro > 10) {
+      validationError =
+          'Le poids du coro doit être compris entre 0,5 et 10 kg.';
+    } else if (transport == null || !transport.isFinite || transport < 0) {
+      validationError =
+          'Le transport par sac doit être un montant positif ou nul.';
+    } else if (storage == null || !storage.isFinite || storage < 0) {
+      validationError =
+          'Le stockage par sac et par mois doit être positif ou nul.';
+    } else if (losses == null ||
+        !losses.isFinite ||
+        losses < 0 ||
+        losses > 40) {
+      validationError = 'Les pertes doivent être comprises entre 0 et 40 %.';
+    }
+
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _result = null;
+      });
       return;
     }
+
     setState(() {
       _loading = true;
       _error = null;
+      _result = null;
     });
     try {
-      final months = int.tryParse(_monthsCtrl.text.trim());
       final res = await widget.apiService.computeCampaignPlan(
-        capitalXaf: cap,
+        capitalXaf: cap!,
         originProvince: _province,
         entrepreneurStatus: _status,
         cropId: _cropId.isEmpty ? null : _cropId,
-        holdingMonths:
-            (months != null && months >= 1 && months <= 12) ? months : null,
-        coroWeightKg: _num(_coroCtrl, 2.5),
-        transportPerBagXaf: _num(_transportCtrl, 0),
-        storagePerBagMonthXaf: _num(_storageCtrl, 0),
-        lossPct: _num(_lossCtrl, 0),
+        holdingMonths: months,
+        coroWeightKg: coro!,
+        transportPerBagXaf: transport!,
+        storagePerBagMonthXaf: storage!,
+        lossPct: losses!,
       );
       if (!mounted) return;
       setState(() {
@@ -358,7 +389,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _monthsCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Horizon (1–12 mois)',
+                              labelText: 'Horizon (1 à 12 mois)',
                               isDense: true,
                             ),
                           ),
@@ -370,7 +401,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true),
                             decoration: const InputDecoration(
-                              labelText: 'Poids coro (kg)',
+                              labelText: 'Poids du coro (kg)',
                               isDense: true,
                             ),
                           ),
@@ -381,7 +412,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _transportCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Transport / sac (F)',
+                              labelText: 'Transport / sac (XAF)',
                               isDense: true,
                             ),
                           ),
@@ -392,7 +423,7 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                             controller: _storageCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'Stockage / sac / mois (F)',
+                              labelText: 'Stockage / sac / mois (XAF)',
                               isDense: true,
                             ),
                           ),
@@ -463,6 +494,111 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                           color: AppColors.inkSoft,
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Diagnostic des cultures évaluées',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (allOpps.isEmpty)
+                        const Text(
+                          'Aucune culture ne dispose actuellement de données suffisantes pour établir une estimation. Vérifiez la couverture des prix avant de modifier votre capital.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.muted,
+                            height: 1.4,
+                          ),
+                        ),
+                      for (final o in allOpps.whereType<Map>())
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.canvas,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.line),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      o['label_fr']?.toString() ?? 'Culture',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.ink,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    o['recommendation_status'] ==
+                                            'capital_insufficient'
+                                        ? 'Capital insuffisant'
+                                        : (o['recommendation_status'] ==
+                                                'negative_central_margin'
+                                            ? 'Marge centrale négative'
+                                            : 'Non évaluable'),
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.danger,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                'Prix d’achat estimé : ${o['buy_price_xaf_kg'] ?? 'N/D'} XAF/kg · sacs finançables : ${o['bags_count'] ?? 'N/D'} · point mort : ${o['breakeven_price_xaf_kg'] ?? 'N/D'} XAF/kg',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppColors.inkSoft,
+                                ),
+                              ),
+                              if (o['scenarios'] is List)
+                                for (final scenario in (o['scenarios'] as List)
+                                    .whereType<Map>())
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      '${scenario['label'] ?? 'Scénario'} : ${scenario['sell_price_xaf_kg'] ?? 'N/D'} XAF/kg · résultat ${_fmtXaf(scenario['net_profit_xaf'])} (${scenario['roi_pct'] ?? 'N/D'} %)',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  ),
+                              const SizedBox(height: 4),
+                              Text(
+                                o['used_nonlocal_fallback'] == true
+                                    ? 'Données de repli : les prix utilisés ne sont pas propres à la province sélectionnée.'
+                                    : 'Périmètre : ${o['data_scope'] == 'province' ? 'données de la province sélectionnée' : 'périmètre géographique à confirmer'}.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: o['used_nonlocal_fallback'] == true
+                                      ? AppColors.danger
+                                      : AppColors.muted,
+                                ),
+                              ),
+                              if ((o['forecast_month']?.toString() ?? '')
+                                  .isNotEmpty)
+                                Text(
+                                  'Période de prévision : ${o['forecast_month']} · dernière observation : ${o['last_observed_month'] ?? 'N/D'}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),

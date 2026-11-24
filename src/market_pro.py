@@ -797,23 +797,45 @@ def compute_campaign_investment_plan(
 
         buy_px: Optional[float] = None
         pred_t1: Optional[float] = None
-        # Ancre temporelle : dernière observation réellement disponible, sinon mois courant UTC.
-        cur_month = datetime.now(timezone.utc).month
-        observed_month = None
+        forecast_month: Optional[str] = None
+        # Use one explicit, latest forecast period. Averaging forecasts from
+        # different target months silently mixes incomparable horizons.
         if f_scope is not None and not f_scope.empty:
-            if "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
-                pred_t1 = float(f_scope["forecast_t1"].dropna().mean())
+            forecast_rows = f_scope.copy()
+            if "forecast_t1" in forecast_rows.columns:
+                forecast_rows["forecast_t1"] = pd.to_numeric(forecast_rows["forecast_t1"], errors="coerce")
+                forecast_rows = forecast_rows[forecast_rows["forecast_t1"] > 0]
+            else:
+                forecast_rows = forecast_rows.iloc[0:0]
+            if "forecast_month" in forecast_rows.columns:
+                valid_month = forecast_rows["forecast_month"].astype(str).str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
+                forecast_rows = forecast_rows[valid_month]
+                if not forecast_rows.empty:
+                    forecast_month = str(forecast_rows["forecast_month"].max())
+                    forecast_rows = forecast_rows[forecast_rows["forecast_month"].astype(str) == forecast_month]
+            if not forecast_rows.empty:
+                pred_t1 = float(forecast_rows["forecast_t1"].mean())
+
+            # Buy price comes from the latest observed month, never from an
+            # average spanning old and recent observations.
             obs_col = "last_observed_price" if "last_observed_price" in f_scope.columns else ("value" if "value" in f_scope.columns else None)
-            if obs_col and not f_scope[obs_col].dropna().empty:
-                buy_px = float(f_scope[obs_col].dropna().mean())
-            if "last_observed_month" in f_scope.columns and not f_scope["last_observed_month"].dropna().empty:
-                observed_month = str(f_scope["last_observed_month"].dropna().astype(str).sort_values().iloc[-1])
-                try:
-                    parsed_month = int(observed_month[5:7])
-                    if 1 <= parsed_month <= 12:
-                        cur_month = parsed_month
-                except (ValueError, IndexError):
-                    observed_month = None
+            if obs_col:
+                observed_rows = f_scope.copy()
+                observed_rows[obs_col] = pd.to_numeric(observed_rows[obs_col], errors="coerce")
+                observed_rows = observed_rows[observed_rows[obs_col] > 0]
+                if "last_observed_month" in observed_rows.columns:
+                    valid_obs = observed_rows["last_observed_month"].astype(str).str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
+                    observed_rows = observed_rows[valid_obs]
+                    if not observed_rows.empty:
+                        observed_month = str(observed_rows["last_observed_month"].max())
+                        observed_rows = observed_rows[observed_rows["last_observed_month"].astype(str) == observed_month]
+                if not observed_rows.empty:
+                    buy_px = float(observed_rows[obs_col].mean())
+                    if observed_month:
+                        try:
+                            cur_month = int(observed_month[5:7])
+                        except (ValueError, IndexError):
+                            observed_month = None
 
         history_observations = 0
         history_years: list[int] = []
@@ -823,8 +845,23 @@ def compute_campaign_investment_plan(
             if "year_month" in h_scope.columns:
                 history_years = sorted({int(str(v)[:4]) for v in h_scope["year_month"].dropna().astype(str) if str(v)[:4].isdigit()})
         hist_vals = h_scope["value"].dropna().astype(float) if (h_scope is not None and not h_scope.empty and "value" in h_scope.columns) else None
-        if buy_px is None and hist_vals is not None and not hist_vals.empty:
-            buy_px = float(hist_vals.iloc[-1])
+        if (buy_px is None or buy_px <= 0) and hist_vals is not None and not hist_vals.empty:
+            # Deterministic fallback: sort by observation month before selecting
+            # the latest available historical price.
+            if "year_month" in h_scope.columns:
+                historical_rows = h_scope[["year_month", "value"]].copy()
+                historical_rows["value"] = pd.to_numeric(historical_rows["value"], errors="coerce")
+                historical_rows = historical_rows.dropna(subset=["year_month", "value"])
+                historical_rows = historical_rows[historical_rows["value"] > 0]
+                if not historical_rows.empty:
+                    latest_history_month = str(historical_rows["year_month"].astype(str).max())
+                    latest_rows = historical_rows[historical_rows["year_month"].astype(str) == latest_history_month]
+                    buy_px = float(latest_rows["value"].mean())
+                    observed_month = latest_history_month
+                    cur_month = int(latest_history_month[5:7])
+            else:
+                buy_px = float(hist_vals.iloc[-1])
+
         if buy_px is None or buy_px <= 0:
             continue
 
@@ -940,6 +977,8 @@ def compute_campaign_investment_plan(
             "history_years": history_years,
             "history_year_count": len(history_years),
             "last_observed_month": observed_month,
+            "forecast_month": forecast_month,
+            "forecast_rows_used": int(len(forecast_rows)) if f_scope is not None and not f_scope.empty else 0,
             "buy_price_xaf_kg": round(buy_px, 1),
             "buy_price_bag_100kg_xaf": round(buy_px * bag_kg),
             "buy_price_coro_xaf": round(buy_px * coro_kg),
