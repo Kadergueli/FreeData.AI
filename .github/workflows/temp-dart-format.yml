@@ -13,3 +13,5 @@ jobs:
           channel: stable
       - name: Show formatted AccountScreen
         run: dart format --output=show frontend_flutter/lib/screens/account_screen.dart
+
+# Trigger formatter inspection.
