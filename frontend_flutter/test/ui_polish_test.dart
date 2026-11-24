@@ -330,14 +330,14 @@ void main() {
     expect(find.text('Copier CSV'), findsOneWidget);
     expect(find.text('CV : 21.7%'), findsOneWidget);
     expect(find.text('Baisse max : -33.1%'), findsOneWidget);
-    expect(find.text('32 mois'), findsOneWidget);
+    expect(find.text('32 mois observés'), findsOneWidget);
     expect(find.textContaining('Indicateur informatif fondé sur la volatilité'),
         findsOneWidget);
     await tester.ensureVisible(find.text('Détails du calcul'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Détails du calcul'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Score marché : 65/100 calculé sur 32 mois'),
+    expect(find.textContaining('Indice de stabilité : 65/100 calculé sur 32 mois observés'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
   });
