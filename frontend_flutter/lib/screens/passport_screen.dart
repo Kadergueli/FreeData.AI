@@ -488,7 +488,8 @@ class _PassportScreenState extends State<PassportScreen> {
                               _MetricBadge(text: '$obsMonths mois observés'),
                               if (r['s_coverage'] != null)
                                 _MetricBadge(
-                                  text: 'Couverture : ${parseNum(r['s_coverage'])?.toStringAsFixed(0) ?? '—'}/100',
+                                  text:
+                                      'Couverture : ${parseNum(r['s_coverage'])?.toStringAsFixed(0) ?? '—'}/100',
                                 ),
                             ],
                           ),
