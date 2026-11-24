@@ -1192,9 +1192,11 @@ class ApiService {
   Future<List<dynamic>> getCreditPassports({
     String? province,
     String? commodity,
-    int loanAmount = 1000000,
+    int collateralValueXaf = 1000000,
   }) async {
-    final params = <String, String>{'loan_amount': loanAmount.toString()};
+    final params = <String, String>{
+      'collateral_value_xaf': collateralValueXaf.toString(),
+    };
     if (province != null && province.isNotEmpty) params['province'] = province;
     if (commodity != null && commodity.isNotEmpty)
       params['commodity'] = commodity;
