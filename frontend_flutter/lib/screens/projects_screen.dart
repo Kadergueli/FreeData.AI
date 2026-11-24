@@ -62,6 +62,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   List<ConversationThread> _projectConversations = [];
   List<Map<String, dynamic>> _projectDocuments = [];
   List<Map<String, dynamic>> _projectAgroAssessments = [];
+  String? _projectDocumentsError;
+  String? _projectAssessmentsError;
   bool _uploadingDoc = false;
   bool _loadingWorkspace = false;
   final TextEditingController _workspacePromptCtrl = TextEditingController();
@@ -217,15 +219,29 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       });
     }
     try {
-      final results = await Future.wait([
+      String? documentsError;
+      String? assessmentsError;
+      final results = await Future.wait<Object?>([
         widget.apiService.getProject(pid),
         LocalConversationStorage.instance.listProjectConversations(pid),
         widget.apiService
             .listUserDocuments(projectId: pid)
-            .catchError((_) => <Map<String, dynamic>>[]),
+            .then<List<Map<String, dynamic>>>(
+          (value) => value,
+          onError: (Object error) {
+            documentsError = errText(error);
+            return <Map<String, dynamic>>[];
+          },
+        ),
         widget.apiService
             .listAgroFieldAssessments(projectId: pid)
-            .catchError((_) => <Map<String, dynamic>>[]),
+            .then<List<Map<String, dynamic>>>(
+          (value) => value,
+          onError: (Object error) {
+            assessmentsError = errText(error);
+            return <Map<String, dynamic>>[];
+          },
+        ),
       ]);
       if (!mounted) return;
       final liveConvs = widget.conversations != null
@@ -234,8 +250,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       setState(() {
         _selectedProject = results[0] as Map<String, dynamic>;
         _projectConversations = liveConvs;
-        _projectDocuments = results[2] as List<Map<String, dynamic>>;
-        _projectAgroAssessments = results[3] as List<Map<String, dynamic>>;
+        if (documentsError == null) {
+          _projectDocuments = results[2] as List<Map<String, dynamic>>;
+        }
+        if (assessmentsError == null) {
+          _projectAgroAssessments = results[3] as List<Map<String, dynamic>>;
+        }
+        _projectDocumentsError = documentsError;
+        _projectAssessmentsError = assessmentsError;
         _loadingWorkspace = false;
       });
     } catch (e) {
@@ -1167,7 +1189,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                 ),
                               ],
                             ),
-                            if (_projectAgroAssessments.isNotEmpty) ...[
+                            if (_projectAssessmentsError != null) ...[
+                              const SizedBox(height: 12),
+                              FDErrorState(
+                                message: 'Impossible de charger les audits parcellaires : $_projectAssessmentsError',
+                                onRetry: () => _openWorkspace(proj, silent: true),
+                              ),
+                            ] else if (_projectAgroAssessments.isNotEmpty) ...[
                               const SizedBox(height: 12),
                               const Text(
                                 'Audits parcellaires rattachés',
@@ -1442,7 +1470,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      if (_projectDocuments.isEmpty)
+                      if (_projectDocumentsError != null)
+                        FDErrorState(
+                          message: 'Impossible de charger les documents du projet : $_projectDocumentsError',
+                          onRetry: () => _openWorkspace(proj, silent: true),
+                        )
+                      else if (_projectDocuments.isEmpty)
                         const FDCard(
                           child: Text(
                             'Aucun document privé attaché à ce projet. Ajoutez un devis, contrat ou rapport PDF : seuls les chats de ce projet l’utiliseront.',
