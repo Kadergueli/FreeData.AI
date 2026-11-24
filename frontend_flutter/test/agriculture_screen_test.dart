@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:freedata_ai/screens/agriculture_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
@@ -150,6 +151,28 @@ void main() {
     await tester.tap(find.text('Analyser cette zone avec l’assistant'));
     await tester.pumpAndSettle();
     expect(asked, contains("N'Djamena"));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'AgricultureScreen applies the saved default agro-climatic hub',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    SharedPreferences.setMockInitialValues({'fd_pref_agro_hub': 'Moundou'});
+
+    final api = _AgroFakeApi();
+    await tester.pumpWidget(
+      MaterialApp(home: AgricultureScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.lastRegion, 'Moundou');
+    expect(find.text('Moundou'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
