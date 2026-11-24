@@ -188,3 +188,23 @@ def test_campaign_plan_uses_observation_month_and_exposes_data_scope():
     assert item["data_scope"] == "province"
     assert item["used_national_fallback"] is False
     assert item["history_year_count"] == 3
+
+
+def test_campaign_plan_flags_nonlocal_history_and_forecast_fallbacks():
+    hist = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Mandoul", "year_month": f"202{y}-{m:02d}", "value": 200.0}
+        for y in (4, 5, 6) for m in range(1, 13)
+    ])
+    forecast = pd.DataFrame([{
+        "commodity_std": "Millet", "province": "Mandoul", "last_observed_month": "2026-08",
+        "last_observed_price": 210.0, "forecast_t1": 240.0,
+    }])
+    result = compute_campaign_investment_plan(
+        hist_df=hist, forecast_df=forecast, capital_xaf=1000000.0,
+        origin_province="Salamat", crop_id="millet", holding_months=2,
+    )
+    item = result["all_opportunities"][0]
+    assert item["used_nonlocal_fallback"] is True
+    assert item["used_national_fallback"] is True
+    assert item["history_data_scope"] == "commodity_fallback"
+    assert item["forecast_data_scope"] == "commodity_fallback"
