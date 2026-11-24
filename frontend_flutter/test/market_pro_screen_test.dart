@@ -348,7 +348,9 @@ void main() {
 
     await tester.tap(find.text('Créer un business plan'));
     expect(capturedPrompt, contains('business plan commercial agricole'));
-    expect(capturedPrompt, contains('Capital saisi par l’utilisateur : 500000 XAF'));
-    expect(capturedPrompt, isNot(contains('capital réel de l’utilisateur n’est pas confirmé')));
+    expect(capturedPrompt,
+        contains('Capital saisi par l’utilisateur : 500000 XAF'));
+    expect(capturedPrompt,
+        isNot(contains('capital réel de l’utilisateur n’est pas confirmé')));
   });
 }
