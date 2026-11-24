@@ -113,7 +113,9 @@ class _AuthDialogState extends State<AuthDialog> {
         try {
           await AuthTokenStorage.delete();
         } catch (_) {}
-        rethrow;
+        throw StateError(
+          'Impossible de sécuriser votre session sur cet appareil. Réessayez.',
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
