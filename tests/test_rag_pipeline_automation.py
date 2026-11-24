@@ -77,3 +77,13 @@ def test_embedding_response_requires_exact_count_dimension_and_finite_values(mon
     monkeypatch.setattr(bvs.requests, "post", lambda *args, **kwargs: FakeResponse())
     with pytest.raises(RuntimeError, match="1024"):
         bvs.get_embeddings(["extrait"])
+
+
+def test_public_rag_migration_enforces_approved_document_visibility():
+    migration = (bvs.DOCS_DIR.parent / "sql" / "16_public_rag.sql").read_text(encoding="utf-8")
+    assert "vector(1024)" in migration
+    assert "SECURITY INVOKER" in migration
+    assert "redistribution_ok = true" in migration
+    assert "ENABLE ROW LEVEL SECURITY" in migration
+    assert "GRANT ALL PRIVILEGES" in migration
+    assert "match_chunks" in migration
