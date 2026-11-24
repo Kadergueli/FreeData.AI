@@ -1264,12 +1264,12 @@ class _MainShellState extends State<MainShell> {
                                     fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
                         ],
+                        _buildWatchlistNotificationButton(),
+                        _buildUtilityMenu(
+                          includeSubscription: true,
+                          includeAccount: false,
+                        ),
                       ],
-                    ),
-                    _buildWatchlistNotificationButton(),
-                    _buildUtilityMenu(
-                      includeSubscription: true,
-                      includeAccount: false,
                     ),
                   ),
                   Expanded(
