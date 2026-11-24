@@ -1513,11 +1513,8 @@ def test_explain_anomaly_followup_stays_on_anomalies_and_explains_gap(pipeline_o
     assert "Pourquoi cet écart" in follow["reply"]
 
 
-def test_business_plan_request_with_route_requires_explicit_capital(pipeline_outputs):
+def test_business_plan_request_with_route_requires_explicit_capital(agent):
     """A corridor does not authorize the default 500,000 XAF as a user's business-plan budget."""
-    hist_df, fc_df, cp_df = pipeline_outputs
-    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
-
     answer = agent.answer(
         "Prépare un business plan pour le mil de Salamat vers N'Djamena.",
         tier="free",
@@ -1527,3 +1524,29 @@ def test_business_plan_request_with_route_requires_explicit_capital(pipeline_out
     assert "capital de départ" in answer["reply"].lower()
     assert answer["entities"]["is_business_plan_request"] is True
     assert answer["entities"]["is_default_capital"] is True
+
+
+def test_strict_rag_mode_does_not_fall_back_to_ungrounded_ollama(agent, monkeypatch):
+    from dataclasses import replace
+    from src import ai_agent
+
+    monkeypatch.setattr(
+        ai_agent,
+        "settings",
+        replace(ai_agent.settings, llm_api_key=""),
+    )
+    monkeypatch.setattr(
+        agent,
+        "_refine_with_ollama",
+        lambda *args, **kwargs: pytest.fail("RAG-only mode must not call Ollama without document excerpts"),
+    )
+
+    evidence = "Extrait vérifié : la marge nette déduit les frais opérationnels."
+    result = agent._synthesize_with_llm(
+        "Explique la marge nette.",
+        evidence,
+        [{"titre": "Guide financier", "page": 2, "content": evidence}],
+        rag_only=True,
+    )
+
+    assert result == evidence
