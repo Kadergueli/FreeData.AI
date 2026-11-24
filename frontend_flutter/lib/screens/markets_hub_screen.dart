@@ -165,8 +165,14 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                   apiService: widget.apiService,
                   onSelectPrompt: widget.onSelectPrompt,
                 ),
-                CampaignPlanScreen(apiService: widget.apiService),
-                FarmOperatingAccountScreen(apiService: widget.apiService),
+                CampaignPlanScreen(
+                  apiService: widget.apiService,
+                  onSelectPrompt: widget.onSelectPrompt,
+                ),
+                FarmOperatingAccountScreen(
+                  apiService: widget.apiService,
+                  onSelectPrompt: widget.onSelectPrompt,
+                ),
                 PassportScreen(
                   apiService: widget.apiService,
                   onSelectPrompt: widget.onSelectPrompt,
