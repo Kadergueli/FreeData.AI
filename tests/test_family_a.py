@@ -119,6 +119,7 @@ def _agent_with_season():
     "Quand acheter du mil ?", "Quel est le meilleur moment pour vendre mon mil ?",
     "Quand stocker le mil à Lac ?", "Quelle est la période de soudure pour le mil ?",
     "quel mois le mil est le moins cher pour acheter",
+    "Quel est le meilleur mois pour acheter, stocker et revendre du mil au Salamat ?",
 ])
 def test_timing_intent_and_grounded_calendar(q):
     r = _agent_with_season().answer(q)
