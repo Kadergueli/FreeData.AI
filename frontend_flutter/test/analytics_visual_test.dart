@@ -109,8 +109,7 @@ class _FakeAnalyticsApiService extends ApiService {
       ];
 }
 
-class _UnavailableOptionalAnalyticsApiService
-    extends _FakeAnalyticsApiService {
+class _UnavailableOptionalAnalyticsApiService extends _FakeAnalyticsApiService {
   @override
   Future<Map<String, dynamic>> getForecastBenchmark({
     required String commodity,
@@ -167,7 +166,8 @@ void main() {
     expect(find.text('Méthode & Formules Mathématiques'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('AnalyticsScreen labels optional service failures and ignores invalid prices',
+  testWidgets(
+      'AnalyticsScreen labels optional service failures and ignores invalid prices',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -189,5 +189,4 @@ void main() {
     expect(find.textContaining('Min : 0 XAF/kg'), findsNothing);
     expect(tester.takeException(), isNull);
   });
-
 }
