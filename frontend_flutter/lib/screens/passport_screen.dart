@@ -152,75 +152,79 @@ class _PassportScreenState extends State<PassportScreen> {
                         SizedBox(
                           width: fieldWidth,
                           child: DropdownButtonFormField<String>(
-                        key: ValueKey(_commodity),
-                        initialValue: _commodities.contains(_commodity)
-                            ? _commodity
-                            : null,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Produit',
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
-                        ),
-                        items: _commodities
-                            .map((c) => DropdownMenuItem(
-                                  value: c,
-                                  child: Text(
-                                    commodityLabelFr(c),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ))
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() => _commodity = v);
-                            _load();
-                          }
-                        },
-                      ),
+                            key: ValueKey(_commodity),
+                            initialValue: _commodities.contains(_commodity)
+                                ? _commodity
+                                : null,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Produit',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 12),
+                            ),
+                            items: _commodities
+                                .map((c) => DropdownMenuItem(
+                                      value: c,
+                                      child: Text(
+                                        commodityLabelFr(c),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                setState(() => _commodity = v);
+                                _load();
+                              }
+                            },
+                          ),
                         ),
                         SizedBox(
                           width: fieldWidth,
                           child: DropdownButtonFormField<int>(
-                        initialValue: _loanAmount,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Valeur du stock / garantie',
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 500000,
-                            child: Text('500 000 XAF',
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            initialValue: _loanAmount,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Valeur du stock / garantie',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 12),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 500000,
+                                child: Text('500 000 XAF',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              DropdownMenuItem(
+                                value: 1000000,
+                                child: Text('1 000 000 XAF',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              DropdownMenuItem(
+                                value: 3000000,
+                                child: Text('3 000 000 XAF',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              DropdownMenuItem(
+                                value: 10000000,
+                                child: Text('10 000 000 XAF',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setState(() => _loanAmount = v);
+                                _load();
+                              }
+                            },
                           ),
-                          DropdownMenuItem(
-                            value: 1000000,
-                            child: Text('1 000 000 XAF',
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 3000000,
-                            child: Text('3 000 000 XAF',
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                          DropdownMenuItem(
-                            value: 10000000,
-                            child: Text('10 000 000 XAF',
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                          ),
-                        ],
-                        onChanged: (v) {
-                          if (v != null) {
-                            setState(() => _loanAmount = v);
-                            _load();
-                          }
-                        },
-                      ),
                         ),
                       ],
                     );
