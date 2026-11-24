@@ -14,7 +14,7 @@ void main() {
   });
 
   testWidgets(
-      'Workspace starts up and shows navigation entries in mobile Drawer',
+      'Workspace keeps the new-conversation action in the mobile AppBar',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -30,8 +30,9 @@ void main() {
     expect(find.text('FreeData.AI'), findsWidgets);
     expect(find.text('Que souhaitez-vous analyser ?'), findsOneWidget);
 
-    // Vérifie le bouton moderne nouvelle conversation et ouvre le Drawer
+    // L'action de création reste unique dans l'AppBar mobile.
     expect(find.byIcon(Icons.edit_square), findsOneWidget);
+    expect(find.byTooltip('Nouvelle conversation'), findsOneWidget);
     final menuButton = find.byIcon(Icons.menu_rounded);
     expect(menuButton, findsOneWidget);
     await tester.tap(menuButton);
@@ -42,7 +43,8 @@ void main() {
     expect(find.text('Explorer'), findsOneWidget);
     expect(find.text('Bibliothèque'), findsOneWidget);
     expect(find.text('Marchés & Crédit'), findsOneWidget);
-    expect(find.text('Nouvelle conversation'), findsOneWidget);
+    expect(find.text('Nouvelle conversation'), findsNothing);
+    expect(find.byTooltip('Nouvelle conversation'), findsOneWidget);
     expect(find.text('+ Nouvelle conversation'), findsNothing);
   });
 
