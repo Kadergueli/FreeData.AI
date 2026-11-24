@@ -1072,7 +1072,7 @@ class _AccountScreenState extends State<AccountScreen> {
                           message:
                               'Informations de facturation non actualisées : $_billingError',
                           onRetry: _loadBilling,
-                        ),
+                        )
                       else
                         const Text(
                           'Vos conversations, projets et préférences sont associés à votre compte sécurisé.',
