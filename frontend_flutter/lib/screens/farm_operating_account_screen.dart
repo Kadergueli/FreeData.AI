@@ -62,13 +62,13 @@ class _FarmOperatingAccountScreenState
   final _yieldCtrl = TextEditingController();
   late final TextEditingController _discCtrl;
 
-  // OPEX / ha (FCFA)
-  final _seedCtrl = TextEditingController(text: '25000');
-  final _fertCtrl = TextEditingController(text: '45000');
-  final _laborCtrl = TextEditingController(text: '60000');
-  final _prepCtrl = TextEditingController(text: '35000');
-  final _harvestCtrl = TextEditingController(text: '25000');
-  final _otherCtrl = TextEditingController(text: '10000');
+  // Les charges restent vides tant que l'opérateur ne les a pas déclarées.
+  final _seedCtrl = TextEditingController();
+  final _fertCtrl = TextEditingController();
+  final _laborCtrl = TextEditingController();
+  final _prepCtrl = TextEditingController();
+  final _harvestCtrl = TextEditingController();
+  final _otherCtrl = TextEditingController();
 
   // CAPEX & Financement
   final _capexCtrl = TextEditingController(text: '0');
@@ -116,13 +116,61 @@ class _FarmOperatingAccountScreenState
     super.dispose();
   }
 
+  double? _parseNumber(TextEditingController c) {
+    final raw = c.text.trim();
+    if (raw.isEmpty) return null;
+    final value = double.tryParse(raw.replaceAll(',', '.'));
+    return value != null && value.isFinite ? value : null;
+  }
+
   double _num(TextEditingController c, [double fallback = 0]) =>
-      double.tryParse(c.text.trim().replaceAll(',', '.')) ?? fallback;
+      _parseNumber(c) ?? fallback;
 
   Future<void> _compute() async {
-    final area = _num(_areaCtrl, 0);
-    if (area <= 0) {
-      setState(() => _error = 'Saisissez une superficie supérieure à 0 ha.');
+    final area = _parseNumber(_areaCtrl);
+    final discount = _parseNumber(_discCtrl);
+    final opexFields = <String, TextEditingController>{
+      'Semences': _seedCtrl,
+      'Engrais & intrants': _fertCtrl,
+      'Main-d’œuvre': _laborCtrl,
+      'Préparation du sol & irrigation': _prepCtrl,
+      'Récolte & sacs': _harvestCtrl,
+      'Autres charges': _otherCtrl,
+    };
+    String? validationError;
+    if (area == null || area <= 0 || area > 500000) {
+      validationError = 'Saisissez une superficie valide, supérieure à 0 et inférieure ou égale à 500 000 ha.';
+    } else if (discount == null || discount < 0 || discount > 50) {
+      validationError = 'La décote bord-champ doit être comprise entre 0 et 50 %.';
+    } else {
+      for (final entry in opexFields.entries) {
+        final value = _parseNumber(entry.value);
+        if (value == null || value < 0 || value > 50000000) {
+          validationError = 'Renseignez un montant valide pour « ${entry.key} » (0 à 50 000 000 FCFA/ha).';
+          break;
+        }
+      }
+    }
+    final numericFields = <TextEditingController>[_capexCtrl, _loanCtrl, _rateCtrl];
+    if (validationError == null) {
+      for (final field in numericFields) {
+        final value = _parseNumber(field);
+        if (value == null || value < 0) {
+          validationError = 'Vérifiez les montants de CAPEX, de prêt et le taux d’intérêt.';
+          break;
+        }
+      }
+    }
+    final targetYield = _yieldCtrl.text.trim().isEmpty ? null : _parseNumber(_yieldCtrl);
+    if (validationError == null && _yieldCtrl.text.trim().isNotEmpty &&
+        (targetYield == null || targetYield <= 0 || targetYield > 50000)) {
+      validationError = 'Le rendement cible doit être compris entre 0 et 50 000 kg/ha.';
+    }
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _result = null;
+      });
       return;
     }
     setState(() {
@@ -130,13 +178,17 @@ class _FarmOperatingAccountScreenState
       _error = null;
     });
     try {
-      final yRaw = double.tryParse(_yieldCtrl.text.trim().replaceAll(',', '.'));
+      setState(() {
+        _loading = true;
+        _error = null;
+        _result = null;
+      });
       final res = await widget.apiService.computeFarmOperatingAccount(
         province: _province,
         cropId: _cropId,
-        areaHectares: area,
-        targetYieldKgHa: (yRaw != null && yRaw > 0) ? yRaw : null,
-        farmgateDiscountPct: _num(_discCtrl, 8.0),
+        areaHectares: area!,
+        targetYieldKgHa: targetYield,
+        farmgateDiscountPct: discount!,
         seedCostPerHaXaf: _num(_seedCtrl),
         fertilizerCostPerHaXaf: _num(_fertCtrl),
         laborCostPerHaXaf: _num(_laborCtrl),
@@ -273,7 +325,7 @@ class _FarmOperatingAccountScreenState
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Estimez la rentabilité de votre parcelle avant d’engager vos dépenses. Renseignez vos coûts réels ; les références de marché et les rendements indicatifs sont signalés séparément.',
+                      'Estimez la rentabilité de votre parcelle avant d’engager vos dépenses. Saisissez vos coûts réels ; les références de marché et les rendements indicatifs sont signalés séparément.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 14),
@@ -349,7 +401,7 @@ class _FarmOperatingAccountScreenState
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Les montants sont des estimations à saisir par hectare. Toute charge laissée à 0 est considérée comme non déclarée et peut surestimer la marge.',
+                      'Renseignez chaque poste. Saisissez 0 uniquement si vous confirmez que cette charge est réellement nulle ; une case vide bloque le calcul.',
                       style: TextStyle(fontSize: 11.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 8),
