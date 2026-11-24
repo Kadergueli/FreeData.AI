@@ -183,15 +183,18 @@ class _MarketProScreenState extends State<MarketProScreen> {
           route['net_margin_xaf_kg'] ?? route['spread_xaf_kg'] ?? 'N/D';
       final total = route['estimated_net_margin_xaf'] ?? 'N/D';
       final roi = route['roi_pct'] ?? 'N/D';
+      final isGrossOnly = route['net_margin_xaf_kg'] == null;
       return '- $routeOrigin → $routeDestination : '
-          'marge nette affichée $margin XAF/kg ; résultat estimé $total XAF ; '
-          'ROI $roi %.';
+          '${isGrossOnly ? 'écart brut' : 'marge après transport déclaré'} $margin XAF/kg ; '
+          'résultat total ${total == 'N/D' ? 'non calculé' : total} XAF ; '
+          'ROI ${roi == 'N/D' ? 'non calculé' : '$roi %'} ; '
+          'signal ${route['commercial_signal'] ?? 'non évalué'}.';
     }).join('\n');
 
     final commonContext = <String>[
       'Culture : ${_cropLabels[_arbCrop] ?? _arbCrop}.',
-      'Transport saisi : ${_arbTransportCtrl.text.trim()} XAF/kg.',
-      'Volume saisi : ${_arbTonnageCtrl.text.trim()} tonne(s).',
+      'Coût de transport déclaré : ${_arbTransportCtrl.text.trim().isEmpty ? 'non renseigné' : '${_arbTransportCtrl.text.trim()} XAF/kg'}.',
+      'Tonnage déclaré : ${_arbTonnageCtrl.text.trim().isEmpty ? 'non renseigné' : '${_arbTonnageCtrl.text.trim()} tonne(s)'}.',
       "MAPE historique affichée : ${result['historical_mape_pct'] ?? 'N/D'} %.",
       'Résultats du simulateur :',
       routeSummary,
