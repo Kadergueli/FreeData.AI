@@ -61,6 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _loading = false;
   bool _uploadingDoc = false;
   List<Map<String, dynamic>> _userDocuments = const [];
+  String? _documentsError;
   String? _lastPrompt;
   String _selectedDomain = 'auto';
 
@@ -141,11 +142,32 @@ class _ChatScreenState extends State<ChatScreen> {
     return (pid != null && pid.trim().isNotEmpty) ? pid.trim() : null;
   }
 
+  Future<void> _setSelectedDomain(String value) async {
+    if (!_domainChoices.any((domain) => domain['id'] == value)) return;
+    if (mounted) setState(() => _selectedDomain = value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fd_pref_domain', value);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..clearSnackBars()
+        ..showSnackBar(const SnackBar(
+          content: Text(
+            'Le domaine est sélectionné, mais sa préférence n’a pas pu être sauvegardée.',
+          ),
+        ));
+    }
+  }
+
   Future<void> _loadUserDocuments() async {
     if (!widget.apiService.isAuthenticated &&
         !widget.apiService.hasExplicitPremiumKey) {
-      if (_userDocuments.isNotEmpty && mounted) {
-        setState(() => _userDocuments = const []);
+      if (mounted && (_userDocuments.isNotEmpty || _documentsError != null)) {
+        setState(() {
+          _userDocuments = const [];
+          _documentsError = null;
+        });
       }
       return;
     }
@@ -153,8 +175,17 @@ class _ChatScreenState extends State<ChatScreen> {
       final docs = await widget.apiService
           .listUserDocuments(projectId: _activeProjectId());
       if (!mounted) return;
-      setState(() => _userDocuments = docs);
-    } catch (_) {}
+      setState(() {
+        _userDocuments = docs;
+        _documentsError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _documentsError =
+            'Impossible de charger vos documents. Vérifiez votre connexion puis réessayez.';
+      });
+    }
   }
 
   String _friendlyUploadError(Object e) {
@@ -429,18 +460,19 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   List<Map<String, dynamic>> _extractSources(Map<String, dynamic> response) {
-    final rawSources = response['sources'];
-    if (rawSources is List) {
-      return rawSources
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
+    List<Map<String, dynamic>> normalize(dynamic value) {
+      if (value is! List) return const [];
+      return value.whereType<Map>().map((item) {
+        return item.map<String, dynamic>(
+          (key, value) => MapEntry(key.toString(), value),
+        );
+      }).toList();
     }
-    final metadataSources = response['metadata'];
-    if (metadataSources is Map && metadataSources['sources'] is List) {
-      return (metadataSources['sources'] as List)
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
-    }
+
+    final direct = normalize(response['sources']);
+    if (direct.isNotEmpty) return direct;
+    final metadata = response['metadata'];
+    if (metadata is Map) return normalize(metadata['sources']);
     return const [];
   }
 
@@ -1160,6 +1192,27 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                 ],
+                if (_documentsError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _documentsError!,
+                            style: const TextStyle(
+                              color: FDTheme.danger,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loadUserDocuments,
+                          child: const Text('Réessayer'),
+                        ),
+                      ],
+                    ),
+                  ),
                 TextField(
                   controller: _controller,
                   minLines: 1,
@@ -1195,7 +1248,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     // Bouton Joindre un document privé (PDF / CSV / TXT / MD / JSON)
                     Tooltip(
@@ -1250,8 +1306,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     // Sélecteur de domaine compact (style ChatGPT / Claude)
                     PopupMenuButton<String>(
                       tooltip: 'Choisir le domaine IA',
-                      onSelected: (val) =>
-                          setState(() => _selectedDomain = val),
+                      onSelected: _setSelectedDomain,
                       itemBuilder: (_) => _domainChoices
                           .map((d) => PopupMenuItem<String>(
                                 value: d['id']!,
@@ -1363,7 +1418,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ],
-                    const Spacer(),
                     IconButton(
                       tooltip: 'Envoyer le message',
                       onPressed: _loading
