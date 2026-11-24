@@ -112,27 +112,21 @@ class _AccountScreenState extends State<AccountScreen> {
     String? documentsError;
     String? agroProfileError;
     final results = await Future.wait<Object?>([
-      widget.apiService
-          .getMyBilling()
-          .then<Map<String, dynamic>?>(
+      widget.apiService.getMyBilling().then<Map<String, dynamic>?>(
         (value) => value,
         onError: (Object error) {
           billingError = errText(error);
           return null;
         },
       ),
-      widget.apiService
-          .listUserDocuments()
-          .then<List<Map<String, dynamic>>>(
+      widget.apiService.listUserDocuments().then<List<Map<String, dynamic>>>(
         (value) => value,
         onError: (Object error) {
           documentsError = errText(error);
           return const <Map<String, dynamic>>[];
         },
       ),
-      widget.apiService
-          .getMyAgroProfile()
-          .then<Map<String, dynamic>?>(
+      widget.apiService.getMyAgroProfile().then<Map<String, dynamic>?>(
         (value) => value,
         onError: (Object error) {
           agroProfileError = errText(error);
