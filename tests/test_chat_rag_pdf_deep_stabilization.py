@@ -370,3 +370,26 @@ def test_pure_margin_explanation_uses_rag_instead_of_asking_for_business_capital
     assert answer["intent"] == "rag_answer"
     assert "marge brute" in answer["reply"].lower()
     assert answer["sources"][0]["titre"] == "Guide de calcul des marges"
+
+
+def test_business_plan_explanation_is_not_mistaken_for_business_plan_creation(monkeypatch):
+    hist_df, fc_df, cp_df = _make_sample_frames()
+    agent = FreeDataAIAgent(hist_df, fc_df, cp_df)
+    plan_chunk = {
+        "titre": "Méthodologie business plan",
+        "editeur": "FreeData.td",
+        "page": 1,
+        "content": "Un business plan distingue les données vérifiées, les hypothèses, le BFR, le CAPEX et les risques.",
+        "similarity": 0.92,
+    }
+    monkeypatch.setattr(
+        agent.provider,
+        "retrieve_rag_chunks",
+        lambda query, match_count=6, **kwargs: [plan_chunk],
+    )
+
+    answer = agent.answer("Explique le business plan agricole", tier="free")
+
+    assert answer["intent"] == "rag_answer"
+    assert "BFR" in answer["reply"]
+    assert answer["sources"][0]["titre"] == "Méthodologie business plan"
