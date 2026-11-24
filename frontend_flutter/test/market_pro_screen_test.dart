@@ -253,8 +253,6 @@ void main() {
     expect(capturedPrompt,
         contains('demande-le avant de produire les projections'));
   });
-}
-
 
   testWidgets('farm operating account results can be explained and planned with AI',
       (tester) async {
@@ -346,3 +344,5 @@ void main() {
     expect(capturedPrompt, contains('capital réel de l’utilisateur n’est pas confirmé'));
     expect(capturedPrompt, isNot(contains('Capital saisi par l’utilisateur')));
   });
+
+}
