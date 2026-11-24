@@ -108,8 +108,7 @@ class _AuthDialogState extends State<AuthDialog> {
       try {
         await AuthTokenStorage.write(tok);
       } catch (_) {
-        // Do not leave a successful in-memory login active when its credential
-        // cannot be persisted securely on this device.
+        // Revoke the in-memory session if its credential cannot be persisted.
         await widget.apiService.logoutAccount();
         throw const _AuthPersistenceException(
           'Connexion non finalisée : impossible de sécuriser votre session sur cet appareil. Vérifiez le stockage sécurisé puis réessayez.',
@@ -618,7 +617,6 @@ class _AuthDialogState extends State<AuthDialog> {
     );
   }
 }
-
 
 class _AuthPersistenceException implements Exception {
   final String message;
