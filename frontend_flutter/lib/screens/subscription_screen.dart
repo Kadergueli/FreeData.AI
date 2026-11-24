@@ -34,6 +34,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _submittingPayment = false;
   bool _redeemingKey = false;
   String? _error;
+  String? _paymentMethodsError;
+  String? _billingError;
+  String? _requestsError;
 
   String _selectedProvider = 'airtel_money';
   final _phoneCtrl = TextEditingController();
@@ -113,6 +116,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         _error = null;
       });
     }
+    String? paymentMethodsError;
+    String? billingError;
+    String? requestsError;
     try {
       final canReadPrivate = widget.apiService.isAuthenticated ||
           widget.apiService.hasExplicitPremiumKey;
@@ -120,17 +126,26 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final methodsFuture = widget.apiService
           .getPaymentMethods()
           .then<Map<String, dynamic>?>((v) => v)
-          .catchError((_) => null);
+          .catchError((Object error) {
+            paymentMethodsError = errText(error);
+            return null;
+          });
       final meFuture = canReadPrivate
           ? widget.apiService
               .getMyBilling()
               .then<Map<String, dynamic>?>((v) => v)
-              .catchError((_) => null)
+              .catchError((Object error) {
+                billingError = errText(error);
+                return null;
+              })
           : Future<Map<String, dynamic>?>.value(null);
       final reqsFuture = canReadPrivate
           ? widget.apiService
               .listMyPaymentRequests()
-              .catchError((_) => const <Map<String, dynamic>>[])
+              .catchError((Object error) {
+                requestsError = errText(error);
+                return const <Map<String, dynamic>>[];
+              })
           : Future<List<Map<String, dynamic>>>.value(
               const <Map<String, dynamic>>[]);
 
@@ -155,6 +170,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ((plansRes['plans'] as List?) ?? []).cast<Map<String, dynamic>>();
         _paymentMethods = methods;
         _myRequests = reqs;
+        _paymentMethodsError = paymentMethodsError;
+        _billingError = billingError;
+        _requestsError = requestsError;
         _loading = false;
         _refreshing = false;
       });
