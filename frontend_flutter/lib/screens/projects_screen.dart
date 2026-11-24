@@ -58,6 +58,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   String? _error;
 
   String _loadedUserId = '';
+  String _requestedUserId = '';
+  int _loadToken = 0;
   Map<String, dynamic>? _selectedProject;
   List<ConversationThread> _projectConversations = [];
   List<Map<String, dynamic>> _projectDocuments = [];
@@ -86,7 +88,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   void didUpdateWidget(covariant ProjectsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     // L'identifiant d'espace a changé (Réglages) : la liste affichée appartient à l'ancien espace.
-    if (_loadedUserId != widget.apiService.userId && !_loading) {
+    if (_requestedUserId != widget.apiService.userId) {
+      // Ne jamais conserver le projet sélectionné de l'ancien compte.
+      _selectedProject = null;
+      _projectConversations = [];
+      _projectDocuments = [];
+      _projectAgroAssessments = [];
+      _loadingWorkspace = false;
       _load();
     }
     if (oldWidget.refreshToken != widget.refreshToken ||
@@ -183,22 +191,26 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       });
       return;
     }
+    final uid = widget.apiService.userId;
+    final token = ++_loadToken;
+    _requestedUserId = uid;
     setState(() {
       _loading = true;
       _error = null;
     });
-    final uid = widget.apiService.userId;
     try {
       final list = await widget.apiService
           .listProjects(includeArchived: _includeArchived);
-      if (!mounted || uid != widget.apiService.userId) return;
+      if (!mounted || token != _loadToken || uid != widget.apiService.userId) {
+        return;
+      }
       setState(() {
         _projects = list;
         _loadedUserId = uid;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _error = errText(e);
         _loading = false;
