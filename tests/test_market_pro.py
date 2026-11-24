@@ -105,7 +105,7 @@ def test_spatial_arbitrage_and_agro_credit_passport(tmp_path):
     assert arb["routes"][0]["origin_province"] == "Salamat"
     assert arb["routes"][0]["net_margin_xaf_kg"] == 80.0
     assert arb["routes"][0]["estimated_net_margin_xaf"] == 800000.0
-    assert "NASA POWER Agro" in arb["sources"]
+    assert "PAM-WFP" in arb["sources"]
 
     agro_store = AgroIndicatorStore(str(tmp_path / "agro.db"))
     real_csv = Path(__file__).resolve().parent.parent / "freedatatd-agriculture-commercial-clean.csv"
@@ -208,3 +208,65 @@ def test_campaign_plan_flags_nonlocal_history_and_forecast_fallbacks():
     assert item["used_national_fallback"] is True
     assert item["history_data_scope"] == "commodity_fallback"
     assert item["forecast_data_scope"] == "commodity_fallback"
+
+
+
+def test_spatial_arbitrage_requires_declared_costs_for_net_profit_and_roi():
+    from src.market_pro import compute_spatial_arbitrage_detailed
+
+    forecasts = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "market_name": "Am Timan",
+         "forecast_month": "2026-11", "last_observed_month": "2026-10",
+         "forecast_t1": 225.0, "ci_low_80": 200.0, "ci_high_80": 250.0,
+         "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "N'Djamena", "market_name": "Dembé",
+         "forecast_month": "2026-11", "last_observed_month": "2026-10",
+         "forecast_t1": 340.0, "ci_low_80": 300.0, "ci_high_80": 380.0,
+         "source": "PAM-WFP"},
+    ])
+
+    gross = compute_spatial_arbitrage_detailed(
+        forecasts, {}, crop_id="millet", transport_cost_xaf_kg=None, tonnage=10.0,
+    )
+    route = gross["routes"][0]
+    assert route["spread_xaf_kg"] == 115.0
+    assert route["net_margin_xaf_kg"] is None
+    assert route["estimated_net_margin_xaf"] is None
+    assert route["roi_pct"] is None
+    assert route["commercial_signal"] == "gross_spread_only"
+    assert route["spread_low_80_xaf_kg"] == 50.0
+
+    net = compute_spatial_arbitrage_detailed(
+        forecasts, {}, crop_id="millet", transport_cost_xaf_kg=35.0, tonnage=10.0,
+    )
+    net_route = net["routes"][0]
+    assert net_route["net_margin_xaf_kg"] == 80.0
+    assert net_route["estimated_net_margin_xaf"] == 800000.0
+    assert net_route["roi_pct"] is not None
+    assert net_route["commercial_signal"] == "positive_after_declared_transport"
+    assert net_route["costs_excluded"] == [
+        "stockage", "pertes", "manutention", "taxes", "financement", "retours à vide",
+    ]
+
+
+def test_spatial_arbitrage_compares_only_the_latest_common_forecast_month():
+    from src.market_pro import compute_spatial_arbitrage_detailed
+
+    forecasts = pd.DataFrame([
+        {"commodity_std": "Millet", "province": "Salamat", "forecast_month": "2026-10",
+         "forecast_t1": 180.0, "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "Salamat", "forecast_month": "2026-11",
+         "forecast_t1": 220.0, "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "N'Djamena", "forecast_month": "2026-11",
+         "forecast_t1": 310.0, "source": "PAM-WFP"},
+        {"commodity_std": "Millet", "province": "Mandoul", "forecast_month": "2026-10",
+         "forecast_t1": 500.0, "source": "PAM-WFP"},
+    ])
+
+    result = compute_spatial_arbitrage_detailed(
+        forecasts, {}, crop_id="millet", transport_cost_xaf_kg=20.0, tonnage=2.0,
+    )
+    assert result["forecast_month"] == "2026-11"
+    assert {r["origin_province"] for r in result["routes"]} == {"Salamat"}
+    assert {r["dest_province"] for r in result["routes"]} == {"N'Djamena"}
+    assert result["routes"][0]["spread_xaf_kg"] == 90.0
