@@ -98,16 +98,28 @@ class _AuthDialogState extends State<AuthDialog> {
             )
           : await widget.apiService.loginAccount(email: email, password: pass);
 
-      final tok = res['token']?.toString() ?? '';
-      if (tok.isNotEmpty) {
+      final tok = res['token']?.toString().trim() ?? '';
+      if (tok.isEmpty) {
+        widget.apiService.clearAuthSession();
+        throw const _AuthPersistenceException(
+          'Le serveur n’a pas fourni de jeton de session. Veuillez réessayer.',
+        );
+      }
+      try {
         await AuthTokenStorage.write(tok);
+      } catch (_) {
+        // Revoke the in-memory session if its credential cannot be persisted.
+        await widget.apiService.logoutAccount();
+        throw const _AuthPersistenceException(
+          'Connexion non finalisée : impossible de sécuriser votre session sur cet appareil. Vérifiez le stockage sécurisé puis réessayez.',
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = errText(e);
+        _error = e is _AuthPersistenceException ? e.message : errText(e);
         _submitting = false;
       });
     }
@@ -398,6 +410,7 @@ class _AuthDialogState extends State<AuthDialog> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: TextField(
                         controller: _nameCtrl,
+                        enabled: !_submitting,
                         autofillHints: const [AutofillHints.name],
                         textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
@@ -439,6 +452,7 @@ class _AuthDialogState extends State<AuthDialog> {
             ],
             TextField(
               controller: _emailCtrl,
+              enabled: !_submitting,
               keyboardType: TextInputType.emailAddress,
               autofillHints: const [AutofillHints.email],
               textInputAction: TextInputAction.next,
@@ -450,6 +464,7 @@ class _AuthDialogState extends State<AuthDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _passCtrl,
+              enabled: !_submitting,
               obscureText: _obscurePassword,
               autofillHints: [
                 _registerMode
@@ -469,8 +484,10 @@ class _AuthDialogState extends State<AuthDialog> {
                         : Icons.visibility_off_outlined,
                     size: 19,
                   ),
-                  onPressed: () =>
-                      setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: _submitting
+                      ? null
+                      : () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
             ),
@@ -599,4 +616,10 @@ class _AuthDialogState extends State<AuthDialog> {
       ),
     );
   }
+}
+
+class _AuthPersistenceException implements Exception {
+  final String message;
+
+  const _AuthPersistenceException(this.message);
 }
