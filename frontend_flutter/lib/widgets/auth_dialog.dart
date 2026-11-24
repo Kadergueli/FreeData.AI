@@ -174,7 +174,7 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 28),
           const Text(
-            'L’intelligence artificielle & décisionnelle multi-sectorielle.',
+            'L’intelligence décisionnelle & sectorielle de référence.',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -184,7 +184,7 @@ class _AuthDialogState extends State<AuthDialog> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Un espace unifié pour explorer vos données, analyser vos documents et piloter vos projets en toute confiance.',
+            'Transformez les données publiques, vos documents privés et les signaux terrain en décisions chiffrées et traçables.',
             style: TextStyle(
               color: Color(0xFF94A3B8),
               fontSize: 13,
@@ -195,23 +195,23 @@ class _AuthDialogState extends State<AuthDialog> {
           _brandFeature(
             Icons.auto_awesome_outlined,
             'Assistant IA & Analyse Documentaire',
-            'Synthèse intelligente de vos documents privés et requêtes multi-domaines.',
+            'Interrogez 8 secteurs clés et vos propres documents PDF/CSV avec des synthèses sourcées.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.insights_outlined,
-            'Tableaux de Bord & Modèles Prédictifs',
-            'Indicateurs sectoriels, scoring décisionnel et rapports professionnels.',
+            'Prévisions, Scoring & Simulation',
+            'Anticipez les tendances, évaluez les risques et simulez vos plans d’investissement.',
           ),
           const SizedBox(height: 16),
           _brandFeature(
             Icons.description_outlined,
-            'Rapports PDF & Espace Projets',
-            'Centralisez vos dossiers, générez des synthèses exportables et passez à l’offre PRO selon vos besoins.',
+            'Rapports Certifiés & Espace Projets',
+            'Structurez vos études, exportez des bulletins PDF vérifiables et pilotez vos dossiers en toute sécurité.',
           ),
           const Spacer(),
           const Text(
-            'Offre Standard Gratuite & Solutions PRO',
+            'Plateforme FreeData.AI · Standard & Solutions PRO',
             style: TextStyle(
               color: Color(0xFF64748B),
               fontSize: 11.5,
