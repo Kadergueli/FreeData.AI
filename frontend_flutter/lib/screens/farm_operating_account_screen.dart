@@ -162,7 +162,8 @@ class _FarmOperatingAccountScreenState
       }
     }
     final targetYield = _yieldCtrl.text.trim().isEmpty ? null : _parseNumber(_yieldCtrl);
-    if (validationError == null && _yieldCtrl.text.trim().isNotEmpty &&
+    if (validationError == null &&
+        _yieldCtrl.text.trim().isNotEmpty &&
         (targetYield == null || targetYield <= 0 || targetYield > 50000)) {
       validationError = 'Le rendement cible doit être compris entre 0 et 50 000 kg/ha.';
     }
@@ -176,13 +177,9 @@ class _FarmOperatingAccountScreenState
     setState(() {
       _loading = true;
       _error = null;
+      _result = null;
     });
     try {
-      setState(() {
-        _loading = true;
-        _error = null;
-        _result = null;
-      });
       final res = await widget.apiService.computeFarmOperatingAccount(
         province: _province,
         cropId: _cropId,
