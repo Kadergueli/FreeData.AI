@@ -2786,6 +2786,11 @@ class FreeDataAIAgent(FormattersMixin):
     ) -> str:
         """Module d'analyse avancée (`tier='premium'`) alimenté exclusivement par les données de `MarketDataProvider`."""
         if not settings.llm_api_key:
+            # Le mode documentaire strict ne peut pas basculer vers Ollama ici :
+            # ce chemin ne lui transmet pas les extraits documentaires et casserait
+            # la garantie « RAG only ». On conserve donc les preuves déterministes.
+            if rag_only:
+                return structured_facts
             return self._refine_with_ollama(user_query, structured_facts)
 
         doc_context = ""
