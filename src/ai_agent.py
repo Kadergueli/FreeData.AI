@@ -3433,6 +3433,17 @@ class FreeDataAIAgent(FormattersMixin):
         }
 
     @staticmethod
+    def _is_rag_knowledge_query(query: str) -> bool:
+        """Identifies questions that require documentary explanation rather than a market-price template."""
+        return bool(re.search(
+            r"\\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
+            r"definition|algorithme|validation|couverture(?:\\s+du\\s+corpus)?|"
+            r"comment\\s+fonctionne|comment\\s+est\\s+calcule|comment\\s+sont\\s+calcules|"
+            r"comment\\s+verifie|comment\\s+sont\\s+verifies|limites\\s+methodologiques)\\b",
+            query or "",
+        ))
+
+    @staticmethod
     def _contextual_rag_query(query: str, history: Optional[list[dict]] = None) -> str:
         """Adds recent user turns to short follow-ups such as 'pourquoi ?' without trusting assistant text."""
         prior_user_turns = [
@@ -3739,6 +3750,13 @@ class FreeDataAIAgent(FormattersMixin):
             }
             for c in chunks
         ]
+
+        # Les questions de méthode, de provenance et de qualité doivent recevoir le contenu RAG,
+        # pas uniquement un modèle de réponse orienté prix qui ne cite que les titres des documents.
+        if chunks and self._is_rag_knowledge_query(q_norm):
+            evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state)
+            if evidence_answer:
+                return evidence_answer
 
         free_reply = self._format_free_reply(structured_facts, intent, chunks, entities)
 
