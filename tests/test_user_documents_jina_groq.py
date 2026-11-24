@@ -323,3 +323,29 @@ def test_project_scoped_documents_are_strictly_isolated_between_projects(tmp_pat
 
 
 
+
+
+def test_private_jina_embedding_rejects_wrong_dimension_and_falls_back(monkeypatch):
+    from src import user_documents
+
+    monkeypatch.setattr(
+        user_documents,
+        "settings",
+        replace(
+            user_documents.settings,
+            embed_api_key="jina_test_key",
+            embed_base_url="https://api.jina.ai/v1/embeddings",
+            embed_model="jina-embeddings-v3",
+        ),
+    )
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"index": 0, "embedding": [0.1] * 1023}]}
+
+    monkeypatch.setattr(user_documents.requests, "post", lambda *args, **kwargs: FakeResponse())
+
+    assert user_documents.compute_jina_embeddings(["question"]) is None
