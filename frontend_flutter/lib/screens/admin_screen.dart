@@ -32,6 +32,9 @@ class _AdminScreenState extends State<AdminScreen> {
   bool _loading = false;
   bool _probing = false;
   String? _error;
+  String? _paymentRequestsError;
+  String? _proKeysError;
+  String? _agroProfilesError;
 
   String get _token => _tokenCtrl.text.trim();
 
@@ -62,17 +65,29 @@ class _AdminScreenState extends State<AdminScreen> {
       List<Map<String, dynamic>> payReqs = const [];
       List<Map<String, dynamic>> proKeys = const [];
       List<Map<String, dynamic>> agroProfiles = const [];
+      String? paymentRequestsError;
+      String? proKeysError;
+      String? agroProfilesError;
       if (perms.contains('manage_subscriptions')) {
         final billingRes = await Future.wait<List<Map<String, dynamic>>>([
           widget.apiService
               .getAdminPaymentRequests(_token)
-              .catchError((_) => const <Map<String, dynamic>>[]),
+              .catchError((Object error) {
+                paymentRequestsError = errText(error);
+                return const <Map<String, dynamic>>[];
+              }),
           widget.apiService
               .listAdminProKeys(_token)
-              .catchError((_) => const <Map<String, dynamic>>[]),
+              .catchError((Object error) {
+                proKeysError = errText(error);
+                return const <Map<String, dynamic>>[];
+              }),
           widget.apiService
               .getAdminAgroProfiles(_token)
-              .catchError((_) => _agroProfiles),
+              .catchError((Object error) {
+                agroProfilesError = errText(error);
+                return _agroProfiles;
+              }),
         ]);
         payReqs = billingRes[0];
         proKeys = billingRes[1];
@@ -87,6 +102,9 @@ class _AdminScreenState extends State<AdminScreen> {
         _paymentRequests = payReqs;
         _proKeys = proKeys;
         _agroProfiles = agroProfiles;
+        _paymentRequestsError = paymentRequestsError;
+        _proKeysError = proKeysError;
+        _agroProfilesError = agroProfilesError;
         _loading = false;
       });
     } catch (e) {
@@ -96,6 +114,38 @@ class _AdminScreenState extends State<AdminScreen> {
         _loading = false;
       });
     }
+  }
+
+
+  Widget _sectionLoadWarning(String message) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFED7AA)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                size: 18, color: AppColors.warning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(message,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.ink)),
+            ),
+            IconButton(
+              tooltip: 'Réessayer',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              onPressed: _loadAll,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _runLiveProbe() async {
@@ -1230,12 +1280,15 @@ class _AdminScreenState extends State<AdminScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    if (_proKeys.isEmpty)
+                    if (_proKeysError != null)
+                      _sectionLoadWarning(
+                          'Impossible de charger les clés PRO : $_proKeysError'),
+                    if (_proKeysError == null && _proKeys.isEmpty)
                       const Text(
                         'Aucune clé d’activation unique générée pour le moment.',
                         style: TextStyle(color: AppColors.muted),
                       )
-                    else
+                    else if (_proKeysError == null)
                       ..._proKeys.map((k) {
                         final keyId = k['key_id']?.toString() ?? '';
                         final prefix = k['key_prefix']?.toString() ?? keyId;
@@ -1299,10 +1352,13 @@ class _AdminScreenState extends State<AdminScreen> {
                           color: AppColors.ink),
                     ),
                     const SizedBox(height: 8),
-                    if (_paymentRequests.isEmpty)
+                    if (_paymentRequestsError != null)
+                      _sectionLoadWarning(
+                          'Impossible de charger les demandes de paiement : $_paymentRequestsError'),
+                    if (_paymentRequestsError == null && _paymentRequests.isEmpty)
                       const Text('Aucune demande de paiement enregistrée.',
                           style: TextStyle(color: AppColors.muted))
-                    else
+                    else if (_paymentRequestsError == null)
                       ..._paymentRequests.map((r) {
                         final reqId = r['request_id'].toString();
                         final status = r['status']?.toString() ?? 'pending';
@@ -1386,6 +1442,9 @@ class _AdminScreenState extends State<AdminScreen> {
                       style: TextStyle(fontSize: 12.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
+                    if (_agroProfilesError != null)
+                      _sectionLoadWarning(
+                          'Impossible de charger les profils agronomes : $_agroProfilesError'),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
