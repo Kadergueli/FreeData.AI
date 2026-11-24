@@ -21,6 +21,8 @@ class _MarketRadarApi extends ApiService {
     double? tonnage,
   }) async =>
       {
+        'status': 'ok',
+        'forecast_month': '2026-11',
         'historical_mape_pct': 12.3,
         'routes': [
           {
@@ -146,6 +148,20 @@ class _MarketRadarApi extends ApiService {
       };
 }
 
+class _InsufficientArbitrageApi extends _MarketRadarApi {
+  @override
+  Future<Map<String, dynamic>> getSpatialArbitrage({
+    required String cropId,
+    double? transportCostXafKg,
+    double? tonnage,
+  }) async => {
+        'status': 'insufficient_data',
+        'status_message': 'Aucun mois de prévision commun à au moins deux provinces.',
+        'forecast_month': null,
+        'routes': const [],
+      };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -203,6 +219,65 @@ void main() {
     expect(find.text('Pôle / Province'), findsOneWidget);
     expect(find.text('Anomalie Eau'), findsOneWidget);
     expect(find.text('Risque Crédit'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('arbitrage displays the shared forecast month and gross-spread caveat',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: MarketProScreen(apiService: _MarketRadarApi())),
+    );
+    await tester.pumpAndSettle();
+
+    final simulate = find.text('Calculer écart / marge');
+    await tester.scrollUntilVisible(
+      simulate,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(simulate);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Période commune de comparaison : 2026-11'),
+        findsOneWidget);
+    expect(find.textContaining('L’écart de prix est un indicateur brut'),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('arbitrage explains when no shared forecast month is available',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: MarketProScreen(apiService: _InsufficientArbitrageApi())),
+    );
+    await tester.pumpAndSettle();
+
+    final simulate = find.text('Calculer écart / marge');
+    await tester.scrollUntilVisible(
+      simulate,
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(simulate);
+    await tester.pumpAndSettle();
+
+    expect(find.text(
+      'Aucun mois de prévision commun à au moins deux provinces.',
+    ), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
