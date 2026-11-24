@@ -16,7 +16,9 @@ import 'package:freedata_ai/screens/settings_screen.dart';
 import 'package:freedata_ai/screens/subscription_screen.dart';
 import 'package:freedata_ai/screens/support_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
+import 'package:freedata_ai/services/auth_token_storage.dart';
 import 'package:freedata_ai/services/conversation_storage.dart';
+import 'helpers/memory_auth_token_storage.dart';
 
 class _AuditFakeApiService extends ApiService {
   String adminRole = 'read_only_analyst';
@@ -347,6 +349,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    AuthTokenStorage.setBackendForTesting(MemoryAuthTokenStorage());
     SharedPreferences.setMockInitialValues({});
   });
 

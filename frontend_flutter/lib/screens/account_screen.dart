@@ -2,12 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/pdf_download.dart';
 import '../services/api_service.dart';
+import '../services/auth_token_storage.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
 import 'subscription_screen.dart';
@@ -360,8 +360,7 @@ class _AccountScreenState extends State<AccountScreen> {
     // Effacer le cache du compte avant que logoutAccount ne réinitialise l'identité.
     await LocalConversationStorage.instance.clearCurrentUserCache();
     await widget.apiService.logoutAccount();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(kAuthTokenStorageKey);
+    await AuthTokenStorage.delete();
     widget.onSessionChanged?.call();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -412,8 +411,7 @@ class _AccountScreenState extends State<AccountScreen> {
       final accountCacheKey = conversationStorage.activeStorageKey;
       await widget.apiService.deleteAccount(password: passCtrl.text);
       await conversationStorage.clearStorageKey(accountCacheKey);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(kAuthTokenStorageKey);
+      await AuthTokenStorage.delete();
       widget.onSessionChanged?.call();
       if (!mounted) return;
       ScaffoldMessenger.of(context)

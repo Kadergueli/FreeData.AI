@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/auth_token_storage.dart';
 import 'core/fd_theme.dart';
 import 'core/utils/clean_url.dart';
 import 'services/api_service.dart';
@@ -92,8 +93,7 @@ class _MainShellState extends State<MainShell> {
     };
     _apiService.onAuthSessionExpired = () async {
       try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(kAuthTokenStorageKey);
+        await AuthTokenStorage.delete();
       } catch (_) {}
       if (!mounted) return;
       setState(() {});
@@ -134,6 +134,11 @@ class _MainShellState extends State<MainShell> {
     // La clé ne doit pas rester dans l'historique ni la barre d'adresse.
     removeSensitiveQueryParams(const ['key', 'premium_key']);
     final prefs = await SharedPreferences.getInstance();
+    try {
+      await AuthTokenStorage.migrateLegacy(prefs);
+    } catch (_) {
+      // Never fall back to plaintext token storage if secure migration fails.
+    }
     var uid = prefs.getString('fd_pref_user_id');
     if (uid == null || !ApiService.isStrongUserId(uid)) {
       uid = ApiService.generateUserId();
@@ -145,7 +150,12 @@ class _MainShellState extends State<MainShell> {
     // Pré-chauffage parallèle des caches (métadonnées & catalogue plans) sans bloquer l'affichage.
     _apiService.prefetchBillingCatalog();
     _apiService.getMetadata().catchError((_) => <String, dynamic>{});
-    final savedAuthToken = prefs.getString(kAuthTokenStorageKey);
+    String? savedAuthToken;
+    try {
+      savedAuthToken = await AuthTokenStorage.read();
+    } catch (_) {
+      savedAuthToken = null;
+    }
     if (savedAuthToken != null && savedAuthToken.trim().isNotEmpty) {
       _apiService.setAuthSession(token: savedAuthToken);
       try {
@@ -156,7 +166,7 @@ class _MainShellState extends State<MainShell> {
         _refreshWatchlistNotifications();
       } on ApiHttpException catch (e) {
         if (e.statusCode == 401) {
-          await prefs.remove(kAuthTokenStorageKey);
+          await AuthTokenStorage.delete();
           _apiService.clearAuthSession();
           if (mounted) setState(() {});
         }
@@ -599,7 +609,7 @@ class _MainShellState extends State<MainShell> {
     await _apiService.logoutAccount();
     _apiService.setRuntimePremiumKey(null);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(kAuthTokenStorageKey);
+    await AuthTokenStorage.delete();
     await prefs.remove(_premiumKeyStorageKey);
     if (!mounted) return;
     setState(() {

@@ -3944,36 +3944,56 @@ def auth_delete_account_endpoint(
     sub_store: SubscriptionStore = Depends(get_subscription_store),
 ):
     sub_id, tok = _require_bearer_user_id(authorization, auth_store)
+    # Keep direct service-level invocation (outside FastAPI dependency injection)
+    # safe by resolving the same stores when their Depends placeholders are present.
+    if not callable(getattr(doc_store, "purge_owner", None)):
+        doc_store = get_user_document_store()
+    if not callable(getattr(sub_store, "purge_user", None)):
+        sub_store = get_subscription_store()
     try:
-        auth_store.delete_account(sub_id, password=payload.password)
+        # Password verification and a per-account cutoff happen before any purge.
+        # This immediately invalidates sessions on every device while preserving
+        # the account row so an interrupted purge can be retried after login.
+        auth_store.prepare_account_deletion(sub_id, password=payload.password)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     owner_id = f"user:{sub_id}"
-    if isinstance(conv_store, ConversationStore):
-        conv_store.purge_owner(owner_id)
-    if isinstance(doc_store, UserDocumentStore):
-        doc_store.purge_owner(owner_id)
-    # Effacement complet (RGPD) : abonnement, usages, demandes de paiement, tickets, avis, diagnostics agro et watchlists.
-    for purge in (
-        lambda: sub_store.purge_user(owner_id),
-        lambda: get_support_store().purge_owner(owner_id),
-        lambda: get_agro_assessment_store().purge_owner(owner_id),
-        lambda: get_agro_profile_store().purge_owner(owner_id),
-        lambda: get_market_watch_store().purge_owner(owner_id),
-    ):
+    purge_steps = (
+        ("conversations", lambda: conv_store.purge_owner(owner_id)),
+        ("documents", lambda: doc_store.purge_owner(owner_id)),
+        ("billing", lambda: sub_store.purge_user(owner_id)),
+        ("support", lambda: get_support_store().purge_owner(owner_id)),
+        ("agro_assessments", lambda: get_agro_assessment_store().purge_owner(owner_id)),
+        ("agro_profiles", lambda: get_agro_profile_store().purge_owner(owner_id)),
+        ("market_watchlists", lambda: get_market_watch_store().purge_owner(owner_id)),
+        ("projects_and_pdf_artifacts", lambda: project_store.purge_owner(owner_id)),
+    )
+    for label, purge in purge_steps:
         try:
             purge()
         except Exception as exc:
-            logger.warning("Purge partielle lors de la suppression de compte : %s", exc)
-    if isinstance(project_store, ProjectStore):
-        for p in project_store.list_projects(owner_id, include_archived=True):
-            try:
-                project_store.delete_project(owner_id, p["project_id"])
-            except Exception:
-                pass
-    auth_store.revoke_token(tok)
+            logger.exception("Suppression de compte incomplète (%s) pour %s", label, owner_id)
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Suppression non terminée : certaines données n'ont pas pu être effacées. "
+                    "Vos sessions ont été invalidées. Reconnectez-vous puis relancez la suppression."
+                ),
+            ) from exc
+
+    try:
+        # Revoke the initiating token explicitly, then remove the account record last.
+        auth_store.revoke_token(tok)
+        auth_store.delete_account(sub_id, password=payload.password)
+    except Exception as exc:
+        logger.exception("Finalisation de suppression de compte impossible pour %s", owner_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Données purgées, mais la suppression du compte doit être relancée.",
+        ) from exc
     return {"deleted": True}
 
 

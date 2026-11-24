@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/auth_token_storage.dart';
 import '../core/utils/error_text.dart';
-
-const String kAuthTokenStorageKey = 'fd_auth_token_v1';
 
 class AuthDialog extends StatefulWidget {
   final ApiService apiService;
@@ -100,10 +98,9 @@ class _AuthDialogState extends State<AuthDialog> {
             )
           : await widget.apiService.loginAccount(email: email, password: pass);
 
-      final prefs = await SharedPreferences.getInstance();
       final tok = res['token']?.toString() ?? '';
       if (tok.isNotEmpty) {
-        await prefs.setString(kAuthTokenStorageKey, tok);
+        await AuthTokenStorage.write(tok);
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);

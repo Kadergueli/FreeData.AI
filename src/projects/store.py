@@ -283,8 +283,38 @@ class ProjectStore:
                 )
         return self.get_project(owner_id, project_id)
 
+    def _remove_artifact_file(self, artifact_path: Optional[str]) -> None:
+        """Remove a generated PDF only when its path is contained in the configured artifacts directory."""
+        if not artifact_path or artifact_path in ("db:", "on_demand:"):
+            return
+        root = self.artifacts_dir.resolve()
+        candidate = Path(os.path.abspath(artifact_path))
+        try:
+            # Check the resolved parent to prevent a symlinked directory inside
+            # artifacts_dir from redirecting deletion outside the managed tree.
+            candidate.parent.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Chemin d'artefact hors du répertoire autorisé.") from exc
+        if candidate.is_symlink():
+            candidate.unlink()
+            return
+        try:
+            candidate.resolve(strict=False).relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Cible d'artefact hors du répertoire autorisé.") from exc
+        if candidate.is_file():
+            candidate.unlink()
+
     def delete_project(self, owner_id: str, project_id: str) -> None:
         with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT artifact_path FROM study_versions WHERE owner_id = ? AND project_id = ?",
+                (owner_id, project_id),
+            ).fetchall()
+            # Delete files before cascading DB rows. A filesystem failure aborts deletion
+            # and leaves the project metadata available for a safe retry.
+            for row in rows:
+                self._remove_artifact_file(row["artifact_path"])
             cur = conn.execute(
                 "DELETE FROM projects WHERE project_id = ? AND owner_id = ?",
                 (project_id, owner_id),
@@ -292,23 +322,29 @@ class ProjectStore:
             if cur.rowcount == 0:
                 raise KeyError(f"Projet introuvable : {project_id}")
 
+    def purge_owner(self, owner_id: str) -> int:
+        """Delete every project and generated PDF belonging to one owner."""
+        if not owner_id:
+            return 0
+        deleted = 0
+        while True:
+            projects = self.list_projects(owner_id, include_archived=True, limit=200, offset=0)
+            if not projects:
+                return deleted
+            for project in projects:
+                self.delete_project(owner_id, project["project_id"])
+                deleted += 1
+
     def delete_study(self, owner_id: str, project_id: str, study_id: str) -> bool:
         """Deletes a single generated study and all its versions/artifacts under strict owner_id isolation."""
         with self._connect() as conn:
-            # Clean up any local SQLite PDF files on disk before removing DB rows
+            # Clean up local PDF files before removing DB rows; failures remain visible.
             rows = conn.execute(
                 "SELECT artifact_path FROM study_versions WHERE owner_id = ? AND project_id = ? AND study_id = ?",
                 (owner_id, project_id, study_id),
             ).fetchall()
-            for r in rows:
-                art = r["artifact_path"]
-                if art and art not in ("db:", "on_demand:"):
-                    try:
-                        p = Path(art)
-                        if p.is_file():
-                            p.unlink()
-                    except Exception:
-                        pass
+            for row in rows:
+                self._remove_artifact_file(row["artifact_path"])
             cur = conn.execute(
                 "DELETE FROM studies WHERE study_id = ? AND project_id = ? AND owner_id = ?",
                 (study_id, project_id, owner_id),

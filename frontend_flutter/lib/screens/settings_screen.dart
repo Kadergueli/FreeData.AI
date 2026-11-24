@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/design_system/fd_design_system.dart';
 import '../core/theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/auth_token_storage.dart';
 import '../services/conversation_storage.dart';
 import '../widgets/auth_dialog.dart';
 import 'account_screen.dart';
@@ -102,8 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _logout() async {
     await widget.apiService.logoutAccount();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(kAuthTokenStorageKey);
+    await AuthTokenStorage.delete();
     await LocalConversationStorage.instance.saveAll(const []);
     widget.onSessionChanged?.call();
     if (!mounted) return;
