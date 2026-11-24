@@ -1072,6 +1072,27 @@ def compute_farm_operating_account(
     """Compte d'exploitation agricole (OPEX/CAPEX saisis + prix WFP/FEWS NET vérifiés)."""
     from src.agro_indicators import HUB_PROVINCE, canonical_region, national_indicator_key
 
+    numeric_inputs = (
+        area_hectares, farmgate_discount_pct, seed_cost_per_ha_xaf,
+        fertilizer_cost_per_ha_xaf, labor_cost_per_ha_xaf,
+        land_prep_irrigation_per_ha_xaf, harvest_postharvest_per_ha_xaf,
+        other_opex_per_ha_xaf, capex_total_xaf, loan_amount_xaf, interest_rate_pct,
+    )
+    if any(not math.isfinite(float(value)) for value in numeric_inputs):
+        raise ValueError("Tous les paramètres financiers doivent être des nombres finis.")
+    if not 0 < float(area_hectares) <= 500_000:
+        raise ValueError("La superficie doit être comprise entre 0 et 500 000 hectares.")
+    if not 0 <= float(farmgate_discount_pct) <= 50:
+        raise ValueError("La décote bord-champ doit être comprise entre 0 et 50 %.")
+    if any(float(value) < 0 for value in numeric_inputs[2:]):
+        raise ValueError("Les coûts et financements doivent être positifs ou nuls.")
+    if float(interest_rate_pct) > 100:
+        raise ValueError("Le taux d’intérêt doit être compris entre 0 et 100 %.")
+    if target_yield_kg_ha is not None and (
+        not math.isfinite(float(target_yield_kg_ha)) or not 0 < float(target_yield_kg_ha) <= 50_000
+    ):
+        raise ValueError("Le rendement cible doit être compris entre 0 et 50 000 kg/ha.")
+
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
     comm = meta["commodity_std"]
