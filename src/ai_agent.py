@@ -3476,9 +3476,43 @@ class FreeDataAIAgent(FormattersMixin):
             r"\b(?:methodologie|methode|source|provenance|qualite|fiabilite|licence|documentation|"
             r"definition|algorithme|validation|couverture(?:\s+du\s+corpus)?|"
             r"comment\s+fonctionne|comment\s+est\s+calcule|comment\s+sont\s+calcules|"
-            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques)\b",
+            r"comment\s+verifie|comment\s+sont\s+verifies|limites\s+methodologiques|"
+            r"explique(?:r)?\s+(?:moi\s+)?(?:la\s+|le\s+|les\s+)?"
+            r"(?:marge|rentabilite|roi|point\s+mort|bfr|capex|prevision|business\s*plan)|"
+            r"difference\s+entre\s+(?:la\s+)?marge|"
+            r"comment\s+(?:calculer|interpreter)\s+(?:la\s+)?"
+            r"(?:marge|rentabilite|roi|point\s+mort|bfr|capex|prevision))\b",
             query or "",
         ))
+
+    @staticmethod
+    def _is_financial_action_query(query: str) -> bool:
+        """Keeps explicit simulations and business-plan requests on deterministic calculation paths."""
+        q = query or ""
+        explanatory_prefix = bool(
+            re.match(r"^(?:comment|explique|decris|quelle\s+difference|qu['’]est-ce\s+que)\b", q)
+        )
+        has_business_plan = bool(
+            re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q)
+        )
+        action_verbs = r"\b(?:simule|estime|fais|prepare|redige|construis|etablis|genere)\b"
+        if has_business_plan and (not explanatory_prefix or re.search(action_verbs, q)):
+            return True
+        if explanatory_prefix and not re.search(action_verbs, q):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
+                r"etablis|fais|genere|chiffre|combien\s+(?:je|peut|pourrais))\b.{0,90}"
+                r"\b(?:marge|profit|benefice|rentabilite|roi|revenu|capital|business|investissement)\b",
+                q,
+            )
+            or re.search(
+                r"\b(?:marge|profit|benefice|rentabilite|roi)\b.{0,60}"
+                r"\b(?:simul|estim|calcul|prevision|business\s*plan)\w*\b",
+                q,
+            )
+        )
 
     @staticmethod
     def _is_contextual_explanation_followup(query: str, history: Optional[list[dict]] = None) -> bool:
@@ -3595,6 +3629,18 @@ class FreeDataAIAgent(FormattersMixin):
         entities["is_business_plan_request"] = bool(
             _BUSINESS_PLAN_RE.search(q_norm) or _BUSINESS_PLAN_RE.search(hist_user_norm)
         )
+
+        # Une demande d'explication pure doit être traitée comme une question documentaire,
+        # même si le lexique "marge" a déclenché le simulateur métier. Une demande d'estimation
+        # ou de business plan explicite reste prioritaire et passe par les calculs déterministes.
+        if self._is_rag_knowledge_query(q_norm) and not self._is_financial_action_query(q_norm):
+            evidence = private_chunks or self.provider.retrieve_rag_chunks(contextual_rag_query, match_count=6)
+            evidence_answer = self._rag_evidence_response(
+                q, evidence, entities, client_state, history=history, tier=tier
+            )
+            if evidence_answer:
+                evidence_answer["client_state"] = client_state
+                return evidence_answer
 
         # Demande trop floue : si l'utilisateur a des documents privés pertinents, on analyse ses documents avec Jina + Groq !
         has_context = bool(
@@ -3782,10 +3828,34 @@ class FreeDataAIAgent(FormattersMixin):
         rag_terms = [contextual_rag_query or _strip_list_prefixes(q).strip()]
         if entities.get("commodity"):
             rag_terms.append(self._fr_commodity(entities["commodity"]))
-        if entities.get("province"):
-            rag_terms.append(str(entities["province"]))
+        for place_key in ("province", "origin_province", "destination_province"):
+            if entities.get(place_key):
+                rag_terms.append(str(entities[place_key]))
+        # Le RAG doit retrouver la méthode qui explique le calcul réellement exécuté,
+        # sans remplacer le moteur déterministe qui produit les chiffres.
+        if intent == "business_simulator":
+            rag_terms.append(
+                "commerce agricole négoce marge brute marge nette résultat opérationnel "
+                "coût rendu achat transport emballage manutention pertes stockage frais fixes "
+                "volume commercialisable chiffre affaires ROI point mort seuil rentabilité"
+            )
+            if entities.get("is_business_plan_request"):
+                rag_terms.append(
+                    "business plan agricole financement BFR CAPEX allocation capital trésorerie "
+                    "projection six mois réinvestissement stress tests hypothèses risques"
+                )
+        elif intent in ("route_revenue", "compare_sell"):
+            rag_terms.append(
+                "comparaison marchés écart prix brut frais transport coûts logistiques marge "
+                "et limites de rentabilité entre provinces"
+            )
+        elif intent == "forecast":
+            rag_terms.append(
+                "méthodologie prévision prix agricole validation chronologique MAE MAPE "
+                "intervalle de prévision 80 pour cent fraîcheur données"
+            )
         rag_query = " ".join(dict.fromkeys(t for t in rag_terms if t))
-        chunks = list(private_chunks or []) + self.provider.retrieve_rag_chunks(rag_query)
+        chunks = list(private_chunks or []) + self.provider.retrieve_rag_chunks(rag_query, match_count=6)
 
         sources = [
             {
@@ -3804,8 +3874,11 @@ class FreeDataAIAgent(FormattersMixin):
         # Les questions de méthode, de provenance et de qualité doivent recevoir le contenu RAG,
         # pas uniquement un modèle de réponse orienté prix qui ne cite que les titres des documents.
         if chunks and (
-            self._is_rag_knowledge_query(q_norm)
-            or self._is_contextual_explanation_followup(q_norm, history)
+            (self._is_rag_knowledge_query(q_norm) and not self._is_financial_action_query(q_norm))
+            or (
+                self._is_contextual_explanation_followup(q_norm, history)
+                and intent != "business_simulator"
+            )
         ):
             evidence_answer = self._rag_evidence_response(q, chunks, entities, client_state, history=history, tier=tier)
             if evidence_answer:

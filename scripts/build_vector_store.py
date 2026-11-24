@@ -147,17 +147,19 @@ def delete_stale_chunks(document_id: str, first_stale_index: int) -> None:
 
 
 _REQUIRED_MANIFEST_FIELDS = ("filename", "titre", "editeur")
+_SUPPORTED_PUBLIC_EXTENSIONS = {".pdf", ".md", ".txt"}
 
 
 def validate_manifest(manifest_path: Path = MANIFEST_PATH, docs_dir: Path = DOCS_DIR) -> dict:
     """Valide le schéma de docs/manifest.json et vérifie la présence locale des fichiers déclarés."""
     if not manifest_path.exists():
-        return {"status": "empty", "entries_count": 0, "present_files": [], "missing_files": [], "errors": []}
+        return {"status": "empty", "entries_count": 0, "present_files": [], "missing_files": [], "deferred_files": [], "errors": []}
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError("docs/manifest.json doit contenir une liste JSON d'entrées documentaires.")
     present: list[str] = []
     missing: list[str] = []
+    deferred: list[str] = []
     errors: list[str] = []
     for idx, entry in enumerate(raw):
         if not isinstance(entry, dict):
@@ -173,8 +175,14 @@ def validate_manifest(manifest_path: Path = MANIFEST_PATH, docs_dir: Path = DOCS
             if candidate == root or root not in candidate.parents:
                 errors.append(f"Entrée #{idx} : chemin de fichier hors du dossier docs interdit.")
                 continue
-            if candidate.suffix.lower() != ".pdf":
-                errors.append(f"Entrée #{idx} : seul le format PDF est accepté pour l'indexation publique.")
+            if candidate.suffix.lower() not in _SUPPORTED_PUBLIC_EXTENSIONS:
+                errors.append(
+                    f"Entrée #{idx} : format non pris en charge ; extensions autorisées : "
+                    f"{', '.join(sorted(_SUPPORTED_PUBLIC_EXTENSIONS))}."
+                )
+                continue
+            if entry.get("enabled", True) is False:
+                deferred.append(fname)
                 continue
             if candidate.is_file():
                 present.append(fname)
@@ -186,6 +194,7 @@ def validate_manifest(manifest_path: Path = MANIFEST_PATH, docs_dir: Path = DOCS
         "entries_count": len(raw),
         "present_files": present,
         "missing_files": missing,
+        "deferred_files": deferred,
         "errors": errors,
     }
 
@@ -211,13 +220,22 @@ def main(argv: list[str] | None = None) -> int:
 
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     if not manifest:
-        print("[FreeData.AI RAG] Manifeste vide (0 PDF). Base vectorielle prête en attente de documents.")
+        print("[FreeData.AI RAG] Manifeste vide. Aucun document à indexer.")
         return 0
 
     base = settings.supabase_url.rstrip("/")
     chunks_endpoint = f"{base}/rest/v1/rag_chunks?on_conflict=document_id,chunk_index"
 
     for entry in manifest:
+        if entry.get("enabled", True) is False:
+            # Désactiver une source doit aussi révoquer son exposition publique
+            # et supprimer ses anciens extraits, même si le fichier local est absent.
+            disabled_meta = {**entry, "redistribution_ok": False}
+            doc_id = upsert_document(disabled_meta)
+            delete_stale_chunks(doc_id, 0)
+            print(f"[FreeData.AI RAG] Source désactivée et non redistribuable : {entry['filename']}.")
+            continue
+
         pdf_path = (DOCS_DIR / entry["filename"]).resolve()
         if not pdf_path.is_file():
             raise RuntimeError(
@@ -225,19 +243,23 @@ def main(argv: list[str] | None = None) -> int:
                 "L'indexation est interrompue pour éviter un succès silencieux."
             )
 
-        try:
-            from pypdf import PdfReader
-        except ImportError as exc:
-            raise RuntimeError("Installez pypdf (pip install pypdf) pour indexer des PDF.") from exc
+        suffix = pdf_path.suffix.lower()
+        if suffix == ".pdf":
+            try:
+                from pypdf import PdfReader
+            except ImportError as exc:
+                raise RuntimeError("Installez pypdf (pip install pypdf) pour indexer des PDF.") from exc
+            reader = PdfReader(str(pdf_path))
+            page_texts = [(page_num, page.extract_text() or "") for page_num, page in enumerate(reader.pages, start=1)]
+        else:
+            page_texts = [(1, pdf_path.read_text(encoding="utf-8"))]
 
         doc_id = upsert_document(entry)
         existing_hashes = fetch_existing_hashes(doc_id)
-        reader = PdfReader(str(pdf_path))
-
         pending = []
         idx = 0
-        for page_num, page in enumerate(reader.pages, start=1):
-            for segment in chunk_text(page.extract_text() or ""):
+        for page_num, page_text in page_texts:
+            for segment in chunk_text(page_text):
                 h = hashlib.sha256(segment.encode("utf-8")).hexdigest()
                 if existing_hashes.get(idx) != h:
                     pending.append({"page": page_num, "chunk_index": idx, "content": segment, "content_hash": h})
@@ -252,6 +274,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         if not pending:
+            # Même sans nouveau vecteur, supprimer les segments devenus obsolètes
+            # si le document source a été raccourci depuis la dernière indexation.
+            delete_stale_chunks(doc_id, idx)
             print(f"[FreeData.AI RAG] '{entry['titre']}' : déjà à jour (0 nouvel appel Embeddings).")
             continue
 
