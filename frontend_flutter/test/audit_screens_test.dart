@@ -355,23 +355,16 @@ class _DelayedProjectsApiService extends _AuditFakeApiService {
       {bool includeArchived = false}) {
     projectRequests++;
     if (projectRequests == 1) return firstProjectsResponse.future;
-    return super.listProjects(includeArchived: includeArchived);
+    return [
+      {
+        'project_id': 'PRJ-B',
+        'name': 'Projet compte B',
+        'status': 'active',
+        'studies_count': 0,
+        'updated_at': '2026-11-24',
+      },
+    ];
   }
-}
-
-class _AccountBProjectsApiService extends _AuditFakeApiService {
-  @override
-  Future<List<Map<String, dynamic>>> listProjects(
-      {bool includeArchived = false}) async =>
-      [
-        {
-          'project_id': 'PRJ-B',
-          'name': 'Projet compte B',
-          'status': 'active',
-          'studies_count': 0,
-          'updated_at': '2026-11-24',
-        },
-      ];
 }
 
 void main() {
@@ -513,34 +506,34 @@ void main() {
 
   testWidgets('ProjectsScreen discards stale requests after account switch',
       (tester) async {
-    final accountA = _DelayedProjectsApiService()
+    final api = _DelayedProjectsApiService()
       ..setAuthSession(
         token: 'account-a-token',
-        user: const {'email': 'a@example.td'},
-      );
-    final accountB = _AccountBProjectsApiService()
-      ..setAuthSession(
-        token: 'account-b-token',
-        user: const {'email': 'b@example.td'},
+        user: const {'user_id': 'account-a', 'email': 'a@example.td'},
       );
 
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: ProjectsScreen(apiService: accountA)),
+        home: Scaffold(body: ProjectsScreen(apiService: api)),
       ),
     );
     await tester.pump();
 
+    // Même instance ApiService : seul le compte Bearer change.
+    api.setAuthSession(
+      token: 'account-b-token',
+      user: const {'user_id': 'account-b', 'email': 'b@example.td'},
+    );
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: ProjectsScreen(apiService: accountB)),
+        home: Scaffold(body: ProjectsScreen(apiService: api)),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Projet compte B'), findsOneWidget);
 
-    accountA.firstProjectsResponse.complete([
+    api.firstProjectsResponse.complete([
       {
         'project_id': 'PRJ-A',
         'name': 'Projet compte A',
