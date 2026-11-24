@@ -139,33 +139,44 @@ class _FarmOperatingAccountScreenState
     };
     String? validationError;
     if (area == null || area <= 0 || area > 500000) {
-      validationError = 'Saisissez une superficie valide, supérieure à 0 et inférieure ou égale à 500 000 ha.';
+      validationError =
+          'Saisissez une superficie valide, supérieure à 0 et inférieure ou égale à 500 000 ha.';
     } else if (discount == null || discount < 0 || discount > 50) {
-      validationError = 'La décote bord-champ doit être comprise entre 0 et 50 %.';
+      validationError =
+          'La décote bord-champ doit être comprise entre 0 et 50 %.';
     } else {
       for (final entry in opexFields.entries) {
         final value = _parseNumber(entry.value);
         if (value == null || value < 0 || value > 50000000) {
-          validationError = 'Renseignez un montant valide pour « ${entry.key} » (0 à 50 000 000 FCFA/ha).';
+          validationError =
+              'Renseignez un montant valide pour « ${entry.key} » (0 à 50 000 000 FCFA/ha).';
           break;
         }
       }
     }
-    final numericFields = <TextEditingController>[_capexCtrl, _loanCtrl, _rateCtrl];
+    final numericFields = <TextEditingController>[
+      _capexCtrl,
+      _loanCtrl,
+      _rateCtrl,
+    ];
     if (validationError == null) {
       for (final field in numericFields) {
         final value = _parseNumber(field);
         if (value == null || value < 0) {
-          validationError = 'Vérifiez les montants de CAPEX, de prêt et le taux d’intérêt.';
+          validationError =
+              'Vérifiez les montants de CAPEX, de prêt et le taux d’intérêt.';
           break;
         }
       }
     }
-    final targetYield = _yieldCtrl.text.trim().isEmpty ? null : _parseNumber(_yieldCtrl);
+    final targetYield = _yieldCtrl.text.trim().isEmpty
+        ? null
+        : _parseNumber(_yieldCtrl);
     if (validationError == null &&
         _yieldCtrl.text.trim().isNotEmpty &&
         (targetYield == null || targetYield <= 0 || targetYield > 50000)) {
-      validationError = 'Le rendement cible doit être compris entre 0 et 50 000 kg/ha.';
+      validationError =
+          'Le rendement cible doit être compris entre 0 et 50 000 kg/ha.';
     }
     if (validationError != null) {
       setState(() {
