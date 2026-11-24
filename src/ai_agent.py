@@ -3489,11 +3489,17 @@ class FreeDataAIAgent(FormattersMixin):
     def _is_financial_action_query(query: str) -> bool:
         """Keeps explicit simulations and business-plan requests on deterministic calculation paths."""
         q = query or ""
-        if re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q):
+        explanatory_prefix = bool(
+            re.match(r"^(?:comment|explique|decris|quelle\s+difference|qu['’]est-ce\s+que)\b", q)
+        )
+        has_business_plan = bool(
+            re.search(r"\b(?:business\s*plan|plan\s+d['’]?affaires?|etude\s+de\s+faisabilite)\b", q)
+        )
+        action_verbs = r"\b(?:simule|estime|fais|prepare|redige|construis|etablis|genere)\b"
+        if has_business_plan and (not explanatory_prefix or re.search(action_verbs, q)):
             return True
-        if re.match(r"^(?:comment|explique|decris|quelle\s+difference|qu['’]est-ce\s+que)\b", q):
-            if not re.search(r"\b(?:simule|estime|fais|prepare|redige|construis|etablis|genere)\b", q):
-                return False
+        if explanatory_prefix and not re.search(action_verbs, q):
+            return False
         return bool(
             re.search(
                 r"\b(?:simul(?:e|er|ation)|estim(?:e|er)|calcul(?:e|er)|prepare|redige|construis|"
