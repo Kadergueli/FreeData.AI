@@ -23,6 +23,18 @@ import 'package:freedata_ai/widgets/chat/assistant_message.dart';
 import 'package:freedata_ai/widgets/chat/data_cards.dart';
 import 'package:freedata_ai/widgets/chat/loading_indicator.dart';
 
+class _EmptyExploreApi extends ApiService {
+  @override
+  Future<Map<String, dynamic>> getMetadata() async => {};
+
+  @override
+  Future<List<dynamic>> getForecasts({
+    String? province,
+    String? commodity,
+  }) async =>
+      [];
+}
+
 class _PolishFakeApiService extends ApiService {
   @override
   Future<Map<String, dynamic>> getMetadata() async => {
@@ -862,6 +874,23 @@ void main() {
         find.textContaining(
             'Rendement net après frais de stockage (1.5 %/mois)'),
         findsOneWidget);
+  });
+
+  testWidgets('ExploreScreen does not claim an empty catalogue is operational',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ExploreScreen(apiService: _EmptyExploreApi())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('AUCUNE DONNÉE'), findsOneWidget);
+    expect(
+      find.textContaining('Aucune donnée de marché exploitable'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
