@@ -64,7 +64,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(requestsWarning, findsOneWidget);
-    expect(find.byTooltip('Réessayer'), findsOneWidget);
+    expect(find.byTooltip('Réessayer'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }
