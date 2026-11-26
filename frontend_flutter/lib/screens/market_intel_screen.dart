@@ -533,14 +533,16 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             for (final m in _asList(where['cheapest']))
-              _row('${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
+              _row(
+                  '${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
             const SizedBox(height: 10),
             const Text(
               'Où le prix est le plus haut',
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             for (final m in _asList(where['dearest']))
-              _row('${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
+              _row(
+                  '${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
             if (storage['status'] == 'ok') ...[
               const SizedBox(height: 10),
               const Text(
@@ -549,7 +551,7 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
               ),
               _row(
                 'Acheter en ${storage['buy_month']}, '
-                    'vendre en ${storage['sell_month']}',
+                'vendre en ${storage['sell_month']}',
                 _pct(storage['gross_gain_pct']),
               ),
               _note('${storage['note']}'),
@@ -685,7 +687,7 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
                     ? 'Engrais DAP'
                     : (key == 'urea' ? 'Engrais urée' : 'Pétrole brut'),
                 '${_asMap(inputs[key])['value']} '
-                    '(${_pct(_asMap(inputs[key])['yoy_pct'])})',
+                '(${_pct(_asMap(inputs[key])['yoy_pct'])})',
               ),
             _note('${w['note']}'),
           ],
@@ -778,9 +780,11 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
               value: _alertKind,
               items: const [
                 DropdownMenuItem(value: 'threshold', child: Text('Seuil')),
-                DropdownMenuItem(value: 'variation', child: Text('Variation %')),
+                DropdownMenuItem(
+                    value: 'variation', child: Text('Variation %')),
                 DropdownMenuItem(value: 'gap', child: Text('Écart médiane %')),
-                DropdownMenuItem(value: 'new_data', child: Text('Nouveau mois')),
+                DropdownMenuItem(
+                    value: 'new_data', child: Text('Nouveau mois')),
               ],
               onChanged: (v) => setState(() => _alertKind = v ?? 'threshold'),
             ),
