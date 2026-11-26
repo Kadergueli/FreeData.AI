@@ -68,6 +68,9 @@ from src.market_pro import (
     evaluate_watchlists,
     export_validated_forecasts_csv,
 )
+from src import market_data as market_data_provider
+from src import market_intel
+from src.market_alerts import MarketAlertStore, evaluate_rules as evaluate_market_alert_rules
 from src.entitlements import EntitlementManager
 from src.auth import AuthStore, DEFAULT_TOKEN_TTL_SECONDS, MAX_SESSION_LIFETIME_SECONDS, get_auth_secret
 from src.conversations import ConversationStore
@@ -2086,6 +2089,217 @@ def delete_market_watchlist_endpoint(
     return {"deleted": True, "watch_id": watch_id}
 
 
+# ---------------------------------------------------------------------------
+# Intelligence marché : fiche produit (Standard) ; comparateur, pouls, panier, contexte, brief, alertes (PRO)
+# ---------------------------------------------------------------------------
+_MARKET_ALERT_STORE: Optional[MarketAlertStore] = None
+
+
+def get_market_alert_store() -> MarketAlertStore:
+    global _MARKET_ALERT_STORE
+    if _MARKET_ALERT_STORE is None:
+        _MARKET_ALERT_STORE = MarketAlertStore()
+    return _MARKET_ALERT_STORE
+
+
+def get_market_history() -> Any:
+    """Historique des prix de détail (chargé à la demande, mis en cache)."""
+    return market_data_provider.load_price_history()
+
+
+def get_world_prices() -> Any:
+    return market_data_provider.load_world_prices()
+
+
+def _intel_history_or_503(df: Any) -> Any:
+    if df is None or getattr(df, "empty", True):
+        raise HTTPException(status_code=503, detail="Historique des prix momentanément indisponible. Réessayez plus tard.")
+    return df
+
+
+def _intel_value_error(exc: ValueError) -> HTTPException:
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+class MarketAlertRuleRequest(BaseModel):
+    kind: Literal["threshold", "variation", "gap", "new_data"]
+    product_id: str = Field(..., min_length=2, max_length=40)
+    value: float = Field(0.0, ge=0.0, le=10000000.0)
+    direction: Literal["above", "below", "up", "down", "any"] = "above"
+    province: str = Field("", max_length=80)
+    market_name: str = Field("", max_length=80)
+    note: str = Field("", max_length=240)
+
+
+class MarketBasketRequest(BaseModel):
+    weights: dict[str, float] = Field(..., min_length=2, max_length=8)
+
+
+@app.get("/api/v1/market-intel/products", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_products_endpoint():
+    return {"products": market_intel.list_products()}
+
+
+@app.get("/api/v1/market-intel/product/{product_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_product_endpoint(product_id: str, history: Any = Depends(get_market_history)):
+    """Fiche produit (Standard) : prix médian, variations, volatilité normale, saisonnalité indicative, limites."""
+    try:
+        market_intel.normalize_product(product_id)
+        return market_intel.product_brief(_intel_history_or_503(history), product_id)
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.get("/api/v1/market-intel/compare/{product_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_compare_endpoint(
+    product_id: str,
+    storage_cost_pct_month: float = Query(0.0, ge=0.0, le=20.0),
+    loss_pct: float = Query(0.0, ge=0.0, le=100.0),
+    history: Any = Depends(get_market_history),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Comparateur de marchés PRO")
+    try:
+        market_intel.normalize_product(product_id)
+        return market_intel.market_comparison(
+            _intel_history_or_503(history), product_id,
+            storage_cost_pct_month=storage_cost_pct_month, loss_pct=loss_pct,
+        )
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.get("/api/v1/market-intel/pulse", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_pulse_endpoint(
+    history: Any = Depends(get_market_history),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Pouls du marché PRO")
+    return market_intel.market_pulse(_intel_history_or_503(history))
+
+
+@app.post("/api/v1/market-intel/basket", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_basket_endpoint(
+    payload: MarketBasketRequest,
+    history: Any = Depends(get_market_history),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Panier de matières premières PRO")
+    try:
+        return market_intel.commodity_basket(_intel_history_or_503(history), payload.weights)
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.get("/api/v1/market-intel/world-context", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_world_context_endpoint(
+    product_id: Optional[str] = Query(None, max_length=40),
+    history: Any = Depends(get_market_history),
+    world: Any = Depends(get_world_prices),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Contexte mondial PRO")
+    try:
+        return market_intel.world_context(world, history, product_id)
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.get("/api/v1/market-intel/entry-brief/{product_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_entry_brief_endpoint(
+    product_id: str,
+    province: Optional[str] = Query(None, max_length=80),
+    history: Any = Depends(get_market_history),
+    world: Any = Depends(get_world_prices),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Brief d'entrée marché : comprendre un marché avant de s'y engager."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Brief d'entrée marché PRO")
+    try:
+        market_intel.normalize_product(product_id)
+        return market_intel.entry_brief(_intel_history_or_503(history), product_id, province=province, world=world)
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.get("/api/v1/market-intel/alerts", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_alerts_endpoint(
+    history: Any = Depends(get_market_history),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    alert_store: MarketAlertStore = Depends(get_market_alert_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Fil d'alertes évaluées (dans l'application ; aucun envoi externe)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Alertes marché PRO")
+    rules = alert_store.list_rules(owner_id)
+    evaluated = evaluate_market_alert_rules(rules, history) if rules else []
+    return {"rules": evaluated, "triggered": [r for r in evaluated if r["triggered"]]}
+
+
+@app.post("/api/v1/market-intel/alerts", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_create_alert_endpoint(
+    payload: MarketAlertRuleRequest,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    alert_store: MarketAlertStore = Depends(get_market_alert_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Alertes marché PRO")
+    try:
+        return alert_store.create_rule(
+            owner_id, kind=payload.kind, product_id=payload.product_id, value=payload.value,
+            direction=payload.direction, province=payload.province, market_name=payload.market_name,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise _intel_value_error(exc) from exc
+
+
+@app.delete("/api/v1/market-intel/alerts/{rule_id}", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_delete_alert_endpoint(
+    rule_id: str,
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    alert_store: MarketAlertStore = Depends(get_market_alert_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Alertes marché PRO")
+    if not alert_store.delete_rule(owner_id, rule_id):
+        raise HTTPException(status_code=404, detail="Alerte introuvable.")
+    return {"deleted": True, "rule_id": rule_id}
+
+
+@app.post("/api/v1/market-intel/alerts/{rule_id}/ack", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_ack_alert_endpoint(
+    rule_id: str,
+    history: Any = Depends(get_market_history),
+    owner_id: str = Depends(_require_project_owner),
+    x_premium_key: Optional[str] = Header(default=None),
+    alert_store: MarketAlertStore = Depends(get_market_alert_store),
+    sub_store: SubscriptionStore = Depends(get_subscription_store),
+):
+    """Marque une alerte « nouvelles données » comme lue (jusqu'au prochain mois publié)."""
+    _require_pro_access(owner_id, x_premium_key, sub_store, "Alertes marché PRO")
+    rule = next((r for r in alert_store.list_rules(owner_id) if r["rule_id"] == rule_id), None)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Alerte introuvable.")
+    ev = evaluate_market_alert_rules([rule], history)[0]
+    if ev.get("as_of"):
+        alert_store.ack_rule(owner_id, rule_id, ev["as_of"])
+    return {"acknowledged": True, "rule_id": rule_id, "month": ev.get("as_of")}
+
+
 @app.get("/api/v1/market-pro/export.csv", dependencies=[Depends(_data_rate_limit_dependency)])
 def market_pro_export_csv_endpoint(
     crop_id: Optional[str] = Query(None, max_length=40),
@@ -2836,6 +3050,7 @@ def export_my_privacy_data_endpoint(
     agro_assessments = []
     agro_official_profile = None
     market_watchlists = []
+    market_alert_rules = []
     try:
         agro_assessments = get_agro_assessment_store().list_assessments(owner_id, limit=100)
     except Exception:
@@ -2846,6 +3061,10 @@ def export_my_privacy_data_endpoint(
         pass
     try:
         market_watchlists = get_market_watch_store().list_watches(owner_id)
+    except Exception:
+        pass
+    try:
+        market_alert_rules = get_market_alert_store().list_rules(owner_id)
     except Exception:
         pass
     return {
@@ -2859,6 +3078,7 @@ def export_my_privacy_data_endpoint(
         "agro_assessments": agro_assessments,
         "agro_official_profile": agro_official_profile,
         "market_watchlists": market_watchlists,
+        "market_alert_rules": market_alert_rules,
     }
 
 
@@ -2889,6 +3109,10 @@ def delete_my_data_endpoint(
         out["deleted_market_watchlists"] = get_market_watch_store().purge_owner(owner_id)
     except Exception:
         out["deleted_market_watchlists"] = 0
+    try:
+        out["deleted_market_alert_rules"] = get_market_alert_store().purge_owner(owner_id)
+    except Exception:
+        out["deleted_market_alert_rules"] = 0
     return out
 
 
@@ -3969,6 +4193,7 @@ def auth_delete_account_endpoint(
         ("agro_assessments", lambda: get_agro_assessment_store().purge_owner(owner_id)),
         ("agro_profiles", lambda: get_agro_profile_store().purge_owner(owner_id)),
         ("market_watchlists", lambda: get_market_watch_store().purge_owner(owner_id)),
+        ("market_alert_rules", lambda: get_market_alert_store().purge_owner(owner_id)),
         ("projects_and_pdf_artifacts", lambda: project_store.purge_owner(owner_id)),
     )
     for label, purge in purge_steps:
