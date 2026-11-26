@@ -20,7 +20,7 @@ from src.config import settings
 logger = logging.getLogger("freedata.market_data")
 
 CACHE_TTL_SECONDS = 6 * 3600
-_FAILURE_TTL_SECONDS = 120  # un échec n'est pas rejoué à chaque requête
+_FAILURE_TTL_SECONDS = 20  # un échec n'est pas rejoué à chaque requête
 _cache: dict[str, tuple[float, Optional[pd.DataFrame]]] = {}
 _lock = threading.Lock()
 
@@ -48,10 +48,63 @@ def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _fetch_product_rows(name: str) -> list[dict]:
+    """Relevés XAF/kg d'un produit, pagination par clé (id croissant) : coût constant à chaque page."""
+    base = settings.supabase_url.rstrip("/")
+    key = settings.read_key
+    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"}
+    rows: list[dict] = []
+    last_id = 0
+    for _ in range(60):  # garde-fou : 60 000 relevés par produit au maximum
+        resp = requests.get(
+            f"{base}/rest/v1/v_clean_markets",
+            headers=headers,
+            params={
+                "select": "id,source,month_date,province,market_name,commodity_std,price_value,is_flagged_outlier",
+                "unit_clean": "eq.xaf/kg",
+                "commodity_std": f"ilike.{name}",
+                "id": f"gt.{last_id}",
+                "order": "id",
+                "limit": 1000,
+            },
+            timeout=25,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        last_id = int(batch[-1]["id"])
+    return rows
+
+
+def _load_history_rest() -> pd.DataFrame:
+    """Charge seulement les produits suivis, en parallèle (la vue complète fait ~47 000 lignes)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src.data_loader import drop_flagged_outliers, unify_commodity_case
+    from src.market_intel import PRODUCTS
+
+    names = sorted({n for meta in PRODUCTS.values() for n in meta["names"]})
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        chunks = list(pool.map(_fetch_product_rows, names))
+    rows = [r for chunk in chunks for r in chunk]
+    if not rows:
+        raise ValueError("Aucun relevé de prix reçu depuis v_clean_markets.")
+    df = pd.DataFrame(rows).rename(columns={"price_value": "value"})
+    df["year_month"] = pd.to_datetime(df["month_date"]).dt.to_period("M")
+    df = unify_commodity_case(df)
+    if settings.exclude_flagged_outliers:
+        df = drop_flagged_outliers(df)
+    return df
+
+
 def load_price_history() -> pd.DataFrame:
     """Historique des prix de détail (XAF/kg), colonnes : source, province, market_name, commodity_std, year_month, value."""
     from src.data_loader import load_clean_markets
 
+    if settings.data_backend == "supabase_rest":
+        return _cached("price_history", _load_history_rest)
     return _cached("price_history", load_clean_markets)
 
 
