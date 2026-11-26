@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] — Intelligence marché (2026-11-27)
+- Nouveau module « suivre et expliquer » (jamais prédire) : `/api/v1/market-intel/*`. Standard : fiche produit (médiane nationale, variations à marchés constants, volatilité normale du produit, saisonnalité, limites). PRO : brief d'entrée marché, comparateur de marchés + fenêtre de stockage (coûts saisis par l'utilisateur), pouls du marché, panier de matières premières pondéré, contexte mondial et intrants, alertes (seuil, variation %, écart à la médiane, nouvelles données ; dans l'application, sans WhatsApp).
+- Honnêteté : saisonnalité « fiable » seulement avec ≥ 3 saisons ; écarts entre marchés présentés avant transport, taxes, pertes et financement ; aucun lien prédictif prix mondial → prix local affirmé.
+- Données : historique chargé à la demande avec cache ; prix mondiaux via `sql/17_market_intel_views.sql` (à appliquer à la main ; sans elle, « indisponible »).
+- RGPD : l'export de données et la suppression de compte couvrent les alertes.
+- Frontend : onglet « Intelligence » dans Marchés & Crédit.
+
 ## [Unreleased] — Messages d'erreur lisibles (2026-11-24)
 - Frontend : `errText()` (core/utils/error_text.dart) remplace l'affichage brut des exceptions dans ~40 messages (SnackBar et états d'erreur) : plus de « ClientException: Failed to fetch, uri=https://… », d'URL ni d'erreurs de type Dart ; délai dépassé et réponse invalide traduits. Tests unitaires ajoutés.
 

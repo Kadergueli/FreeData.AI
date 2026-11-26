@@ -7,6 +7,7 @@ import 'analytics_screen.dart';
 import 'campaign_plan_screen.dart';
 import 'farm_operating_account_screen.dart';
 import 'forecast_screen.dart';
+import 'market_intel_screen.dart';
 import 'passport_screen.dart';
 
 /// Hub unifié Marchés & Crédit :
@@ -34,7 +35,7 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -130,6 +131,10 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                           text: 'Prévisions',
                         ),
                         const Tab(
+                          icon: Icon(Icons.insights_rounded, size: 18),
+                          text: 'Intelligence',
+                        ),
+                        const Tab(
                           icon: Icon(Icons.calculate_outlined, size: 18),
                           text: 'Plan Campagne',
                         ),
@@ -164,6 +169,10 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                 ForecastScreen(
                   apiService: widget.apiService,
                   onSelectPrompt: widget.onSelectPrompt,
+                ),
+                MarketIntelScreen(
+                  apiService: widget.apiService,
+                  onRequestPro: widget.onRequestPro,
                 ),
                 CampaignPlanScreen(
                   apiService: widget.apiService,
