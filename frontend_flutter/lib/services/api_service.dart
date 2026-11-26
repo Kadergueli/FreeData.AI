@@ -1011,6 +1011,114 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> _marketIntelGet(
+    String path,
+    String fallback,
+  ) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-intel/$path');
+    final resp = await _getWithRetry(uri, headers: _projectHeaders());
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    final detail = _extractErrorDetail(resp, fallback);
+    throw ApiHttpException(resp.statusCode, detail);
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelProduct(String id) {
+    return _marketIntelGet('product/$id', 'Fiche produit indisponible');
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelEntryBrief(String id) {
+    return _marketIntelGet('entry-brief/$id', 'Brief d’entrée indisponible');
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelCompare(String id) {
+    return _marketIntelGet('compare/$id', 'Comparateur indisponible');
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelPulse() {
+    return _marketIntelGet('pulse', 'Pouls du marché indisponible');
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelWorld(String id) {
+    return _marketIntelGet(
+      'world-context?product_id=$id',
+      'Contexte mondial indisponible',
+    );
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelAlerts() {
+    return _marketIntelGet('alerts', 'Alertes indisponibles');
+  }
+
+  Future<Map<String, dynamic>> getMarketIntelBasket() async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-intel/basket');
+    final weights = {'millet': 1, 'sorghum': 1, 'maize': 1, 'rice_local': 1};
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({'weights': weights}),
+        )
+        .timeout(const Duration(seconds: 25));
+    if (resp.statusCode == 200) {
+      return Map<String, dynamic>.from(
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map);
+    }
+    final detail = _extractErrorDetail(resp, 'Panier indisponible');
+    throw ApiHttpException(resp.statusCode, detail);
+  }
+
+  Future<void> createMarketIntelAlert({
+    required String kind,
+    required String productId,
+    required double value,
+    required String direction,
+    String marketName = '',
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-intel/alerts');
+    final resp = await _client
+        .post(
+          uri,
+          headers: _projectHeaders(includeJson: true),
+          body: jsonEncode({
+            'kind': kind,
+            'product_id': productId,
+            'value': value,
+            'direction': direction,
+            'market_name': marketName.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      final detail = _extractErrorDetail(resp, 'Alerte non créée');
+      throw ApiHttpException(resp.statusCode, detail);
+    }
+  }
+
+  Future<void> deleteMarketIntelAlert(String ruleId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-intel/alerts/$ruleId');
+    final resp = await _client
+        .delete(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      final detail = _extractErrorDetail(resp, 'Suppression impossible');
+      throw ApiHttpException(resp.statusCode, detail);
+    }
+  }
+
+  Future<void> ackMarketIntelAlert(String ruleId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/market-intel/alerts/$ruleId/ack');
+    final resp = await _client
+        .post(uri, headers: _projectHeaders())
+        .timeout(const Duration(seconds: 20));
+    if (resp.statusCode != 200) {
+      final detail = _extractErrorDetail(resp, 'Action impossible');
+      throw ApiHttpException(resp.statusCode, detail);
+    }
+  }
+
   Future<Uint8List> downloadMarketProCsv({String? cropId}) async {
     final uri = Uri.parse('$baseUrl/api/v1/market-pro/export.csv').replace(
       queryParameters:
