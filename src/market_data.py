@@ -51,7 +51,10 @@ def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
 def _fetch_product_rows(name: str) -> list[dict]:
     """Relevés XAF/kg d'un produit, pagination par clé (id croissant) : coût constant à chaque page."""
     base = settings.supabase_url.rstrip("/")
-    key = settings.read_key
+    # v_clean_markets est en security_invoker et table_public a la RLS sans politique publique : la clé anon
+    # ne voit aucune ligne. Lecture côté serveur uniquement, avec la clé privilégiée (jamais exposée au client),
+    # comme pour les tables Gold privilégiées ; repli sur la clé de lecture si elle est seule configurée.
+    key = settings.write_key
     headers = {"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"}
     rows: list[dict] = []
     last_id = 0
@@ -90,7 +93,10 @@ def _load_history_rest() -> pd.DataFrame:
         chunks = list(pool.map(_fetch_product_rows, names))
     rows = [r for chunk in chunks for r in chunk]
     if not rows:
-        raise ValueError("Aucun relevé de prix reçu depuis v_clean_markets.")
+        raise ValueError(
+            "Aucun relevé de prix reçu depuis v_clean_markets (clé sans accès en lecture ? "
+            "SUPABASE_SERVICE_ROLE_KEY doit être définie sur l'API)."
+        )
     df = pd.DataFrame(rows).rename(columns={"price_value": "value"})
     df["year_month"] = pd.to_datetime(df["month_date"]).dt.to_period("M")
     df = unify_commodity_case(df)
