@@ -184,3 +184,39 @@ def test_endpoints_gate_pro_and_keep_brief_public(tmp_path):
     feed = server.market_intel_alerts_endpoint(history=df, owner_id=pro, x_premium_key=None,
                                                alert_store=alert_store, sub_store=sub_store)
     assert feed["triggered"][0]["rule_id"] == rule["rule_id"]
+
+
+def test_rest_history_loads_per_product_with_keyset_pagination(monkeypatch):
+    from src import market_data as md
+    from src.config import settings
+
+    rows = [{"id": i, "source": "WFP", "month_date": "2025-01-01", "province": "A", "market_name": "M",
+             "commodity_std": "Millet", "price_value": 200.0 + i, "is_flagged_outlier": 0} for i in range(1, 2501)]
+    seen = []
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        seen.append(params["commodity_std"])
+        if params["commodity_std"] != "ilike.millet":
+            return _Resp([])
+        last = int(params["id"][3:])
+        return _Resp([r for r in rows if r["id"] > last][:1000])
+
+    monkeypatch.setattr(md.requests, "get", fake_get)
+    monkeypatch.setattr(type(settings), "data_backend", property(lambda self: "supabase_rest"))
+    md.clear_cache()
+    try:
+        df = md.load_price_history()
+    finally:
+        md.clear_cache()
+    assert len(df) == 2500 and "year_month" in df.columns
+    assert seen.count("ilike.millet") == 3  # 1000 + 1000 + 500
