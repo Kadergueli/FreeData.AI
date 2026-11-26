@@ -1,0 +1,22 @@
+name: tmp-fmt
+on:
+  push:
+    branches: [tmp-fmt-intel]
+permissions:
+  contents: write
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: cd frontend_flutter && flutter pub get
+      - run: cd frontend_flutter && dart format lib test
+      - run: |
+          git config user.name fmt-bot
+          git config user.email fmt-bot@users.noreply.github.com
+          git add -A frontend_flutter
+          git commit -m "fmt" || echo nochange
+          git push origin HEAD:tmp-fmt-intel
