@@ -81,7 +81,15 @@ def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
     target_csv = csv_path or settings.csv_path
     if not Path(target_csv).is_file():
         raise FileNotFoundError(f"Fichier CSV introuvable : {target_csv} (dossier courant : {Path.cwd()})")
-    df = pd.read_csv(target_csv)
+    return standardize_raw_markets(pd.read_csv(target_csv))
+
+
+def standardize_raw_markets(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalise les relevés bruts (colonnes du CSV / de table_public) en séries XAF/kg homogènes.
+
+    Colonnes attendues : source, reference_date, unit, value, region, indicator, notes.
+    Même logique que la vue v_clean_markets.
+    """
     markets = df[df["source"].isin(["WFP", "FEWS NET"])].copy()
     markets["reference_date"] = pd.to_datetime(markets["reference_date"])
     markets["year_month"] = markets["reference_date"].dt.to_period("M")

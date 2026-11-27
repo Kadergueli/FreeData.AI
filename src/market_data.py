@@ -48,61 +48,92 @@ def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _fetch_product_rows(name: str) -> list[dict]:
-    """Relevés XAF/kg d'un produit, pagination par clé (id croissant) : coût constant à chaque page."""
-    base = settings.supabase_url.rstrip("/")
+_RAW_COLUMNS = "id,source_api,date_reference,indicateur,region,unite,valeur,notes_publiques"
+
+
+def _rest_headers() -> dict:
     # v_clean_markets est en security_invoker et table_public a la RLS sans politique publique : la clé anon
     # ne voit aucune ligne. Lecture côté serveur uniquement, avec la clé privilégiée (jamais exposée au client),
     # comme pour les tables Gold privilégiées ; repli sur la clé de lecture si elle est seule configurée.
     key = settings.write_key
-    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"}
+    return {"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"}
+
+
+def _edge_id(order: str) -> Optional[int]:
+    resp = requests.get(
+        f"{settings.supabase_url.rstrip('/')}/rest/v1/table_public",
+        headers=_rest_headers(),
+        params={"select": "id", "source_api": "in.(WFP,\"FEWS NET\")", "order": order, "limit": 1},
+        timeout=25,
+    )
+    resp.raise_for_status()
+    rows = resp.json()
+    return int(rows[0]["id"]) if rows else None
+
+
+def _fetch_id_range(bounds: tuple[int, int]) -> list[dict]:
+    """Relevés WFP/FEWS NET dont id est dans [lo, hi) ; pagination par clé (coût constant par page).
+
+    On filtre sur la table de base (indexée) et non sur la vue : la vue recalcule des expressions
+    régulières sur toute la table à chaque requête (≈1,3 s), ce qui saturait Supabase.
+    """
+    lo, hi = bounds
     rows: list[dict] = []
-    last_id = 0
-    for _ in range(60):  # garde-fou : 60 000 relevés par produit au maximum
+    last = lo - 1
+    for _ in range(40):
         resp = requests.get(
-            f"{base}/rest/v1/v_clean_markets",
-            headers=headers,
-            params={
-                "select": "id,source,month_date,province,market_name,commodity_std,price_value,is_flagged_outlier",
-                "unit_clean": "eq.xaf/kg",
-                "commodity_std": f"ilike.{name}",
-                "id": f"gt.{last_id}",
-                "order": "id",
-                "limit": 1000,
-            },
-            timeout=25,
+            f"{settings.supabase_url.rstrip('/')}/rest/v1/table_public",
+            headers=_rest_headers(),
+            params=[
+                ("select", _RAW_COLUMNS),
+                ("source_api", 'in.(WFP,"FEWS NET")'),
+                ("valeur", "not.is.null"),
+                ("id", f"gt.{last}"),
+                ("id", f"lt.{hi}"),
+                ("order", "id"),
+                ("limit", "1000"),
+            ],
+            timeout=30,
         )
         resp.raise_for_status()
         batch = resp.json()
         rows.extend(batch)
         if len(batch) < 1000:
             break
-        last_id = int(batch[-1]["id"])
+        last = int(batch[-1]["id"])
     return rows
 
 
 def _load_history_rest() -> pd.DataFrame:
-    """Charge seulement les produits suivis, en parallèle (la vue complète fait ~47 000 lignes)."""
+    """Charge les relevés WFP/FEWS NET (≈50 000 lignes) par plages d'id en parallèle, puis normalise."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from src.data_loader import drop_flagged_outliers, unify_commodity_case
+    from src.data_loader import drop_flagged_outliers, standardize_raw_markets, unify_commodity_case
     from src.market_intel import PRODUCTS
 
-    names = sorted({n for meta in PRODUCTS.values() for n in meta["names"]})
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        chunks = list(pool.map(_fetch_product_rows, names))
-    rows = [r for chunk in chunks for r in chunk]
-    if not rows:
+    lo, hi = _edge_id("id.asc"), _edge_id("id.desc")
+    if lo is None or hi is None:
         raise ValueError(
-            "Aucun relevé de prix reçu depuis v_clean_markets (clé sans accès en lecture ? "
+            "Aucun relevé reçu depuis table_public (clé sans accès en lecture ? "
             "SUPABASE_SERVICE_ROLE_KEY doit être définie sur l'API)."
         )
-    df = pd.DataFrame(rows).rename(columns={"price_value": "value"})
-    df["year_month"] = pd.to_datetime(df["month_date"]).dt.to_period("M")
-    df = unify_commodity_case(df)
+    n_chunks = 8
+    step = max(1, (hi - lo + 1) // n_chunks + 1)
+    ranges = [(a, min(a + step, hi + 1)) for a in range(lo, hi + 1, step)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        chunks = list(pool.map(_fetch_id_range, ranges))
+    rows = [r for chunk in chunks for r in chunk]
+    if not rows:
+        raise ValueError("Aucun relevé de prix reçu depuis table_public.")
+    raw = pd.DataFrame(rows).rename(columns={
+        "source_api": "source", "date_reference": "reference_date", "indicateur": "indicator",
+        "unite": "unit", "valeur": "value", "notes_publiques": "notes",
+    })
+    df = unify_commodity_case(standardize_raw_markets(raw))
     if settings.exclude_flagged_outliers:
         df = drop_flagged_outliers(df)
-    return df
+    names = {n for meta in PRODUCTS.values() for n in meta["names"]}
+    return df[df["commodity_std"].astype(str).str.lower().isin(names)].reset_index(drop=True)
 
 
 def load_price_history() -> pd.DataFrame:
