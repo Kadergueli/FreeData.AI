@@ -119,18 +119,74 @@ class _FarmOperatingAccountScreenState
   double _num(TextEditingController c, [double fallback = 0]) =>
       double.tryParse(c.text.trim().replaceAll(',', '.')) ?? fallback;
 
+  String? _validateNumericField(
+    TextEditingController controller,
+    String label, {
+    bool required = true,
+    double min = 0,
+    double max = 1000000000000,
+    bool exclusiveMin = false,
+  }) {
+    final raw = controller.text.trim();
+    if (raw.isEmpty) {
+      return required ? 'Renseignez le champ « $label ».' : null;
+    }
+    final value = double.tryParse(raw.replaceAll(',', '.'));
+    if (value == null || !value.isFinite) {
+      return 'La valeur du champ « $label » doit être un nombre fini.';
+    }
+    if (exclusiveMin ? value <= min : value < min) {
+      return 'La valeur du champ « $label » est trop faible.';
+    }
+    if (value > max) {
+      return 'La valeur du champ « $label » dépasse la limite autorisée.';
+    }
+    return null;
+  }
+
   Future<void> _compute() async {
-    final area = _num(_areaCtrl, 0);
-    if (area <= 0) {
-      setState(() => _error = 'Saisissez une superficie supérieure à 0 ha.');
+    final validationErrors = <String?>[
+      _validateNumericField(_areaCtrl, 'Superficie (ha)',
+          min: 0, max: 100000, exclusiveMin: true),
+      _validateNumericField(_yieldCtrl, 'Rendement cible (kg/ha)',
+          required: false, min: 0, max: 100000, exclusiveMin: true),
+      _validateNumericField(_discCtrl, 'Décote bord-champ (%)',
+          min: 0, max: 100),
+      _validateNumericField(_seedCtrl, 'Semences / ha (FCFA)'),
+      _validateNumericField(_fertCtrl, 'Engrais & phyto / ha (FCFA)'),
+      _validateNumericField(_laborCtrl, 'Main-d’œuvre / ha (FCFA)'),
+      _validateNumericField(_prepCtrl, 'Labour & irrigation / ha (FCFA)'),
+      _validateNumericField(_harvestCtrl, 'Récolte & sacs / ha (FCFA)'),
+      _validateNumericField(_otherCtrl, 'Autres charges / ha (FCFA)'),
+      _validateNumericField(_capexCtrl, 'CAPEX initial total (FCFA)'),
+      _validateNumericField(_loanCtrl, 'Montant prêt demandé (FCFA)'),
+      _validateNumericField(_rateCtrl, 'Taux intérêt (%)', max: 100),
+    ];
+    String? validationError;
+    for (final error in validationErrors) {
+      if (error != null) {
+        validationError = error;
+        break;
+      }
+    }
+    if (validationError != null) {
+      setState(() {
+        _error = validationError;
+        _result = null;
+      });
       return;
     }
+
+    final area = _num(_areaCtrl);
     setState(() {
       _loading = true;
       _error = null;
+      _result = null;
     });
     try {
-      final yRaw = double.tryParse(_yieldCtrl.text.trim().replaceAll(',', '.'));
+      final yRaw = _yieldCtrl.text.trim().isEmpty
+          ? null
+          : double.parse(_yieldCtrl.text.trim().replaceAll(',', '.'));
       final res = await widget.apiService.computeFarmOperatingAccount(
         province: _province,
         cropId: _cropId,
