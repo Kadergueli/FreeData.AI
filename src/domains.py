@@ -154,19 +154,22 @@ class DomainRegistry:
         "environment": DomainModule(
             domain_id="environment",
             label_fr="Environnement",
-            description="Conditions environnementales et risques au Tchad.",
+            description="Observations climatiques régionales NASA POWER et Copernicus ERA5-Land pour le Tchad.",
             instructions=(
-                "Reste dans le contexte environnemental et climatique du Tchad (sécheresse, pluviométrie, bassin du Lac Tchad, risques). "
-                "Les données structurées Environnement sont en préparation : appuie-toi sur les documents fournis sans inventer de mesures."
+                "Reste dans le contexte environnemental et climatique du Tchad. Les séries structurées NASA POWER et Copernicus ERA5-Land "
+                "sont disponibles dans table_agro_indicators pour 23 pôles/régions : précipitations moyennes quotidiennes (mm/jour) et "
+                "températures moyennes, minimales et maximales mensuelles (°C). Consulte les observations et leur provenance ; garde les "
+                "sources séparées, distingue observation historique et prévision, et ne présente jamais ces données régionales comme des mesures parcellaires. "
+                "Copernicus commence en novembre 2025 : ne calcule pas d'anomalie par rapport à 2020–2023 lorsque la période de référence manque."
             ),
-            allowed_tools=("rag_hybrid", "llm_reasoning"),
-            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
-            supported_workflows=("document_analysis", "environmental_risk_synthesis"),
+            allowed_tools=("rag_hybrid", "analytics_query", "llm_reasoning"),
+            knowledge_sources=("table_agro_indicators", "DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("regional_climate_observations", "rainfall_temperature_trends", "environmental_risk_synthesis"),
             output_formats=("markdown",),
-            data_status="in_preparation",
+            data_status="operational",
             rag_collections=("platform_docs", "user_private_docs"),
-            analytical_operations=("document_synthesis",),
-            execution_pipeline="rag_llm",
+            analytical_operations=("climate_series", "regional_climate_profile", "document_synthesis"),
+            execution_pipeline="chad_agent",
         ),
         "infrastructure": DomainModule(
             domain_id="infrastructure",
@@ -207,11 +210,11 @@ class DomainRegistry:
     _DOMAIN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ("health", re.compile(r"\b(?:sante|hopital|maladie|epidemie|vaccination|nutrition|malnutrition|vulnerabilite\s+sanitaire|paludisme)\b")),
         ("population", re.compile(r"\b(?:population|demograph\w*|recensement|natalite|mortalite|menages|urbanisation|jeunesse)\b")),
-        ("environment", re.compile(r"\b(?:environnement|climat|secheresse|inondation|pluviometrie|desertification|lac\s+tchad|ecologie)\b")),
+        ("agriculture", re.compile(r"\b(?:agriculture|agricole|agro|agro-climatique|agroclimatique|pre-diagnostic|humidite|racinaire|sol|sols|rayonnement|hydrique|semis|parcelle|agronome|nasa\s+power|cerealier|cerealiere|recolte|semence|rendement|campagne\s+agricole|cultivateur|eleveur|elevage|pluie)\b")),
+        ("environment", re.compile(r"\b(?:environnement|climat|climatique|temperature|temperatures|precipitation|precipitations|pluie|pluviometrie|secheresse|inondation|desertification|lac\s+tchad|ecologie|copernicus|era5|nasa\s+power)\b")),
         ("infrastructure", re.compile(r"\b(?:infrastructure|electricite|eau\s+potable|forage|reseau\s+routier|pont|energie|service\s+essentiel)\b")),
         ("transport", re.compile(r"\b(?:transport|fret|corridor|camion|mobilite|logistique|route\s+commerciale|acheminement)\b")),
         ("economy", re.compile(r"\b(?:economie|economique|inflation|pib|tresorerie|bfr|capex|point\s+mort|roi|rentabilite|credit\s+passport|financement|banque|microfinance)\b")),
-        ("agriculture", re.compile(r"\b(?:agriculture|agricole|agro|agro-climatique|agroclimatique|pre-diagnostic|humidite|racinaire|sol|sols|rayonnement|hydrique|semis|parcelle|agronome|nasa\s+power|cerealier|cerealiere|recolte|semence|rendement|campagne\s+agricole|cultivateur|eleveur|elevage|pluie)\b")),
         ("markets_and_prices", re.compile(r"\b(?:marche|prix|mil|sorgho|mais|riz|arachide|niebe|sesame|xaf|fcfa|prevision|arbitrage|negoce|tchad|n'djamena|ndjamena|moundou|sarh|abeche|salamat|batha|ouaddai|kanem)\b")),
     ]
 

@@ -47,6 +47,39 @@ def test_domain_agriculture_operational_with_climate_scope():
     assert "données de terrain" in mod.instructions
 
 
+def test_environment_domain_uses_structured_climate_data():
+    mod = DomainRegistry.get_domain("environment")
+    assert mod.data_status == "operational"
+    assert mod.execution_pipeline == "chad_agent"
+    assert "Copernicus ERA5-Land" in mod.instructions
+    assert DomainRegistry.classify_domain("Quelle est la température moyenne à Moundou ?").domain_id == "environment"
+    assert DomainRegistry.classify_domain("Quelle est la pluviométrie à Sarh ?").domain_id == "environment"
+    assert DomainRegistry.classify_domain("Pré-diagnostic agro-climatique pour le mil à Moundou").domain_id == "agriculture"
+
+
+def test_climate_chat_context_keeps_sources_separate_and_discloses_missing_baseline():
+    profile = {
+        "indicator_labels": {
+            "precipitation_daily_mean": "Précipitations moyennes quotidiennes",
+            "temperature_mean_copernicus": "Température moyenne — Copernicus ERA5-Land",
+        },
+        "series": {
+            "precipitation_daily_mean": [
+                {"reference_date": "2026-10-01", "value": 1.7, "unit": "mm/day", "anomaly_pct": -12.5}
+            ],
+            "temperature_mean_copernicus": [
+                {"reference_date": "2026-10-01", "value": 29.2, "unit": "°C", "anomaly_pct": None}
+            ],
+        },
+    }
+    lines = server._climate_series_lines(profile)
+    joined = "\n".join(lines)
+    assert "NASA POWER" in joined
+    assert "Copernicus ERA5-Land" in joined
+    assert "-12.5 %" in joined
+    assert "ne couvre pas la période de référence 2020–2023" in joined
+
+
 @pytest.mark.skipif(not REAL_CSV.exists(), reason="CSV agricole commercial absent")
 def test_real_csv_is_fully_valid_and_matches_audit(tmp_path):
     store = AgroIndicatorStore(str(tmp_path / "agro.db"))
@@ -246,6 +279,8 @@ def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_scree
         ))
     prof = build_zone_profile("Moundou", rows + copernicus_rows, [], today=date(2026, 4, 15))
     assert "precipitation_daily_mean_copernicus" in prof["series"]
+    assert prof["latest"]["precipitation_daily_mean"]["source"] == "NASA POWER"
+    assert prof["latest"]["precipitation_daily_mean_copernicus"]["source"] == "Copernicus ERA5-Land"
     assert "temperature_mean_copernicus" in prof["series"]
     assert any(a["indicator_key"] == "precipitation_daily_mean_copernicus" for a in prof["alerts"])
     assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
