@@ -53,7 +53,7 @@ def fetch_source_rows() -> list[dict]:
             headers=headers,
             params={
                 "select": SELECT,
-                "source_api": "eq.NASA POWER",
+                "source_api": "in.(\"NASA POWER\",\"Copernicus ERA5-Land\")",
                 "secteur": "eq.environment",
                 "indicateur": indicator_filter,
                 "order": "date_reference.asc",
@@ -81,7 +81,8 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
         region = canonical_region(str(item.get("region") or ""))
         if region not in HUBS:
             continue
-        if item.get("source_api") != "NASA POWER" or item.get("secteur") != "environment":
+        source = str(item.get("source_api") or "").strip()
+        if source not in {"NASA POWER", "Copernicus ERA5-Land"} or item.get("secteur") != "environment":
             continue
         rows.append({
             "id": idx,
@@ -92,9 +93,9 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
             "reference_date": str(item.get("date_reference") or ""),
             "country_code": "TCD",
             "region": region,
-            "source": "NASA POWER",
+            "source": source,
             "license": str(item.get("licence") or ""),
-            "notes": "NASA POWER monthly climate indicator; imported from public.table_public.",
+            "notes": f"{source} monthly climate indicator; imported from public.table_public.",
             "collected_at": collected_at,
             "spatial_resolution": "regional_city_hub",
             "confidence_level": "Satellite_Modeled_Regional",
@@ -123,6 +124,7 @@ def main() -> int:
 
     report["source_rows_fetched"] = len(source_rows)
     report["poles_in_scope"] = list(HUBS)
+    report["sources_in_scope"] = ["NASA POWER", "Copernicus ERA5-Land"]
     report["write_target"] = "SUPABASE_DB_URL" if args.apply else "none (dry-run)"
     print(json.dumps(report, indent=2, ensure_ascii=False))
     if args.apply:
