@@ -96,7 +96,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     // Jeton de requête : une réponse ancienne ne doit pas écraser la plus récente.
     final seq = ++_loadSeq;
     setState(() {
-      _loading = true;
+      _loading = _profile == null || _summary == null;
       _error = null;
     });
     try {
@@ -144,20 +144,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           return null;
         }
       }();
+      // Le tableau de bord principal s'affiche dès que ses quatre blocs sont prêts.
+      // Benchmark et prévisions sont secondaires : ils ne doivent jamais le bloquer.
       final results = await core;
-      final bench = await benchFuture;
-      final forecastSample = await forecastFuture;
       if (!mounted || seq != _loadSeq) return;
       setState(() {
         _profile = results[0];
         _summary = results[1];
         _regional = results[2];
         _trends = results[3];
-        _benchmark = bench;
-        _latestForecast = forecastSample;
+        _loading = false;
+      });
+
+      final optional = await Future.wait([benchFuture, forecastFuture]);
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _benchmark = optional[0];
+        _latestForecast = optional[1];
         _benchmarkUnavailable = benchmarkUnavailable;
         _forecastUnavailable = forecastUnavailable;
-        _loading = false;
       });
     } catch (e) {
       if (!mounted || seq != _loadSeq) return;
