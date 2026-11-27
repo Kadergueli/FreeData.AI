@@ -43,6 +43,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String? _selectedCommodity;
   String? _selectedProvince;
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
 
   @override
@@ -96,7 +97,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     // Jeton de requête : une réponse ancienne ne doit pas écraser la plus récente.
     final seq = ++_loadSeq;
     setState(() {
-      _loading = true;
+      _loading = _profile == null || _summary == null;
+      _refreshing = true;
       _error = null;
     });
     try {
@@ -144,26 +146,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           return null;
         }
       }();
+      // Le tableau de bord principal s'affiche dès que ses quatre blocs sont prêts.
+      // Benchmark et prévisions sont secondaires : ils ne doivent jamais le bloquer.
       final results = await core;
-      final bench = await benchFuture;
-      final forecastSample = await forecastFuture;
       if (!mounted || seq != _loadSeq) return;
       setState(() {
         _profile = results[0];
         _summary = results[1];
         _regional = results[2];
         _trends = results[3];
-        _benchmark = bench;
-        _latestForecast = forecastSample;
+        _loading = false;
+        _refreshing = false;
+      });
+
+      final optional = await Future.wait([benchFuture, forecastFuture]);
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _benchmark = optional[0];
+        _latestForecast = optional[1];
         _benchmarkUnavailable = benchmarkUnavailable;
         _forecastUnavailable = forecastUnavailable;
-        _loading = false;
       });
     } catch (e) {
       if (!mounted || seq != _loadSeq) return;
       setState(() {
         _error = errText(e);
         _loading = false;
+        _refreshing = false;
       });
     }
   }
@@ -322,6 +331,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                     const SizedBox(height: 12),
                     filterBar,
+                    if (_refreshing)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
                     const SizedBox(height: 12),
                     if (_profile != null)
                       FDCard(
