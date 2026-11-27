@@ -10,20 +10,27 @@ class _AgroProFakeApi extends ApiService {
   Map<String, dynamic>? lastPayload;
   String? lastPdfId;
   bool compareCalled = false;
+  bool failProfile = false;
+  bool failHistory = false;
 
   @override
-  Future<Map<String, dynamic>?> getMyAgroProfile() async => {
-        'firm_name': 'Cabinet Test',
-        'license_number': 'AGR-TEST-01',
-        'address': "N'Djamena",
-        'contact': '+235 66 00 00 00',
-        'status': 'approved',
-      };
+  Future<Map<String, dynamic>?> getMyAgroProfile() async {
+    if (failProfile) throw Exception('Profil indisponible');
+    return {
+      'firm_name': 'Cabinet Test',
+      'license_number': 'AGR-TEST-01',
+      'address': "N'Djamena",
+      'contact': '+235 66 00 00 00',
+      'status': 'approved',
+    };
+  }
 
   @override
   Future<List<Map<String, dynamic>>> listAgroFieldAssessments(
-          {String? projectId}) async =>
-      const [];
+      {String? projectId}) async {
+    if (failHistory) throw Exception('Historique indisponible');
+    return const [];
+  }
 
   @override
   Future<Map<String, dynamic>> createAgroFieldAssessment({
@@ -261,5 +268,51 @@ void main() {
     expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+  });  
+  testWidgets(
+    'AgronomistProScreen distinguishes profile and history API failures from empty data',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final api = _AgroProFakeApi()
+        ..failProfile = true
+        ..failHistory = true
+        ..setAuthSession(
+          token: 'jwt-pro',
+          user: {'user_id': 'u123', 'email': 'agro@tchad.td'},
+          isPro: true,
+        );
+      await tester.pumpWidget(
+        MaterialApp(home: AgronomistProScreen(apiService: api)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Impossible de vérifier le profil officiel'),
+          findsOneWidget);
+      expect(find.textContaining('Impossible de charger l’historique'),
+          findsOneWidget);
+
+      api
+        ..failProfile = false
+        ..failHistory = false;
+      await tester.tap(find.text('Réessayer').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Réessayer').first);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Impossible de vérifier le profil officiel'),
+          findsNothing);
+      expect(find.textContaining('Impossible de charger l’historique'),
+          findsNothing);
+      expect(find.text('Aucun diagnostic enregistré pour le moment.'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
 }
