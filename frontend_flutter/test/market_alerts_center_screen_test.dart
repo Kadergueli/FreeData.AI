@@ -63,20 +63,21 @@ void main() {
   testWidgets(
     'surveillance distinguishes observed rules from forecast watchlists',
     (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MarketAlertsCenterScreen(apiService: _AlertsCenterApi()),
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MarketAlertsCenterScreen(apiService: _AlertsCenterApi()),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Surveillance des marchés'), findsOneWidget);
-    expect(find.text('Écarts de prix observés'), findsOneWidget);
-    expect(find.text('Règles personnalisées · prix observés'), findsOneWidget);
-    expect(find.text('Watchlists · prix prévisionnels'), findsOneWidget);
-    expect(find.textContaining('Moundou'), findsOneWidget);
-    expect(find.text('Mil : seuil observé atteint'), findsOneWidget);
-    expect(find.textContaining('315 XAF/kg'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('Surveillance des marchés'), findsOneWidget);
+      expect(find.text('Écarts de prix observés'), findsOneWidget);
+      expect(find.text('Règles personnalisées · prix observés'), findsOneWidget);
+      expect(find.text('Watchlists · prix prévisionnels'), findsOneWidget);
+      expect(find.textContaining('Moundou'), findsOneWidget);
+      expect(find.text('Mil : seuil observé atteint'), findsOneWidget);
+      expect(find.textContaining('315 XAF/kg'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
