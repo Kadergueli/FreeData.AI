@@ -224,9 +224,12 @@ class _MarketAlertsCenterScreenState extends State<MarketAlertsCenterScreen> {
                       : Icons.notifications_none_rounded,
                   color: triggered ? AppColors.warning : AppColors.muted,
                 ),
-                title: Text(r['message']?.toString() ?? 'Règle de surveillance'),
+                title: Text(
+                  r['message']?.toString() ?? 'Règle de surveillance',
+                ),
                 subtitle: Text(
-                    'Prix observé · ${r['as_of'] ?? 'date inconnue'} · ${triggered ? 'Déclenchée' : 'En attente'}'),
+                  'Prix observé · ${r['as_of'] ?? 'date inconnue'} · ${triggered ? 'Déclenchée' : 'En attente'}',
+                ),
                 trailing: Wrap(
                   spacing: 0,
                   children: [
@@ -237,7 +240,9 @@ class _MarketAlertsCenterScreenState extends State<MarketAlertsCenterScreen> {
                             ? null
                             : () => _runAction(
                                   id,
-                                  () => widget.apiService.ackMarketIntelAlert(id),
+                                  () => widget.apiService.ackMarketIntelAlert(
+                                    id,
+                                  ),
                                 ),
                         icon: const Icon(Icons.done_rounded),
                       ),
@@ -247,7 +252,9 @@ class _MarketAlertsCenterScreenState extends State<MarketAlertsCenterScreen> {
                           ? null
                           : () => _runAction(
                                 id,
-                                () => widget.apiService.deleteMarketIntelAlert(id),
+                                () => widget.apiService.deleteMarketIntelAlert(
+                                  id,
+                                ),
                               ),
                       icon: const Icon(Icons.delete_outline_rounded),
                     ),
