@@ -36,17 +36,17 @@ class _MarketRadarApi extends ApiService {
   }) async {
     arbitrageCalls++;
     return {
-        'historical_mape_pct': 12.3,
-        'routes': [
-          {
-            'origin_province': 'Salamat',
-            'dest_province': "N'Djamena",
-            'net_margin_xaf_kg': 45,
-            'estimated_net_margin_xaf': 450000,
-            'roi_pct': 18,
-          },
-        ],
-      };
+      'historical_mape_pct': 12.3,
+      'routes': [
+        {
+          'origin_province': 'Salamat',
+          'dest_province': "N'Djamena",
+          'net_margin_xaf_kg': 45,
+          'estimated_net_margin_xaf': 450000,
+          'roi_pct': 18,
+        },
+      ],
+    };
   }
 
   @override
@@ -212,7 +212,6 @@ class _CampaignNoRecommendationApi extends _MarketRadarApi {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-
   testWidgets('Market PRO rejects non-finite watchlist thresholds',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 1100);
@@ -229,8 +228,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final threshold = find.byWidgetPredicate(
-      (widget) => widget is TextField &&
-          widget.decoration?.labelText == 'Seuil (XAF/kg)',
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'Seuil (XAF/kg)',
     );
     await tester.scrollUntilVisible(
       threshold,
