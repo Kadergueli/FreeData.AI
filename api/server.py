@@ -45,7 +45,7 @@ from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.agro_site import site_profile
-from src.agro_indicators import AgroIndicatorStore, canonical_region, build_provenance, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
+from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
 from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_engine import (
     build_campaign_radar,
