@@ -3848,7 +3848,7 @@ def _handle_agriculture_chat(
         latest_period = max(latest_dates) if latest_dates else "—"
         lines = [
             "### Synthèse agro-climatique du Tchad",
-            f"- **Pôles couverts** : {', '.join(z.get('region', '') for z in zones_list)}.",
+            f"- **Pôles couverts ({len(zones_list)})** : {', '.join(z.get('region', '') for z in zones_list)}.",
             f"- **Dernière période observée** : `{latest_period}`.",
             f"- **Observations climatiques structurées** : {sum(1 for r in all_rows if r.get('sector') == 'environment' and r.get('source') in ('NASA POWER', 'Copernicus ERA5-Land'))} lignes issues de NASA POWER et Copernicus ERA5-Land ; les séries sont séparées par source.",
             "- Les précipitations et températures sont des observations modélisées au niveau régional ; elles ne constituent ni des mesures parcellaires ni des prévisions météorologiques.",
