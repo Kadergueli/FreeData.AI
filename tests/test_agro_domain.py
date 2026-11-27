@@ -278,6 +278,8 @@ def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_scree
         ))
     prof = build_zone_profile("Moundou", rows + copernicus_rows, [], today=date(2026, 4, 15))
     assert "precipitation_daily_mean_copernicus" in prof["series"]
+    assert prof["latest"]["precipitation_daily_mean"]["source"] == "NASA POWER"
+    assert prof["latest"]["precipitation_daily_mean_copernicus"]["source"] == "Copernicus ERA5-Land"
     assert "temperature_mean_copernicus" in prof["series"]
     assert any(a["indicator_key"] == "precipitation_daily_mean_copernicus" for a in prof["alerts"])
     assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
