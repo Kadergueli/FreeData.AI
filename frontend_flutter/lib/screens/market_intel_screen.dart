@@ -276,24 +276,33 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
 
       // Les six blocs complémentaires sont indépendants : les charger en parallèle
       // réduit le temps total sans retarder l'affichage de la fiche produit.
-      final optional = await Future.wait<Map<String, dynamic>?>([
-        _safe(api.getMarketIntelEntryBrief(_product)),
-        _safe(api.getMarketIntelCompare(_product)),
-        _safe(api.getMarketIntelPulse()),
-        _safe(api.getMarketIntelBasket()),
-        _safe(api.getMarketIntelWorld(_product)),
-        _safe(api.getMarketIntelAlerts()),
+      Future<Map<String, dynamic>?> publish(
+        Future<Map<String, dynamic>?> request,
+        void Function(Map<String, dynamic>?) assign,
+      ) async {
+        final value = await request;
+        if (mounted && token == _loadToken) {
+          setState(() => assign(value));
+        }
+        return value;
+      }
+
+      await Future.wait([
+        publish(_safe(api.getMarketIntelEntryBrief(_product)),
+            (value) => _entry = value),
+        publish(_safe(api.getMarketIntelCompare(_product)),
+            (value) => _compare = value),
+        publish(_safe(api.getMarketIntelPulse()),
+            (value) => _pulse = value),
+        publish(_safe(api.getMarketIntelBasket()),
+            (value) => _basket = value),
+        publish(_safe(api.getMarketIntelWorld(_product)),
+            (value) => _world = value),
+        publish(_safe(api.getMarketIntelAlerts()),
+            (value) => _alerts = value),
       ]);
       if (!mounted || token != _loadToken) return;
-      setState(() {
-        _entry = optional[0];
-        _compare = optional[1];
-        _pulse = optional[2];
-        _basket = optional[3];
-        _world = optional[4];
-        _alerts = optional[5];
-        _loadingProSections = false;
-      });
+      setState(() => _loadingProSections = false);
     } catch (e) {
       if (!mounted || token != _loadToken) return;
       final message = errText(e);
@@ -422,7 +431,10 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
             label: Text(p[1]),
             selected: _product == p[0],
             onSelected: (_) {
-              setState(() => _product = p[0]);
+              setState(() {
+                _product = p[0];
+                _brief = null;
+              });
               _load();
             },
           ),
