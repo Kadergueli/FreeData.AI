@@ -152,7 +152,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Courbe d’évolution mensuelle (XAF/kg)'), findsOneWidget);
+    expect(find.text('Historique + prévision t+1 (XAF/kg)'), findsOneWidget);
     expect(find.textContaining('Prévision t+1 : 276'), findsOneWidget);
     expect(
         find.textContaining('Intervalle 80 % : [245 – 308]'), findsOneWidget);
