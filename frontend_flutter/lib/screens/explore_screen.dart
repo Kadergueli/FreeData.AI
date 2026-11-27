@@ -216,11 +216,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         'desc': 'Démographie, mouvements et sécurité alimentaire'
       },
       {
-        'slug': 'environment',
-        'label': 'Environnement',
-        'desc': 'Précipitations, stress hydrique et végétation NDVI'
-      },
-      {
         'slug': 'infrastructure',
         'label': 'Infrastructures',
         'desc': 'Réseaux routiers, marchés physiques et stockage'
@@ -521,7 +516,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                 ),
                                 SizedBox(height: 3),
                                 Text(
-                                  'Pré-diagnostic agro-climatique de zone : humidité des sols et rayonnement sur 12 pôles, indicateurs agricoles nationaux.',
+                                  'Pré-diagnostic agro-climatique : humidité des sols, rayonnement, précipitations et températures mensuelles NASA POWER/Copernicus sur 23 pôles et régions, plus indicateurs agricoles nationaux.',
                                   style: TextStyle(
                                       fontSize: 13,
                                       color: FDTheme.muted,
