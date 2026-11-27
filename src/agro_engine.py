@@ -30,6 +30,7 @@ MODERATE_DEFICIT_PCT = -20.0
 SEVERE_DEFICIT_PCT = -35.0
 STALE_AFTER_MONTHS = 3
 WETNESS_KEYS = ("root_zone_wetness", "surface_wetness")
+CLIMATE_ALERT_KEYS = ("precipitation_daily_mean",)
 ROAD_TORTUOSITY_FACTOR = 1.25
 WORLD_BANK_DEFAULT_YIELD_KG_HA = 834.6
 
@@ -53,7 +54,7 @@ ZONE_TITLE = "Pré-diagnostic agro-climatique de zone"
 
 LIMITATIONS = (
     "Couverture spatiale : indicateurs satellitaires modélisés à l'échelle du pôle régional (maille urbaine/provinciale), ne constituant pas une mesure parcellaire.",
-    "Périmètre des variables : jeu de données limité à l'humidité des sols (surface et zone racinaire) et au rayonnement PAR ; aucune variable de température ou de précipitations n'est intégrée.",
+    "Périmètre des variables : humidité des sols et rayonnement PAR (NASA POWER Agro), complétés par les précipitations moyennes quotidiennes et températures mensuelles (NASA POWER). L’évapotranspiration de référence et les prévisions météorologiques ne sont pas intégrées.",
     "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023.",
     "Portée décisionnelle : ce pré-diagnostic zonal ne se substitue ni à une analyse physico-chimique en laboratoire ni à une expertise agronomique sur site.",
 )
@@ -62,6 +63,10 @@ INDICATOR_LABELS_FR = {
     "root_zone_wetness": "Humidité de la zone racinaire",
     "surface_wetness": "Humidité de surface du sol",
     "par": "Rayonnement photosynthétiquement actif (PAR)",
+    "precipitation_daily_mean": "Précipitations moyennes quotidiennes",
+    "temperature_mean": "Température moyenne",
+    "temperature_max": "Température maximale",
+    "temperature_min": "Température minimale",
 }
 
 
@@ -114,7 +119,7 @@ def water_deficit_alerts(region: str, anomalies_by_key: dict[str, list[dict[str,
     """Alerte sur la dernière observation de chaque indice d'humidité si elle est nettement sous la normale du mois."""
     today = today or date.today()
     alerts: list[dict[str, Any]] = []
-    for key in WETNESS_KEYS:
+    for key in (*WETNESS_KEYS, *CLIMATE_ALERT_KEYS):
         points = anomalies_by_key.get(key) or []
         if not points:
             continue
