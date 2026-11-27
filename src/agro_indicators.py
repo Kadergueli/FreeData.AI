@@ -40,15 +40,24 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 # source -> (préfixe de licence attendu, résolution spatiale, niveau de confiance)
 SOURCE_RULES: dict[str, tuple[str, str, str]] = {
     "nasa power agro": ("public domain", "regional_city_hub", "Satellite_Modeled_Regional"),
+    "nasa power": ("cc by 4.0", "regional_city_hub", "Satellite_Modeled_Regional"),
     "world bank": ("cc by 4.0", "national", "Official_Macro_National"),
 }
-SOURCE_CANONICAL = {"nasa power agro": "NASA POWER Agro", "world bank": "World Bank"}
+SOURCE_CANONICAL = {
+    "nasa power agro": "NASA POWER Agro",
+    "nasa power": "NASA POWER",
+    "world bank": "World Bank",
+}
 
 # Indicateurs régionaux NASA POWER Agro reconnus (préfixe normalisé -> clé technique).
 REGIONAL_INDICATOR_KEYS: tuple[tuple[str, str], ...] = (
     ("root zone soil wetness", "root_zone_wetness"),
     ("surface soil wetness", "surface_wetness"),
     ("photosynthetically active radiation", "par"),
+    ("monthly precipitation", "precipitation_daily_mean"),
+    ("monthly mean temperature", "temperature_mean"),
+    ("monthly max temperature", "temperature_max"),
+    ("monthly min temperature", "temperature_min"),
 )
 
 _NATIONAL_ALIASES = {"national", "tchad", "chad", "tcd", "country"}
@@ -163,15 +172,16 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             blanks = [c for c in REQUIRED_COLUMNS if _blank(rec.get(c))]
             bad(f"valeur manquante ({', '.join(blanks)})")
             continue
-        if _fold(rec["sector"]) != SECTOR:
-            bad(f"secteur « {rec['sector']} » ≠ agriculture")
-            continue
-        if str(rec["country_code"]).strip().upper() != COUNTRY_CODE:
-            bad(f"pays « {rec['country_code']} » ≠ TCD")
-            continue
         src_key = _fold(rec["source"])
         if src_key not in SOURCE_RULES:
             bad(f"source non autorisée en production : « {rec['source']} »")
+            continue
+        expected_sector = "environment" if src_key == "nasa power" else SECTOR
+        if _fold(rec["sector"]) != expected_sector:
+            bad(f"secteur « {rec['sector']} » ≠ {expected_sector}")
+            continue
+        if str(rec["country_code"]).strip().upper() != COUNTRY_CODE:
+            bad(f"pays « {rec['country_code']} » ≠ TCD")
             continue
         lic_prefix, spatial, confidence = SOURCE_RULES[src_key]
         if not _fold(rec["license"]).startswith(lic_prefix):
@@ -207,6 +217,12 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             continue
         if ind_key == "par" and value < 0:
             bad(f"rayonnement négatif : {value}")
+            continue
+        if ind_key == "precipitation_daily_mean" and (value < 0 or value > 100):
+            bad(f"précipitations moyennes quotidiennes hors plage [0, 100] mm/jour : {value}")
+            continue
+        if ind_key in ("temperature_mean", "temperature_max", "temperature_min") and not (-20 <= value <= 70):
+            bad(f"température hors plage plausible [-20, 70] °C : {value}")
             continue
         ref = pd.to_datetime(rec["reference_date"], errors="coerce")
         if pd.isna(ref):
