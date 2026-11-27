@@ -201,6 +201,8 @@ class MarketIntelScreen extends StatefulWidget {
 class _MarketIntelScreenState extends State<MarketIntelScreen> {
   String _product = 'millet';
   bool _loading = true;
+  bool _loadingProSections = false;
+  int _loadToken = 0;
   String? _error;
   Map<String, dynamic>? _brief;
   Map<String, dynamic>? _entry;
@@ -242,44 +244,63 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
   }
 
   Future<void> _load() async {
+    final token = ++_loadToken;
+    final keepVisibleData = _brief != null;
     setState(() {
-      _loading = true;
+      _loading = !keepVisibleData;
+      _loadingProSections = _isPro;
       _error = null;
+      _entry = null;
+      _compare = null;
+      _pulse = null;
+      _basket = null;
+      _world = null;
+      _alerts = null;
     });
     final api = widget.apiService;
     try {
+      // La fiche principale est prioritaire : l'utilisateur n'attend plus les blocs PRO.
       final brief = await api.getMarketIntelProduct(_product);
-      Map<String, dynamic>? entry;
-      Map<String, dynamic>? compare;
-      Map<String, dynamic>? pulse;
-      Map<String, dynamic>? basket;
-      Map<String, dynamic>? world;
-      Map<String, dynamic>? alerts;
-      if (_isPro) {
-        entry = await _safe(api.getMarketIntelEntryBrief(_product));
-        compare = await _safe(api.getMarketIntelCompare(_product));
-        pulse = await _safe(api.getMarketIntelPulse());
-        basket = await _safe(api.getMarketIntelBasket());
-        world = await _safe(api.getMarketIntelWorld(_product));
-        alerts = await _safe(api.getMarketIntelAlerts());
-      }
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       setState(() {
         _brief = brief;
-        _entry = entry;
-        _compare = compare;
-        _pulse = pulse;
-        _basket = basket;
-        _world = world;
-        _alerts = alerts;
         _loading = false;
       });
+
+      if (!_isPro) {
+        if (mounted && token == _loadToken) {
+          setState(() => _loadingProSections = false);
+        }
+        return;
+      }
+
+      // Les six blocs complémentaires sont indépendants : les charger en parallèle
+      // réduit le temps total sans retarder l'affichage de la fiche produit.
+      final optional = await Future.wait<Map<String, dynamic>?>([
+        _safe(api.getMarketIntelEntryBrief(_product)),
+        _safe(api.getMarketIntelCompare(_product)),
+        _safe(api.getMarketIntelPulse()),
+        _safe(api.getMarketIntelBasket()),
+        _safe(api.getMarketIntelWorld(_product)),
+        _safe(api.getMarketIntelAlerts()),
+      ]);
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _entry = optional[0];
+        _compare = optional[1];
+        _pulse = optional[2];
+        _basket = optional[3];
+        _world = optional[4];
+        _alerts = optional[5];
+        _loadingProSections = false;
+      });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || token != _loadToken) return;
       final message = errText(e);
       setState(() {
         _error = message;
         _loading = false;
+        _loadingProSections = false;
       });
     }
   }
@@ -371,6 +392,22 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
       else ...[
         ..._briefSection(),
         if (_isPro) ..._proSections() else _proLock(),
+        if (_loadingProSections)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 10),
+                Text('Chargement des analyses complémentaires…'),
+              ],
+            ),
+          ),
       ],
     ];
   }
