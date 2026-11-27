@@ -100,9 +100,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
     if (_creatingWatch) return;
     final val =
         double.tryParse(_thresholdCtrl.text.trim().replaceAll(',', '.'));
-    if (val == null || val <= 0) {
+    if (val == null || !val.isFinite || val <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saisissez un seuil en XAF/kg valide.')),
+        const SnackBar(content: Text('Saisissez un seuil fini en XAF/kg supérieur à 0.')),
       );
       return;
     }
@@ -236,6 +236,25 @@ class _MarketProScreenState extends State<MarketProScreen> {
           double.tryParse(_arbTransportCtrl.text.trim().replaceAll(',', '.'));
       final tonnage =
           double.tryParse(_arbTonnageCtrl.text.trim().replaceAll(',', '.'));
+      if ((transport != null &&
+              (!transport.isFinite || transport < 0)) ||
+          (_arbTransportCtrl.text.trim().isNotEmpty && transport == null)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le coût de transport doit être un nombre fini positif ou nul.'),
+          ),
+        );
+        return;
+      }
+      if ((tonnage != null && (!tonnage.isFinite || tonnage <= 0)) ||
+          (_arbTonnageCtrl.text.trim().isNotEmpty && tonnage == null)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le tonnage doit être un nombre fini supérieur à 0.'),
+          ),
+        );
+        return;
+      }
       final res = await widget.apiService.getSpatialArbitrage(
         cropId: _arbCrop,
         transportCostXafKg: transport,
