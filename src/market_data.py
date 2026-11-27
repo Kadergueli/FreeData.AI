@@ -25,11 +25,43 @@ _FAILURE_TTL_SECONDS = 20  # un échec n'est pas rejoué à chaque requête
 _cache: dict[str, tuple[float, Optional[pd.DataFrame]]] = {}
 _lock = threading.Lock()
 _key_locks: dict[str, threading.Lock] = {}
+_status: dict[str, dict] = {}
 
 
 def clear_cache() -> None:
     with _lock:
         _cache.clear()
+        _status.clear()
+
+
+def _short_reason(exc: Exception) -> str:
+    """Raison d'échec lisible et sûre à afficher : jamais d'URL, de clé ni de contenu de réponse."""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "délai dépassé en lisant Supabase"
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        if code in (401, 403):
+            return f"accès refusé par Supabase (HTTP {code}) : vérifier SUPABASE_SERVICE_ROLE_KEY"
+        return f"erreur Supabase (HTTP {code})"
+    if isinstance(exc, requests.exceptions.RequestException):
+        return "Supabase injoignable"
+    if isinstance(exc, ValueError):
+        return str(exc)[:160]
+    return f"erreur interne ({type(exc).__name__})"
+
+
+def history_status() -> dict:
+    """État du chargement de l'historique : loading / loaded / error, sans donnée sensible."""
+    with _lock:
+        st = dict(_status.get("price_history", {}))
+        entry = _cache.get("price_history")
+    rows = int(len(entry[1])) if entry and entry[1] is not None else 0
+    return {"state": st.get("state", "idle"), "rows": rows, "error": st.get("error"), "seconds": st.get("seconds")}
+
+
+def is_loading(key: str = "price_history") -> bool:
+    with _lock:
+        return _status.get(key, {}).get("state") == "loading"
 
 
 def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
@@ -52,12 +84,21 @@ def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
         found = _hit()  # un autre thread a peut-être chargé pendant l'attente
         if found is not None:
             return found
+        started = time.time()
+        with _lock:
+            _status[key] = {"state": "loading", "error": None, "seconds": None}
         try:
             value = loader()
             ttl, stored = CACHE_TTL_SECONDS, value
+            with _lock:
+                _status[key] = {"state": "loaded", "error": None, "seconds": round(time.time() - started, 1)}
+            logger.info("Chargement %s terminé : %d lignes en %.1f s.", key, len(value), time.time() - started)
         except Exception as exc:  # noqa: BLE001 - dégradation voulue
-            logger.warning("Chargement %s impossible : %s", key, exc)
+            reason = _short_reason(exc)
+            logger.warning("Chargement %s impossible : %s", key, reason)
             value, ttl, stored = pd.DataFrame(), _FAILURE_TTL_SECONDS, None
+            with _lock:
+                _status[key] = {"state": "error", "error": reason, "seconds": round(time.time() - started, 1)}
         with _lock:
             _cache[key] = (time.time() + ttl, stored)
         return value
@@ -148,7 +189,7 @@ def _fetch_id_range(bounds: tuple[int, int]) -> list[pd.DataFrame]:
 
 
 def _load_history_rest() -> pd.DataFrame:
-    """Charge les relevés WFP/FEWS NET par plages d'id (2 threads), réduits page par page, puis fusionne."""
+    """Charge les relevés WFP/FEWS NET par plages d'id (3 threads), réduits page par page, puis fusionne."""
     from concurrent.futures import ThreadPoolExecutor
 
     from src.data_loader import unify_commodity_case
@@ -159,10 +200,10 @@ def _load_history_rest() -> pd.DataFrame:
             "Aucun relevé reçu depuis table_public (clé sans accès en lecture ? "
             "SUPABASE_SERVICE_ROLE_KEY doit être définie sur l'API)."
         )
-    n_chunks = 8
+    n_chunks = 24
     step = max(1, (hi - lo + 1) // n_chunks + 1)
     ranges = [(a, min(a + step, hi + 1)) for a in range(lo, hi + 1, step)]
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         parts = [f for chunk in pool.map(_fetch_id_range, ranges) for f in chunk]
     if not parts:
         raise ValueError("Aucun relevé de prix reçu depuis table_public.")

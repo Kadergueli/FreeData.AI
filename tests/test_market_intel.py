@@ -261,3 +261,25 @@ def test_cache_runs_one_load_for_concurrent_requests():
         th.join()
     md.clear_cache()
     assert len(calls) == 1 and len(results) == 6 and all(len(r) == 1 for r in results)
+
+
+def test_status_reports_loading_error_without_secrets():
+    import requests
+    from src import market_data as md
+
+    md.clear_cache()
+
+    class _R:
+        status_code = 401
+
+    def failing():
+        raise requests.exceptions.HTTPError("401 for url https://x.supabase.co/rest?apikey=SECRET", response=_R())
+
+    assert md._cached("price_history", failing).empty
+    st = md.history_status()
+    assert st["state"] == "error" and "SUPABASE_SERVICE_ROLE_KEY" in st["error"]
+    assert "SECRET" not in str(st) and "supabase.co" not in str(st)
+    with pytest.raises(HTTPException) as e:
+        server._intel_history_or_503(pd.DataFrame())
+    assert e.value.status_code == 503 and "401" in e.value.detail and "SECRET" not in e.value.detail
+    md.clear_cache()
