@@ -12,7 +12,8 @@ import 'market_intel_screen.dart';
 import 'passport_screen.dart';
 
 /// Hub unifié Marchés & Crédit :
-/// Regroupe Prévisions, Credit Passport et (en PRO) Analytics PRO.
+/// Regroupe Prévisions, Surveillance, Intelligence marché, Plan de campagne,
+/// Compte d'exploitation, Credit Passport et Analytics PRO selon les droits d'accès.
 class MarketsHubScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onSelectPrompt;
