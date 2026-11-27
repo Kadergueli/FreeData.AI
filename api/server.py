@@ -818,7 +818,7 @@ def get_agro_store() -> AgroIndicatorStore:
 
 @app.get("/api/v1/agro/zones", dependencies=[Depends(_data_rate_limit_dependency)])
 def agro_zones_endpoint(store: AgroIndicatorStore = Depends(get_agro_store)):
-    """Pôles agro-climatiques couverts (NASA POWER Agro) et fraîcheur, avec provenance et limites."""
+    """Pôles agro-climatiques couverts (NASA POWER Agro + NASA POWER) et fraîcheur/provenance."""
     return build_zones_overview(store.rows())
 
 
