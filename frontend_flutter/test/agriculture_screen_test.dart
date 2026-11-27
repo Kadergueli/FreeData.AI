@@ -120,8 +120,8 @@ class _AgroFakeApi extends ApiService {
       ],
       'stale': false,
       'provenance': {
-        'sources': ['NASA POWER Agro', 'NASA POWER'],
-        'licenses': ['Public Domain (U.S. Government / NASA)', 'CC BY 4.0'],
+        'sources': ['NASA POWER Agro', 'NASA POWER', 'Copernicus ERA5-Land'],
+        'licenses': ['Public Domain (U.S. Government / NASA)', 'CC BY 4.0', 'Licence to use Copernicus Products'],
         'reference_period': {'first': '2020-01-01', 'last': '2026-03-01'},
         'spatial_resolution': ['regional_city_hub'],
         'confidence_level': ['Satellite_Modeled_Regional'],
@@ -181,6 +181,7 @@ void main() {
         findsWidgets);
     expect(find.textContaining('Température moyenne'), findsWidgets);
     expect(find.textContaining('NASA POWER'), findsWidgets);
+    expect(find.textContaining('Copernicus ERA5-Land'), findsWidgets);
     expect(find.textContaining('analyse de parcelle'), findsWidgets);
 
     await tester.tap(find.text('Analyser cette zone avec l’assistant'));
