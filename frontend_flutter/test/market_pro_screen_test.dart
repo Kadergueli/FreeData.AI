@@ -283,7 +283,9 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Le coût de transport doit être un nombre fini positif ou nul.'),
+      find.text(
+        'Le coût de transport doit être un nombre fini positif ou nul.',
+      ),
       findsOneWidget,
     );
     expect(api.arbitrageCalls, 0);
