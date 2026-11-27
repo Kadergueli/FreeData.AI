@@ -3776,6 +3776,12 @@ def _handle_agriculture_chat(
         {"title": "NASA POWER Agro (12 pôles Tchad, 2020–2026)", "source": "NASA POWER Agro · Public Domain"},
         {"title": "World Bank — Indicateurs agricoles nationaux Tchad (2000–2025)", "source": "World Bank · CC BY 4.0"},
     ] + [
+        {"title": "NASA POWER — précipitations et températures mensuelles", "source": "NASA POWER · CC BY 4.0"}
+        for _ in [0] if any(r.get("source") == "NASA POWER" and r.get("sector") == "environment" for r in all_rows)
+    ] + [
+        {"title": "Copernicus ERA5-Land — précipitations et températures mensuelles", "source": "Copernicus ERA5-Land · Licence to use Copernicus Products"}
+        for _ in [0] if any(r.get("source") == "Copernicus ERA5-Land" and r.get("sector") == "environment" for r in all_rows)
+    ] + [
         {"title": c.get("titre") or c.get("title", "Document privé"), "source": c.get("source", "Document privé"), "score": c.get("similarity")}
         for c in private_chunks
     ]
