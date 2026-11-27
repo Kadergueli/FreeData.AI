@@ -230,7 +230,10 @@ class _MarketProScreenState extends State<MarketProScreen> {
 
   Future<void> _runArbitrageSim() async {
     if (_loadingArb) return;
-    setState(() => _loadingArb = true);
+    setState(() {
+      _loadingArb = true;
+      _arbResult = null;
+    });
     try {
       final transport =
           double.tryParse(_arbTransportCtrl.text.trim().replaceAll(',', '.'));
