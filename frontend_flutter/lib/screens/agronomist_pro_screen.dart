@@ -1692,7 +1692,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                 const SizedBox(height: 14),
                 _buildResultCard(assessment, qa),
               ],
-              if (_historyLoading || _historyError != null || _history.isEmpty) ...[
+              if (_historyLoading ||
+                  _historyError != null ||
+                  _history.isEmpty) ...[
                 const SizedBox(height: 14),
                 FDCard(
                   child: Column(
