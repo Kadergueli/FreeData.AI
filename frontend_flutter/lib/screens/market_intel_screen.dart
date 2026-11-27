@@ -359,6 +359,9 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
         'Suivi et explication des prix de détail observés. '
         'Ce n’est ni une prévision ni un conseil d’investissement.',
       ),
+      _note(
+        'Sources : WFP et FEWS NET. Attribution obligatoire ; les droits de réutilisation commerciale doivent être confirmés pour chaque jeu de données et sa source primaire.',
+      ),
       const SizedBox(height: 12),
       _productChips(),
       if (_loading)
