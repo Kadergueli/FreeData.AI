@@ -139,7 +139,7 @@ def water_deficit_alerts(region: str, anomalies_by_key: dict[str, list[dict[str,
             "level": level,
             "stale": _months_between(last["reference_date"], today) > STALE_AFTER_MONTHS,
             "message": (
-                f"{INDICATOR_LABELS_FR[key]} {'sont' if key in CLIMATE_ALERT_KEYS else 'est'} inférieure de {abs(last['anomaly_pct']):.0f} % à la normale "
+                f"{INDICATOR_LABELS_FR[key]} {'sont inférieures' if key in CLIMATE_ALERT_KEYS else 'est inférieure'} de {abs(last['anomaly_pct']):.0f} % à la normale "
                 f"{BASELINE_YEARS[0]}–{BASELINE_YEARS[1]} du même mois (déficit {label})."
             ),
             "thresholds_pct": {"moderate": MODERATE_DEFICIT_PCT, "severe": SEVERE_DEFICIT_PCT},
