@@ -19,6 +19,7 @@ from src.agro_indicators import (
     canonical_region,
     parse_region,
     validate_agro_dataframe,
+    regional_indicator_key,
 )
 from src.domains import DomainRegistry
 
@@ -98,6 +99,27 @@ def test_validation_rejects_missing_values_and_columns():
     with pytest.raises(AgroIngestError) as exc:
         validate_agro_dataframe(pd.DataFrame([{"indicator": "x"}]))
     assert "Colonnes obligatoires manquantes" in str(exc.value)
+
+def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
+    row = _nasa_row(
+        source="NASA POWER",
+        license="CC BY 4.0",
+        sector="environment",
+        indicator="Monthly precipitation",
+        value=3.4,
+        unit="mm/day",
+    )
+    clean, report = validate_agro_dataframe(pd.DataFrame([row]))
+    assert report["rows_valid"] == 1
+    assert clean[0]["source"] == "NASA POWER"
+    assert clean[0]["sector"] == "environment"
+    assert clean[0]["region"] == "Moundou"
+    assert regional_indicator_key(clean[0]["indicator"]) == "precipitation_daily_mean"
+
+    bad = {**row, "indicator": "Monthly max temperature", "value": 95, "unit": "°C"}
+    with pytest.raises(AgroIngestError) as exc:
+        validate_agro_dataframe(pd.DataFrame([bad]))
+    assert "température hors plage plausible" in str(exc.value)
 
 
 def test_region_parsing_and_province_check():
