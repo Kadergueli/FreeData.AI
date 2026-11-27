@@ -133,6 +133,7 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
             "reference_date": str(item.get("date_reference") or ""),
             "country_code": "TCD",
             "region": region,
+            "source_region": str(item.get("region") or "").strip(),
             "source": source,
             "license": str(item.get("licence") or ""),
             "notes": f"{source} monthly climate indicator; imported from public.table_public.",
@@ -140,7 +141,7 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
             "spatial_resolution": "regional_city_hub",
             "confidence_level": "Satellite_Modeled_Regional",
         })
-    return pd.DataFrame(rows, columns=["id", *REQUIRED_COLUMNS, "notes"])
+    return pd.DataFrame(rows, columns=["id", *REQUIRED_COLUMNS, "notes", "source_region"])
 
 
 def main() -> int:
