@@ -41,7 +41,11 @@ void main() {
 
     final api = _FarmAccountFakeApi();
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: FarmOperatingAccountScreen(apiService: api))),
+      MaterialApp(
+        home: Scaffold(
+          body: FarmOperatingAccountScreen(apiService: api),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
