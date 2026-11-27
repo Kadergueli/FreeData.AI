@@ -288,18 +288,30 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
       }
 
       await Future.wait([
-        publish(_safe(api.getMarketIntelEntryBrief(_product)),
-            (value) => _entry = value),
-        publish(_safe(api.getMarketIntelCompare(_product)),
-            (value) => _compare = value),
-        publish(_safe(api.getMarketIntelPulse()),
-            (value) => _pulse = value),
-        publish(_safe(api.getMarketIntelBasket()),
-            (value) => _basket = value),
-        publish(_safe(api.getMarketIntelWorld(_product)),
-            (value) => _world = value),
-        publish(_safe(api.getMarketIntelAlerts()),
-            (value) => _alerts = value),
+        publish(
+          _safe(api.getMarketIntelEntryBrief(_product)),
+          (value) => _entry = value,
+        ),
+        publish(
+          _safe(api.getMarketIntelCompare(_product)),
+          (value) => _compare = value,
+        ),
+        publish(
+          _safe(api.getMarketIntelPulse()),
+          (value) => _pulse = value,
+        ),
+        publish(
+          _safe(api.getMarketIntelBasket()),
+          (value) => _basket = value,
+        ),
+        publish(
+          _safe(api.getMarketIntelWorld(_product)),
+          (value) => _world = value,
+        ),
+        publish(
+          _safe(api.getMarketIntelAlerts()),
+          (value) => _alerts = value,
+        ),
       ]);
       if (!mounted || token != _loadToken) return;
       setState(() => _loadingProSections = false);
@@ -583,7 +595,9 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
             ),
             for (final m in _asList(where['cheapest']))
               _row(
-                  '${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
+                '${m['market']} (${m['province']})',
+                _xaf(m['price_xaf_kg']),
+              ),
             const SizedBox(height: 10),
             const Text(
               'Où le prix est le plus haut',
@@ -591,7 +605,9 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
             ),
             for (final m in _asList(where['dearest']))
               _row(
-                  '${m['market']} (${m['province']})', _xaf(m['price_xaf_kg'])),
+                '${m['market']} (${m['province']})',
+                _xaf(m['price_xaf_kg']),
+              ),
             if (storage['status'] == 'ok') ...[
               const SizedBox(height: 10),
               const Text(
