@@ -268,7 +268,8 @@ void main() {
     expect(find.text('Favorable'), findsOneWidget);
     expect(find.text('Télécharger le rapport PDF co-brandé'), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });  
+  });
+
   testWidgets(
     'AgronomistProScreen distinguishes profile and history API failures from empty data',
     (tester) async {
@@ -314,5 +315,4 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-
 }
