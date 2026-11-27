@@ -116,7 +116,7 @@ def deficit_level(anomaly_pct: Optional[float]) -> Optional[str]:
 
 
 def water_deficit_alerts(region: str, anomalies_by_key: dict[str, list[dict[str, Any]]], today: Optional[date] = None) -> list[dict[str, Any]]:
-    """Alerte sur la dernière observation de chaque indice d'humidité si elle est nettement sous la normale du mois."""
+    """Signale les déficits d'humidité des sols et de précipitations face à la normale du même mois."""
     today = today or date.today()
     alerts: list[dict[str, Any]] = []
     for key in (*WETNESS_KEYS, *CLIMATE_ALERT_KEYS):
