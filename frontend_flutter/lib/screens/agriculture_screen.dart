@@ -9,8 +9,8 @@ import '../core/utils/error_text.dart';
 
 /// Pré-diagnostic agro-climatique de zone (espace Grand Public, gratuit).
 ///
-/// Données : NASA POWER Agro (12 pôles, mensuel) + World Bank (national, annuel).
-/// Jamais une « analyse de parcelle » ; aucune température ni précipitation en V1.
+/// Données : NASA POWER Agro (humidité/PAR), NASA POWER (pluie/températures mensuelles)
+/// et World Bank (national, annuel). Jamais une « analyse de parcelle ».
 class AgricultureScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onAskAssistant;
@@ -169,7 +169,15 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
   List<String> _seriesKeys(Map<String, dynamic> profile) {
     final series = profile['series'];
     if (series is! Map) return const [];
-    const order = ['root_zone_wetness', 'surface_wetness', 'par'];
+    const order = [
+      'root_zone_wetness',
+      'surface_wetness',
+      'par',
+      'precipitation_daily_mean',
+      'temperature_mean',
+      'temperature_max',
+      'temperature_min',
+    ];
     final keys = series.keys.map((k) => k.toString()).toList();
     keys.sort((a, b) {
       final ia = order.indexOf(a);
@@ -310,7 +318,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Données satellitaires modélisées au niveau de 12 pôles du Tchad. Ce n’est pas une analyse de parcelle.',
+              'Humidité des sols, pluie et températures mensuelles issues de données satellitaires modélisées aux pôles régionaux. Ce n’est pas une analyse de parcelle.',
               style:
                   TextStyle(fontSize: 13, color: AppColors.muted, height: 1.4),
             ),
