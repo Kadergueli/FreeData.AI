@@ -64,8 +64,10 @@ class _AgroFakeApi extends ApiService {
         'surface_wetness': 'Humidité de surface du sol',
         'precipitation_daily_mean': 'Précipitations moyennes quotidiennes',
         'temperature_mean': 'Température moyenne',
-        'precipitation_daily_mean_copernicus': 'Précipitations moyennes quotidiennes — Copernicus ERA5-Land',
-        'temperature_mean_copernicus': 'Température moyenne — Copernicus ERA5-Land',
+        'precipitation_daily_mean_copernicus':
+            'Précipitations moyennes quotidiennes — Copernicus ERA5-Land',
+        'temperature_mean_copernicus':
+            'Température moyenne — Copernicus ERA5-Land',
       },
       'series': {
         'root_zone_wetness': _series('root_zone_wetness', 0.5, 0.3),
@@ -83,10 +85,16 @@ class _AgroFakeApi extends ApiService {
           unit: '°C',
         ),
         'precipitation_daily_mean_copernicus': _series(
-          'precipitation_daily_mean_copernicus', 2.0, 1.8, unit: 'mm/day',
+          'precipitation_daily_mean_copernicus',
+          2.0,
+          1.8,
+          unit: 'mm/day',
         ),
         'temperature_mean_copernicus': _series(
-          'temperature_mean_copernicus', 27.0, 29.0, unit: '°C',
+          'temperature_mean_copernicus',
+          27.0,
+          29.0,
+          unit: '°C',
         ),
       },
       'latest': {
@@ -129,7 +137,11 @@ class _AgroFakeApi extends ApiService {
       'stale': false,
       'provenance': {
         'sources': ['NASA POWER Agro', 'NASA POWER', 'Copernicus ERA5-Land'],
-        'licenses': ['Public Domain (U.S. Government / NASA)', 'CC BY 4.0', 'Licence to use Copernicus Products'],
+        'licenses': [
+          'Public Domain (U.S. Government / NASA)',
+          'CC BY 4.0',
+          'Licence to use Copernicus Products',
+        ],
         'reference_period': {'first': '2020-01-01', 'last': '2026-03-01'},
         'spatial_resolution': ['regional_city_hub'],
         'confidence_level': ['Satellite_Modeled_Regional'],
@@ -161,7 +173,7 @@ void main() {
   });
 
   testWidgets(
-      'AgricultureScreen enriches the existing zone view with NASA rainfall and temperature',
+      'AgricultureScreen shows NASA and Copernicus climate series in the existing zone view',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1.0;
