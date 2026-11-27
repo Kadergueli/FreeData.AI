@@ -1,10 +1,10 @@
-"""Moteur agro-climatique déterministe (V1) : anomalies d'humidité des sols et alertes de déficit hydrique.
+"""Moteur agro-climatique déterministe : anomalies régionales et alertes indicatives.
 
 Principes :
-- uniquement les indicateurs réellement ingérés (humidité racinaire, humidité de surface, PAR) ;
-- AUCUNE température ni précipitation en V1 (absentes du jeu de données) ;
+- indicateurs ingérés : humidité racinaire/surface et PAR (NASA POWER Agro), précipitations et températures mensuelles (NASA POWER) ;
+- aucune observation n'est présentée comme une mesure parcellaire ou une prévision météorologique ;
 - anomalie = écart à la normale 2020–2023 du MÊME mois calendaire, calculée seulement si ≥ 3 années de référence ;
-- les seuils d'alerte sont des repères de lecture indicatifs (non calibrés sur des rendements) et sont exposés dans la réponse.
+- les seuils d'alerte sont des repères statistiques indicatifs, non calibrés sur des rendements.
 """
 from __future__ import annotations
 
