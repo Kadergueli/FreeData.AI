@@ -322,12 +322,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     const Text(
-                      'Analytique PRO',
+                      'Analytique PRO · historique & validation',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                         color: AppColors.ink,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Analyse rétrospective des prix observés, comparaison régionale et validation statistique des modèles. Pour consulter les séries prévisionnelles et les alertes opérationnelles, utilisez l’écran Prévisions.',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
                     filterBar,
