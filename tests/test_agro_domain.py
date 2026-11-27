@@ -123,6 +123,11 @@ def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
         validate_agro_dataframe(pd.DataFrame([bad]))
     assert "température hors plage plausible" in str(exc.value)
 
+    wrong_unit = {**row, "unit": "mm"}
+    with pytest.raises(AgroIngestError) as unit_exc:
+        validate_agro_dataframe(pd.DataFrame([wrong_unit]))
+    assert "unité de précipitation attendue" in str(unit_exc.value)
+
 
 def test_region_parsing_and_province_check():
     assert canonical_region("Abéché (Ouaddaï)") == "Abeche"
