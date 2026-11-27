@@ -517,7 +517,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_unit(item['unit']?.toString())} · ${_monthYear(item['reference_date']?.toString())}',
+                    '${_unit(item['unit']?.toString())} · ${_monthYear(item['reference_date']?.toString())}${item['source'] == null ? '' : ' · ${item['source']}'}',
                     style:
                         const TextStyle(fontSize: 12, color: AppColors.muted),
                   ),
@@ -585,8 +585,16 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
                 children: [
                   _legendDot(AppColors.blue, 'Valeur observée'),
                   const SizedBox(width: 16),
-                  _legendDot(
-                      AppColors.subtle, 'Normale 2020–2023 du même mois'),
+                  if (points.any((p) => p['baseline_mean'] is num))
+                    _legendDot(
+                        AppColors.subtle, 'Normale 2020–2023 du même mois')
+                  else
+                    const Expanded(
+                      child: Text(
+                        'Normale 2020–2023 indisponible pour cette source/période.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                      ),
+                    ),
                 ],
               ),
             ],
