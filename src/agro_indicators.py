@@ -27,7 +27,7 @@ SECTOR = "agriculture"
 COUNTRY_CODE = "TCD"
 NATIONAL = "national"
 
-# Les 12 pôles couverts par NASA POWER Agro (graphie canonique).
+# Les 12 pôles historiques NASA POWER Agro (centres de référence GPS).
 HUBS: tuple[str, ...] = (
     "Abeche", "Ati", "Bol", "Bongor", "Doba", "Koumra",
     "Mao", "Mongo", "Moundou", "N'Djamena", "Pala", "Sarh",
@@ -83,23 +83,21 @@ def _alnum(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", _fold(text))
 
 
-_HUB_BY_KEY = {_alnum(h): h for h in HUBS}
-
-# Province de rattachement de chaque pôle, telle qu'écrite dans le jeu de données (« Ville (Province) »).
+# Province de rattachement des 23 régions présentes dans Copernicus ERA5-Land.
+# Les 11 nouvelles villes sont des zones de diagnostic, pas de nouveaux centres IDW GPS.
 HUB_PROVINCE: dict[str, str] = {
-    "Abeche": "Ouaddai",
-    "Ati": "Batha",
-    "Bol": "Lac",
-    "Bongor": "Mayo-Kebbi Est",
-    "Doba": "Logone Oriental",
-    "Koumra": "Mandoul",
-    "Mao": "Kanem",
-    "Mongo": "Guera",
-    "Moundou": "Logone Occidental",
-    "N'Djamena": "N'Djamena",
-    "Pala": "Mayo-Kebbi Ouest",
-    "Sarh": "Moyen-Chari",
+    "Abeche": "Ouaddai", "Am Timan": "Salamat", "Am-Djarass": "Ennedi Est",
+    "Ati": "Batha", "Bardai": "Tibesti", "Biltine": "Wadi Fira",
+    "Bol": "Lac", "Bongor": "Mayo-Kebbi Est", "Doba": "Logone Oriental",
+    "Fada": "Ennedi Ouest", "Faya-Largeau": "Borkou", "Goz Beida": "Sila",
+    "Koumra": "Mandoul", "Lai": "Tandjile", "Mao": "Kanem",
+    "Massakory": "Hadjer-Lamis", "Massenya": "Chari-Baguirmi",
+    "Mongo": "Guera", "Moundou": "Logone Occidental",
+    "Moussoro": "Barh el Gazel", "N'Djamena": "N'Djamena",
+    "Pala": "Mayo-Kebbi Ouest", "Sarh": "Moyen-Chari",
 }
+SUPPORTED_REGIONS: tuple[str, ...] = tuple(HUB_PROVINCE)
+_HUB_BY_KEY = {_alnum(h): h for h in HUB_PROVINCE}
 _REGION_RE = re.compile(r"^\s*([^()]+?)\s*(?:\(([^()]+)\))?\s*$")
 
 
