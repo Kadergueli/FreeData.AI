@@ -54,7 +54,7 @@ ZONE_TITLE = "Pré-diagnostic agro-climatique de zone"
 
 LIMITATIONS = (
     "Couverture spatiale : indicateurs satellitaires modélisés à l'échelle du pôle régional (maille urbaine/provinciale), ne constituant pas une mesure parcellaire.",
-    "Périmètre des variables : humidité des sols et rayonnement PAR (NASA POWER Agro), complétés par les précipitations moyennes quotidiennes et températures mensuelles (NASA POWER). L’évapotranspiration de référence et les prévisions météorologiques ne sont pas intégrées.",
+    "Périmètre des variables : humidité des sols et rayonnement PAR (NASA POWER Agro), complétés par les précipitations moyennes quotidiennes et températures mensuelles (NASA POWER et Copernicus ERA5-Land). Les séries restent séparées par source ; l’évapotranspiration de référence et les prévisions météorologiques ne sont pas intégrées.",
     "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023.",
     "Portée décisionnelle : ce pré-diagnostic zonal ne se substitue ni à une analyse physico-chimique en laboratoire ni à une expertise agronomique sur site.",
 )
@@ -67,6 +67,10 @@ INDICATOR_LABELS_FR = {
     "temperature_mean": "Température moyenne",
     "temperature_max": "Température maximale",
     "temperature_min": "Température minimale",
+    "precipitation_daily_mean_copernicus": "Précipitations moyennes quotidiennes — Copernicus ERA5-Land",
+    "temperature_mean_copernicus": "Température moyenne — Copernicus ERA5-Land",
+    "temperature_max_copernicus": "Température maximale — Copernicus ERA5-Land",
+    "temperature_min_copernicus": "Température minimale — Copernicus ERA5-Land",
 }
 
 
@@ -176,6 +180,13 @@ def build_zone_profile(
     for r in regional_rows:
         key = regional_indicator_key(r["indicator"])
         if key:
+            source_key = str(r.get("source") or "").strip().lower()
+            # Keep Copernicus and NASA POWER as independent time series; never average or
+            # interleave two upstream products that may differ in grid and methodology.
+            if source_key == "copernicus era5-land" and key in {
+                "precipitation_daily_mean", "temperature_mean", "temperature_max", "temperature_min"
+            }:
+                key = f"{key}_copernicus"
             grouped.setdefault(key, []).append(r)
     series: dict[str, list[dict[str, Any]]] = {}
     anomalies: dict[str, list[dict[str, Any]]] = {}
