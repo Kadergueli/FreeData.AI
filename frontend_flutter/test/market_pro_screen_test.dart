@@ -7,6 +7,20 @@ import 'package:freedata_ai/screens/campaign_plan_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
 
 class _MarketRadarApi extends ApiService {
+  int arbitrageCalls = 0;
+  int watchlistCreateCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> createMarketWatchlist({
+    required String cropId,
+    required double thresholdXafKg,
+    String direction = 'above',
+    String province = '',
+  }) async {
+    watchlistCreateCalls++;
+    return {'watch_id': 'test-watch'};
+  }
+
   @override
   Future<Map<String, dynamic>> getMarketProOverview({String? cropId}) async => {
         'validated_forecasts': const [],
@@ -19,8 +33,9 @@ class _MarketRadarApi extends ApiService {
     required String cropId,
     double? transportCostXafKg,
     double? tonnage,
-  }) async =>
-      {
+  }) async {
+    arbitrageCalls++;
+    return {
         'historical_mape_pct': 12.3,
         'routes': [
           {
@@ -32,6 +47,7 @@ class _MarketRadarApi extends ApiService {
           },
         ],
       };
+  }
 
   @override
   Future<Map<String, dynamic>> computeFarmOperatingAccount({
@@ -195,6 +211,80 @@ class _CampaignNoRecommendationApi extends _MarketRadarApi {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+
+  testWidgets('Market PRO rejects non-finite watchlist thresholds',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _MarketRadarApi();
+    await tester.pumpWidget(
+      MaterialApp(home: MarketProScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    final threshold = find.widgetWithText(TextField, 'Seuil (XAF/kg)');
+    await tester.scrollUntilVisible(
+      threshold,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(threshold, 'NaN');
+    final addAlert = find.text('Ajouter l’alerte');
+    await tester.ensureVisible(addAlert);
+    await tester.tap(addAlert);
+    await tester.pump();
+
+    expect(
+      find.text('Saisissez un seuil fini en XAF/kg supérieur à 0.'),
+      findsOneWidget,
+    );
+    expect(api.watchlistCreateCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Market PRO rejects non-finite transport input before arbitrage',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final api = _MarketRadarApi();
+    await tester.pumpWidget(
+      MaterialApp(home: MarketProScreen(apiService: api)),
+    );
+    await tester.pumpAndSettle();
+
+    final transport = find.widgetWithText(
+      TextField,
+      'Transport réel (XAF/kg)',
+    );
+    await tester.scrollUntilVisible(
+      transport,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(transport, 'Infinity');
+    final calculate = find.text('Calculer écart / marge');
+    await tester.ensureVisible(calculate);
+    await tester.tap(calculate);
+    await tester.pump();
+
+    expect(
+      find.text('Le coût de transport doit être un nombre fini positif ou nul.'),
+      findsOneWidget,
+    );
+    expect(api.arbitrageCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('campaign plan shows why an opportunity was rejected',
       (tester) async {
