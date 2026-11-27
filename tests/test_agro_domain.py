@@ -54,6 +54,7 @@ def test_environment_domain_uses_structured_climate_data():
     assert "Copernicus ERA5-Land" in mod.instructions
     assert DomainRegistry.classify_domain("Quelle est la température moyenne à Moundou ?").domain_id == "environment"
     assert DomainRegistry.classify_domain("Quelle est la pluviométrie à Sarh ?").domain_id == "environment"
+    assert DomainRegistry.classify_domain("Pré-diagnostic agro-climatique pour le mil à Moundou").domain_id == "agriculture"
 
 
 def test_climate_chat_context_keeps_sources_separate_and_discloses_missing_baseline():
