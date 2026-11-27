@@ -118,6 +118,18 @@ def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
     assert clean[0]["region"] == "Moundou"
     assert regional_indicator_key(clean[0]["indicator"]) == "precipitation_daily_mean"
 
+    copernicus = _nasa_row(
+        source="Copernicus ERA5-Land",
+        license="Licence to use Copernicus Products",
+        sector="environment",
+        indicator="Monthly precipitation",
+        value=2.8,
+        unit="mm/day",
+    )
+    copernicus_clean, copernicus_report = validate_agro_dataframe(pd.DataFrame([copernicus]))
+    assert copernicus_report["rows_valid"] == 1
+    assert copernicus_clean[0]["source"] == "Copernicus ERA5-Land"
+
     bad = {**row, "indicator": "Monthly max temperature", "value": 95, "unit": "°C"}
     with pytest.raises(AgroIngestError) as exc:
         validate_agro_dataframe(pd.DataFrame([bad]))
@@ -185,6 +197,21 @@ def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_scree
     prof = build_zone_profile("Moundou", rows, [], today=date(2026, 4, 15))
     assert "precipitation_daily_mean" in prof["series"]
     assert "temperature_mean" in prof["series"]
+    copernicus_rows = []
+    for i, y in enumerate((2025, 2026)):
+        copernicus_rows.append(_nasa_row(
+            i + 200, indicator="Monthly precipitation", value=2.0 + i, unit="mm/day",
+            ref=f"{y}-03-01", source="Copernicus ERA5-Land",
+            license="Licence to use Copernicus Products", sector="environment",
+        ))
+        copernicus_rows.append(_nasa_row(
+            i + 210, indicator="Monthly mean temperature", value=29.0 + i, unit="°C",
+            ref=f"{y}-03-01", source="Copernicus ERA5-Land",
+            license="Licence to use Copernicus Products", sector="environment",
+        ))
+    prof = build_zone_profile("Moundou", rows + copernicus_rows, [], today=date(2026, 4, 15))
+    assert "precipitation_daily_mean_copernicus" in prof["series"]
+    assert "temperature_mean_copernicus" in prof["series"]
     assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
     assert any(a["indicator_key"] == "precipitation_daily_mean" for a in prof["alerts"])
     assert set(prof["provenance"]["sources"]) == {"NASA POWER"}
