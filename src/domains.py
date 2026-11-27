@@ -154,7 +154,7 @@ class DomainRegistry:
         "environment": DomainModule(
             domain_id="environment",
             label_fr="Environnement",
-            description="Conditions environnementales et risques au Tchad.",
+            description="Observations climatiques régionales NASA POWER et Copernicus ERA5-Land pour le Tchad.",
             instructions=(
                 "Reste dans le contexte environnemental et climatique du Tchad. Les séries structurées NASA POWER et Copernicus ERA5-Land "
                 "sont disponibles dans table_agro_indicators pour 23 pôles/régions : précipitations moyennes quotidiennes (mm/jour) et "
@@ -162,13 +162,13 @@ class DomainRegistry:
                 "sources séparées, distingue observation historique et prévision, et ne présente jamais ces données régionales comme des mesures parcellaires. "
                 "Copernicus commence en novembre 2025 : ne calcule pas d'anomalie par rapport à 2020–2023 lorsque la période de référence manque."
             ),
-            allowed_tools=("rag_hybrid", "llm_reasoning"),
-            knowledge_sources=("DATA_CATALOG.md", "METHODOLOGY.md"),
-            supported_workflows=("document_analysis", "environmental_risk_synthesis"),
+            allowed_tools=("rag_hybrid", "analytics_query", "llm_reasoning"),
+            knowledge_sources=("table_agro_indicators", "DATA_CATALOG.md", "METHODOLOGY.md"),
+            supported_workflows=("regional_climate_observations", "rainfall_temperature_trends", "environmental_risk_synthesis"),
             output_formats=("markdown",),
-            data_status="in_preparation",
+            data_status="operational",
             rag_collections=("platform_docs", "user_private_docs"),
-            analytical_operations=("document_synthesis",),
+            analytical_operations=("climate_series", "regional_climate_profile", "document_synthesis"),
             execution_pipeline="chad_agent",
         ),
         "infrastructure": DomainModule(
