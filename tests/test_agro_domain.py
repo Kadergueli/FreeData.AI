@@ -37,7 +37,7 @@ def _nasa_row(i=1, indicator="Root zone soil wetness index", value=0.4, region="
     return row
 
 
-def test_domain_agriculture_operational_without_temperature_claims():
+def test_domain_agriculture_operational_with_climate_scope():
     mod = DomainRegistry.get_domain("agriculture")
     assert mod.data_status == "operational"
     assert "table_agro_indicators" in mod.knowledge_sources
