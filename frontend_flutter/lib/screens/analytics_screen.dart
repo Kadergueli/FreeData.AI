@@ -367,7 +367,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               children: [
                                 const Expanded(
                                   child: Text(
-                                    'Courbe d’évolution mensuelle (XAF/kg)',
+                                    'Historique + prévision t+1 (XAF/kg)',
                                     style: TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.w700,
