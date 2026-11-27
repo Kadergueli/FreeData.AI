@@ -239,12 +239,13 @@ class _MarketProScreenState extends State<MarketProScreen> {
           double.tryParse(_arbTransportCtrl.text.trim().replaceAll(',', '.'));
       final tonnage =
           double.tryParse(_arbTonnageCtrl.text.trim().replaceAll(',', '.'));
-      if ((transport != null &&
-              (!transport.isFinite || transport < 0)) ||
+      if ((transport != null && (!transport.isFinite || transport < 0)) ||
           (_arbTransportCtrl.text.trim().isNotEmpty && transport == null)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Le coût de transport doit être un nombre fini positif ou nul.'),
+            content: Text(
+              'Le coût de transport doit être un nombre fini positif ou nul.',
+            ),
           ),
         );
         return;
@@ -253,7 +254,9 @@ class _MarketProScreenState extends State<MarketProScreen> {
           (_arbTonnageCtrl.text.trim().isNotEmpty && tonnage == null)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Le tonnage doit être un nombre fini supérieur à 0.'),
+            content: Text(
+              'Le tonnage doit être un nombre fini supérieur à 0.',
+            ),
           ),
         );
         return;
