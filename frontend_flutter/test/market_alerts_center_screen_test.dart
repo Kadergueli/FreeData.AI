@@ -61,8 +61,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-      'surveillance distinguishes observed rules from forecast watchlists',
-      (tester) async {
+    'surveillance distinguishes observed rules from forecast watchlists',
+    (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: MarketAlertsCenterScreen(apiService: _AlertsCenterApi()),
