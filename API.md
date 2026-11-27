@@ -7,6 +7,17 @@ Base URL (production): `https://freedata-ai.onrender.com`
 - `GET /api/v1/metadata` — Tracked products, provinces, markets, sources, and periods.
 - `GET /api/v1/forecasts?province=&commodity=&limit=100` — Forecast records and 80% intervals.
 
+## Agriculture — Regional Agro-climate
+- `GET /api/v1/agro/zones` — Lists covered regional hubs, provinces, available indicator keys, first/last reference dates, data availability, provenance, and known limitations.
+  - Response fields: `title`, `data_available`, `zones[]`, `provenance` (regional and national), and `limitations[]`.
+  - Coverage combines NASA POWER Agro, NASA POWER, Copernicus ERA5-Land, and national indicators where available.
+- `GET /api/v1/agro/zone-profile?region={region}` — Returns the regional agro-climate pre-diagnostic for a supported hub.
+  - Required query parameter: `region` (2–80 characters; must match a supported regional hub, not the national aggregate).
+  - Response fields: `title`, `region`, `province`, `indicator_labels`, `series`, `latest`, `baseline`, `alerts`, `hydric_risk_signals`, `stale`, `provenance`, `national`, and `limitations`.
+  - NASA POWER and Copernicus ERA5-Land precipitation/temperature series are kept separate; Copernicus keys use the `_copernicus` suffix.
+  - Unknown or unsupported regions return `404`; a supported region with no regional observations returns `503`.
+  - This is a regional satellite/modelled-data pre-diagnostic, not a parcel-level measurement or agronomic prescription.
+
 ## Chat Engine
 - `POST /api/v1/chat`
   - Body: `{"message": "...", "history": [...], "tier": "free|premium", "study_context": {...}}`
@@ -35,4 +46,3 @@ Base URL (production): `https://freedata-ai.onrender.com`
 ## Admin & Observability (`X-Admin-Token`)
 - `GET /api/v1/metrics` — Aggregate request counts, 4xx/5xx errors, QA blocks, and average latency.
 - `POST /api/v1/refresh` — Reload Gold tables in memory.
-
