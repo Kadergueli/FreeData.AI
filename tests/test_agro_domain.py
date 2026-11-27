@@ -158,6 +158,32 @@ def test_zone_profile_emits_deficit_alert_and_stale_flag():
     stale = build_zone_profile("Moundou", rows, [], today=date(2027, 1, 1))
     assert stale["stale"] is True and stale["alerts"][0]["stale"] is True
 
+def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_screen():
+    rows = []
+    for i, y in enumerate((2020, 2021, 2022, 2023)):
+        rows.append(_nasa_row(
+            i, indicator="Monthly precipitation", value=3.0, unit="mm/day",
+            ref=f"{y}-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+        ))
+        rows.append(_nasa_row(
+            i + 20, indicator="Monthly mean temperature", value=28.0, unit="°C",
+            ref=f"{y}-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+        ))
+    rows.append(_nasa_row(
+        99, indicator="Monthly precipitation", value=0.5, unit="mm/day",
+        ref="2026-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+    ))
+    rows.append(_nasa_row(
+        100, indicator="Monthly mean temperature", value=30.0, unit="°C",
+        ref="2026-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+    ))
+    prof = build_zone_profile("Moundou", rows, [], today=date(2026, 4, 15))
+    assert "precipitation_daily_mean" in prof["series"]
+    assert "temperature_mean" in prof["series"]
+    assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
+    assert any(a["indicator_key"] == "precipitation_daily_mean" for a in prof["alerts"])
+    assert set(prof["provenance"]["sources"]) == {"NASA POWER"}
+
 
 def test_endpoints_handle_unknown_zone_and_empty_database(tmp_path):
     store = AgroIndicatorStore(str(tmp_path / "empty.db"))
