@@ -45,7 +45,7 @@ from src.data_products import DataProductCatalog
 from src.api_keys import ApiKeyManager
 from src.domains import DomainRegistry
 from src.agro_site import site_profile
-from src.agro_indicators import AgroIndicatorStore, canonical_region, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
+from src.agro_indicators import AgroIndicatorStore, canonical_region, build_provenance, NATIONAL as AGRO_NATIONAL, HUBS as AGRO_HUBS
 from src.agro_assessments import AgroFieldAssessmentStore, AgronomistProfileStore
 from src.agro_engine import (
     build_campaign_radar,
@@ -3548,6 +3548,16 @@ def platform_chat_endpoint(
                 rag=rag,
                 owner_id=owner_id,
             )
+        if domain_mod.domain_id == "environment":
+            return _handle_environment_chat(
+                payload=payload,
+                agent=agent,
+                eff_tier=eff_tier,
+                private_chunks=private_chunks,
+                quota_info=quota_info,
+                domain_mod=domain_mod,
+                rag=rag,
+            )
         res = agent.answer(
             payload.message,
             history=payload.history,
@@ -3643,6 +3653,94 @@ def _match_agro_hub_in_query(query: str) -> Optional[str]:
     return None
 
 
+def _climate_series_lines(profile: dict[str, Any]) -> list[str]:
+    """Formate les dernières observations climatiques sans fusionner NASA POWER et Copernicus."""
+    series = profile.get("series") or {}
+    labels = profile.get("indicator_labels") or {}
+    lines: list[str] = []
+    for key, points in sorted(series.items()):
+        if not (key.startswith("precipitation_") or key.startswith("temperature_")) or not points:
+            continue
+        latest = max(points, key=lambda item: str(item.get("reference_date") or ""))
+        source = "Copernicus ERA5-Land" if key.endswith("_copernicus") else "NASA POWER"
+        value = latest.get("value")
+        unit = latest.get("unit") or ("mm/day" if key.startswith("precipitation_") else "°C")
+        line = "- **" + str(labels.get(key, key)) + "** : " + str(value) + " " + str(unit) + " (observation du " + str(latest.get("reference_date", "—")) + " ; source : " + source + ")."
+        anomaly = latest.get("anomaly_pct")
+        if isinstance(anomaly, (int, float)):
+            line += " Écart à la normale 2020–2023 du même mois : " + str(round(float(anomaly), 1)) + " %."
+        elif source == "Copernicus ERA5-Land":
+            line += " Pas d'anomalie calculée : la série disponible débute en novembre 2025 et ne couvre pas la période de référence 2020–2023."
+        else:
+            line += " Écart à la normale non calculable avec au moins trois années de référence pour ce mois."
+        lines.append(line)
+    return lines
+
+
+def _handle_environment_chat(
+    *,
+    payload: PlatformChatRequest,
+    agent: FreeDataAIAgent,
+    eff_tier: Literal["free", "premium"],
+    private_chunks: list[dict],
+    quota_info: dict,
+    domain_mod: Any,
+    rag: Optional[HybridRAGEngine] = None,
+) -> dict[str, Any]:
+    """Répond aux questions environnementales à partir des séries NASA POWER/Copernicus stockées."""
+    try:
+        all_rows = get_agro_store().rows()
+    except Exception as exc:
+        logger.warning("Données climatiques indisponibles dans le chat (%s)", exc)
+        all_rows = []
+    climate_rows = [row for row in all_rows if row.get("sector") == "environment" and row.get("source") in ("NASA POWER", "Copernicus ERA5-Land")]
+    if not climate_rows:
+        return {"reply": "Les séries climatiques structurées ne sont pas accessibles actuellement. Aucune valeur de température ou de précipitation ne sera estimée sans observation vérifiable.", "intent": "environment_climate_data_unavailable", "sources": [], "domain": domain_mod.domain_id, "domain_label": domain_mod.label_fr, "quota": quota_info}
+    matched_hub = _match_agro_hub_in_query(payload.message)
+    source_meta = {"NASA POWER": "CC BY 4.0", "Copernicus ERA5-Land": "Licence to use Copernicus Products"}
+    active_sources = sorted({str(row["source"]) for row in climate_rows})
+    sources = [{"title": source + " — observations climatiques régionales", "source": source + " · " + source_meta[source]} for source in active_sources]
+    if matched_hub:
+        regional_rows = [row for row in climate_rows if row.get("region") == matched_hub]
+        profile = build_zone_profile(matched_hub, regional_rows, [])
+        climate_lines = _climate_series_lines(profile)
+        if climate_lines:
+            period_dates = [str(row["reference_date"]) for row in regional_rows if row.get("reference_date")]
+            period = min(period_dates) + " à " + max(period_dates) if period_dates else "non précisée"
+            facts = ["### Observations climatiques régionales — " + matched_hub, "- **Périmètre** : pôle régional, pas une mesure parcellaire ni une prévision météorologique.", "- **Période couverte dans ce pôle** : " + period + ".", *climate_lines, "- **Interprétation** : les précipitations sont des moyennes quotidiennes en mm/jour ; elles ne représentent pas directement un cumul mensuel.", "- Les séries NASA POWER et Copernicus ERA5-Land restent séparées : leurs valeurs ne sont ni moyennées ni fusionnées.", "- **Provenance** : " + ", ".join(active_sources) + " ; résolution regional_city_hub ; confiance Satellite_Modeled_Regional."]
+        else:
+            facts = ["### Données climatiques — " + matched_hub, "Aucune série de précipitation ou de température n'est disponible pour ce pôle dans la table structurée."]
+    else:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in climate_rows:
+            grouped.setdefault(str(row["source"]), []).append(row)
+        facts = ["### Couverture des observations climatiques du Tchad", "- **Observations disponibles** : " + str(len(climate_rows)) + " lignes dans " + str(len({row.get("region") for row in climate_rows})) + " pôles/régions."]
+        for source, rows in sorted(grouped.items()):
+            dates = [str(row["reference_date"]) for row in rows if row.get("reference_date")]
+            indicators = sorted({str(row["indicator"]) for row in rows})
+            regions = sorted({str(row["region"]) for row in rows})
+            facts.append("- **" + source + "** (" + source_meta[source] + ") : " + str(len(rows)) + " observations, " + str(len(regions)) + " régions, période " + min(dates) + " à " + max(dates) + " ; variables : " + ", ".join(indicators) + ".")
+        facts.append("- Les valeurs sont des observations mensuelles modélisées à l'échelle régionale, pas des mesures parcellaires ni des prévisions météo.")
+    climate_facts = "\n".join(facts)
+    rag_hits: list[dict[str, Any]] = []
+    if rag is not None:
+        try:
+            rag_hits = rag.search(payload.message, top_k=3)
+        except Exception:
+            rag_hits = []
+    for hit in rag_hits:
+        sources.append({"title": hit.get("title", "Référence méthodologique"), "source": hit.get("source", "RAG FreeData"), "score": hit.get("score")})
+    if private_chunks:
+        climate_facts += "\n\n**Documents privés pertinents :**\n" + "\n".join("- **" + str(chunk.get("titre") or chunk.get("title", "Document")) + "** : " + str(chunk.get("content", ""))[:320] for chunk in private_chunks[:3])
+    if rag_hits:
+        climate_facts += "\n\n**Références méthodologiques :**\n" + "\n".join("- *" + str(hit.get("source", "RAG")) + "* : " + str(hit.get("compressed_excerpt", ""))[:240] for hit in rag_hits[:2])
+    reply = climate_facts
+    if eff_tier == "premium" and settings.llm_api_key:
+        llm_reply = agent._synthesize_with_llm(payload.message, climate_facts, list(private_chunks) + rag_hits, history=payload.history)
+        if llm_reply and llm_reply.strip():
+            reply = llm_reply
+    return {"reply": reply, "intent": "environment_climate_observations", "entities": {"region": matched_hub} if matched_hub else {}, "sources": sources, "domain": domain_mod.domain_id, "domain_label": domain_mod.label_fr, "quota": quota_info}
+
 def _handle_agriculture_chat(
     *,
     payload: PlatformChatRequest,
@@ -3729,9 +3827,13 @@ def _handle_agriculture_chat(
                 f"années critiques (< 0,45 en juil.–août) = `{risks.get('critical_july_aug_years', 0)}`, "
                 f"rendement céréalier moyen national (World Bank 2020–2024) = `{risks.get('cereal_yield_mean_2020_2024_kg_ha', '—')} kg/ha`."
             )
-        lines.append(
-            "- **Limites strictes** : aucune donnée de température, de précipitations ou de pH automatique n'est présente dans ce jeu de données."
-        )
+        climate_lines = _climate_series_lines(profile)
+        if climate_lines:
+            lines.append("- **Précipitations et températures observées** :")
+            lines.extend(climate_lines)
+            lines.append("- Les séries NASA POWER et Copernicus ERA5-Land restent séparées ; les précipitations sont exprimées en mm/jour et ne sont pas un cumul mensuel.")
+        else:
+            lines.append("- Aucune série de précipitations ou de températures n'est disponible pour cette zone.")
         agro_facts = "\n".join(lines)
     else:
         overview = build_zones_overview(all_rows)
@@ -3739,10 +3841,11 @@ def _handle_agriculture_chat(
         latest_dates = [z.get("last_reference_date") for z in zones_list if z.get("last_reference_date")]
         latest_period = max(latest_dates) if latest_dates else "—"
         lines = [
-            "### Synthèse agro-climatique du Tchad (12 pôles NASA POWER Agro + World Bank)",
-            f"- **Pôles couverts ({len(zones_list)})** : {', '.join(z.get('region', '') for z in zones_list)}.",
+            "### Synthèse agro-climatique du Tchad",
+            f"- **Pôles couverts** : {', '.join(z.get('region', '') for z in zones_list)}.",
             f"- **Dernière période observée** : `{latest_period}`.",
-            "- **Limites strictes** : données modélisées au niveau pôle régional (`NASA POWER Agro`) et macro national (`World Bank CC BY 4.0`). Aucune température ni pluviométrie disponible.",
+            f"- **Observations climatiques structurées** : {sum(1 for r in all_rows if r.get('sector') == 'environment' and r.get('source') in ('NASA POWER', 'Copernicus ERA5-Land'))} lignes issues de NASA POWER et Copernicus ERA5-Land ; les séries sont séparées par source.",
+            "- Les précipitations et températures sont des observations modélisées au niveau régional ; elles ne constituent ni des mesures parcellaires ni des prévisions météorologiques.",
         ]
         agro_facts = "\n".join(lines)
 
