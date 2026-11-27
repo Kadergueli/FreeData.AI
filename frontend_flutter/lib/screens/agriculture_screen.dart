@@ -222,7 +222,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
 
   String _askPrompt() {
     final region = _selectedRegion ?? 'cette zone';
-    return 'Donne-moi le pré-diagnostic agro-climatique de la zone de $region (humidité des sols, rayonnement, anomalies par rapport à la normale 2020–2023) en citant les sources.';
+    return 'Donne-moi le pré-diagnostic agro-climatique de la zone de $region (humidité des sols, précipitations moyennes quotidiennes, températures mensuelles, rayonnement PAR et anomalies par rapport à la normale 2020–2023). Distingue les données régionales modélisées des mesures parcellaires et cite les sources.';
   }
 
   @override
