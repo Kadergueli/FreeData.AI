@@ -383,7 +383,7 @@ class AgroIndicatorStore:
     def ingest_dataframe(self, df: pd.DataFrame, *, dry_run: bool = False, chunk_size: int = 50) -> dict[str, Any]:
         rows, report = validate_agro_dataframe(df)
         report["dry_run"] = bool(dry_run)
-        if report["conflicting_duplicate_groups"]:
+        if report["conflicting_duplicate_groups"] and not dry_run:
             raise AgroIngestError([
                 f'{report["conflicting_duplicate_groups"]} groupe(s) de doublons contradictoires détecté(s) ; '
                 "import bloqué. Consultez duplicate_diagnostics dans le dry-run."
