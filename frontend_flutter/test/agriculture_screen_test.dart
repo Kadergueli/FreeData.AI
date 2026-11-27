@@ -64,6 +64,8 @@ class _AgroFakeApi extends ApiService {
         'surface_wetness': 'Humidité de surface du sol',
         'precipitation_daily_mean': 'Précipitations moyennes quotidiennes',
         'temperature_mean': 'Température moyenne',
+        'precipitation_daily_mean_copernicus': 'Précipitations moyennes quotidiennes — Copernicus ERA5-Land',
+        'temperature_mean_copernicus': 'Température moyenne — Copernicus ERA5-Land',
       },
       'series': {
         'root_zone_wetness': _series('root_zone_wetness', 0.5, 0.3),
@@ -79,6 +81,12 @@ class _AgroFakeApi extends ApiService {
           28.0,
           30.0,
           unit: '°C',
+        ),
+        'precipitation_daily_mean_copernicus': _series(
+          'precipitation_daily_mean_copernicus', 2.0, 1.8, unit: 'mm/day',
+        ),
+        'temperature_mean_copernicus': _series(
+          'temperature_mean_copernicus', 27.0, 29.0, unit: '°C',
         ),
       },
       'latest': {
