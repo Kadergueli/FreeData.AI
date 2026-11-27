@@ -186,13 +186,23 @@ def test_endpoints_gate_pro_and_keep_brief_public(tmp_path):
     assert feed["triggered"][0]["rule_id"] == rule["rule_id"]
 
 
-def test_rest_history_loads_per_product_with_keyset_pagination(monkeypatch):
+def test_rest_history_reads_base_table_by_id_ranges_and_normalizes(monkeypatch):
     from src import market_data as md
     from src.config import settings
 
-    rows = [{"id": i, "source": "WFP", "month_date": "2025-01-01", "province": "A", "market_name": "M",
-             "commodity_std": "Millet", "price_value": 200.0 + i, "is_flagged_outlier": 0} for i in range(1, 2501)]
-    seen = []
+    rows = []
+    for i in range(1, 2601):
+        wfp = i % 2 == 0
+        rows.append({
+            "id": i, "source_api": "WFP" if wfp else "FEWS NET", "date_reference": "2025-01-15",
+            "indicateur": "Millet (Pearl) retail price (WFP)" if wfp else "Millet price (retail) - Dembé",
+            "region": "Dembé (N'Djamena)" if wfp else "N'Djamena",
+            "unite": "XAF/KG", "valeur": 200.0 + i, "notes_publiques": None,
+        })
+    rows.append({"id": 2601, "source_api": "WFP", "date_reference": "2025-01-15",
+                 "indicateur": "Sugar retail price (WFP)", "region": "Dembé (N'Djamena)",
+                 "unite": "XAF/500_g", "valeur": 100.0, "notes_publiques": "OUTLIER"})
+    pages = []
 
     class _Resp:
         def __init__(self, data):
@@ -205,11 +215,15 @@ def test_rest_history_loads_per_product_with_keyset_pagination(monkeypatch):
             return self._data
 
     def fake_get(url, headers=None, params=None, timeout=None):
-        seen.append(params["commodity_std"])
-        if params["commodity_std"] != "ilike.millet":
-            return _Resp([])
-        last = int(params["id"][3:])
-        return _Resp([r for r in rows if r["id"] > last][:1000])
+        assert url.endswith("/table_public")  # jamais la vue (coûteuse)
+        p = dict(params) if isinstance(params, dict) else {}
+        if isinstance(params, list):
+            gt = int([v for k, v in params if k == "id" and v.startswith("gt.")][0][3:])
+            lt = int([v for k, v in params if k == "id" and v.startswith("lt.")][0][3:])
+            page = [r for r in rows if gt < r["id"] < lt][:1000]
+            pages.append(len(page))
+            return _Resp(page)
+        return _Resp([rows[0]] if p["order"] == "id.asc" else [rows[-1]])
 
     monkeypatch.setattr(md.requests, "get", fake_get)
     monkeypatch.setattr(type(settings), "data_backend", property(lambda self: "supabase_rest"))
@@ -218,5 +232,8 @@ def test_rest_history_loads_per_product_with_keyset_pagination(monkeypatch):
         df = md.load_price_history()
     finally:
         md.clear_cache()
-    assert len(df) == 2500 and "year_month" in df.columns
-    assert seen.count("ilike.millet") == 3  # 1000 + 1000 + 500
+    assert len(df) == 2600  # le relevé OUTLIER (sucre) est écarté
+    assert set(df["commodity_std"]) == {"Millet"}
+    assert set(df["source"]) == {"WFP", "FEWS NET"}
+    assert set(df["province"]) == {"N'Djamena"} and set(df["market_name"]) == {"Dembé"}
+    assert "year_month" in df.columns
