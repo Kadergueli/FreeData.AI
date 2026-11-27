@@ -30,7 +30,8 @@ class Settings:
     csv_path: str = os.getenv("FREEDATA_CSV_PATH", "freedatatd-markets-full.csv").strip()
     supabase_url: str = os.getenv("SUPABASE_URL", "").strip()
     # Clé de LECTURE (publique / anon) utilisée par l'API.
-    supabase_key: str = os.getenv("SUPABASE_KEY", "").strip()
+    # Accepte le nom standard SUPABASE_ANON_KEY et conserve SUPABASE_KEY par compatibilité.
+    supabase_key: str = (os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_KEY", "")).strip()
     # Clé d'ÉCRITURE (service_role) : uniquement pour scripts/update_predictions.py.
     supabase_service_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
     supabase_db_url: str = os.getenv("SUPABASE_DB_URL", "").strip()
