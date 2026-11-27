@@ -23,7 +23,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import settings
-from src.agro_indicators import AgroIndicatorStore, HUBS, canonical_region
+from src.agro_indicators import AgroIndicatorStore, HUBS, SUPPORTED_REGIONS, canonical_region
 
 API_INDICATORS = (
     "Monthly precipitation",
@@ -79,7 +79,7 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
     rows: list[dict] = []
     for idx, item in enumerate(source_rows, start=1):
         region = canonical_region(str(item.get("region") or ""))
-        if region not in HUBS:
+        if region not in SUPPORTED_REGIONS:
             continue
         source = str(item.get("source_api") or "").strip()
         if source not in {"NASA POWER", "Copernicus ERA5-Land"} or item.get("secteur") != "environment":
@@ -123,7 +123,8 @@ def main() -> int:
         return 1
 
     report["source_rows_fetched"] = len(source_rows)
-    report["poles_in_scope"] = list(HUBS)
+    report["nasa_power_hubs_in_scope"] = list(HUBS)
+    report["copernicus_regions_in_scope"] = list(SUPPORTED_REGIONS)
     report["sources_in_scope"] = ["NASA POWER", "Copernicus ERA5-Land"]
     report["write_target"] = "SUPABASE_DB_URL" if args.apply else "none (dry-run)"
     print(json.dumps(report, indent=2, ensure_ascii=False))
