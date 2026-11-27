@@ -1,7 +1,7 @@
 """Moteur agro-climatique déterministe : anomalies régionales et alertes indicatives.
 
 Principes :
-- indicateurs ingérés : humidité racinaire/surface et PAR (NASA POWER Agro), précipitations et températures mensuelles (NASA POWER) ;
+- indicateurs ingérés : humidité racinaire/surface et PAR (NASA POWER Agro), précipitations et températures mensuelles (NASA POWER et Copernicus ERA5-Land) ;
 - aucune observation n'est présentée comme une mesure parcellaire ou une prévision météorologique ;
 - anomalie = écart à la normale 2020–2023 du MÊME mois calendaire, calculée seulement si ≥ 3 années de référence ;
 - les seuils d'alerte sont des repères statistiques indicatifs, non calibrés sur des rendements.
