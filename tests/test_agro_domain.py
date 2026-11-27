@@ -41,7 +41,9 @@ def test_domain_agriculture_operational_without_temperature_claims():
     mod = DomainRegistry.get_domain("agriculture")
     assert mod.data_status == "operational"
     assert "table_agro_indicators" in mod.knowledge_sources
-    assert "AUCUNE donnée de température" in mod.instructions
+    assert "températures mensuelles" in mod.instructions
+    assert "NASA POWER" in mod.instructions
+    assert "données de terrain" in mod.instructions
 
 
 @pytest.mark.skipif(not REAL_CSV.exists(), reason="CSV agricole commercial absent")
