@@ -1,10 +1,11 @@
 """Indicateurs agricoles du Tchad (table_agro_indicators) : ingestion stricte et lecture.
 
-Sources autorisées en production (usage commercial) :
-- NASA POWER Agro (domaine public U.S. Government / NASA) : 12 pôles régionaux, mensuel ;
+Sources autorisées dans le moteur :
+- NASA POWER Agro (domaine public U.S. Government / NASA) : humidité des sols et PAR ;
+- NASA POWER (CC BY 4.0 dans le catalogue FreeData) : précipitations et températures mensuelles ;
 - World Bank (CC BY 4.0) : macro-agriculture nationale, annuel.
 
-Open-Meteo Agro-Climate (non commercial) et FAOSTAT (restrictions promotionnelles) sont REFUSÉS à l'ingestion.
+Open-Meteo Free API (usage non commercial uniquement) et FAOSTAT (restrictions de promotion commerciale) sont exclus du pipeline commercial.
 Toute ligne ingérée porte source, licence, date de référence, résolution spatiale et niveau de confiance.
 Aucune donnée n'est jamais inventée : l'ingestion est « tout ou rien » et rapporte chaque anomalie du fichier.
 """
@@ -239,7 +240,7 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             continue
         rows.append({
             "id": rid,
-            "sector": SECTOR,
+            "sector": expected_sector,
             "indicator": str(rec["indicator"]).strip(),
             "value": value,
             "unit": str(rec["unit"]).strip(),
