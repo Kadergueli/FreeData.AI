@@ -177,6 +177,10 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
       'temperature_mean',
       'temperature_max',
       'temperature_min',
+      'precipitation_daily_mean_copernicus',
+      'temperature_mean_copernicus',
+      'temperature_max_copernicus',
+      'temperature_min_copernicus',
     ];
     final keys = series.keys.map((k) => k.toString()).toList();
     keys.sort((a, b) {
