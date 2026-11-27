@@ -177,7 +177,7 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
         if src_key not in SOURCE_RULES:
             bad(f"source non autorisée en production : « {rec['source']} »")
             continue
-        expected_sector = "environment" if src_key == "nasa power" else SECTOR
+        expected_sector = "environment" if src_key in ("nasa power", "copernicus era5-land") else SECTOR
         if _fold(rec["sector"]) != expected_sector:
             bad(f"secteur « {rec['sector']} » ≠ {expected_sector}")
             continue
