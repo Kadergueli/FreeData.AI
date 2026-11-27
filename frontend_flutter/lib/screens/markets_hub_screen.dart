@@ -7,8 +7,8 @@ import 'analytics_screen.dart';
 import 'campaign_plan_screen.dart';
 import 'farm_operating_account_screen.dart';
 import 'forecast_screen.dart';
-import 'market_intel_screen.dart';
 import 'market_alerts_center_screen.dart';
+import 'market_intel_screen.dart';
 import 'passport_screen.dart';
 
 /// Hub unifié Marchés & Crédit :
