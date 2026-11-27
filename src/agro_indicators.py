@@ -2,7 +2,7 @@
 
 Sources autorisées dans le moteur :
 - NASA POWER Agro (domaine public U.S. Government / NASA) : humidité des sols et PAR ;
-- NASA POWER (CC BY 4.0 dans le catalogue FreeData) : précipitations et températures mensuelles ;
+- NASA POWER (CC BY 4.0 dans le catalogue FreeData) et Copernicus ERA5-Land (Licence to use Copernicus Products) : précipitations et températures mensuelles ;
 - World Bank (CC BY 4.0) : macro-agriculture nationale, annuel.
 
 Open-Meteo Free API (usage non commercial uniquement) et FAOSTAT (restrictions de promotion commerciale) sont exclus du pipeline commercial.
@@ -42,11 +42,13 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 SOURCE_RULES: dict[str, tuple[str, str, str]] = {
     "nasa power agro": ("public domain", "regional_city_hub", "Satellite_Modeled_Regional"),
     "nasa power": ("cc by 4.0", "regional_city_hub", "Satellite_Modeled_Regional"),
+    "copernicus era5-land": ("licence to use copernicus products", "regional_city_hub", "Satellite_Modeled_Regional"),
     "world bank": ("cc by 4.0", "national", "Official_Macro_National"),
 }
 SOURCE_CANONICAL = {
     "nasa power agro": "NASA POWER Agro",
     "nasa power": "NASA POWER",
+    "copernicus era5-land": "Copernicus ERA5-Land",
     "world bank": "World Bank",
 }
 
