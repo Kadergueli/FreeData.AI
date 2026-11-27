@@ -136,7 +136,10 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                           text: 'Intelligence',
                         ),
                         const Tab(
-                          icon: Icon(Icons.notifications_active_outlined, size: 18),
+                          icon: Icon(
+                            Icons.notifications_active_outlined,
+                            size: 18,
+                          ),
                           text: 'Surveillance',
                         ),
                         const Tab(
