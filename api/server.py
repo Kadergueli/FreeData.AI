@@ -2113,7 +2113,14 @@ def get_world_prices() -> Any:
 
 def _intel_history_or_503(df: Any) -> Any:
     if df is None or getattr(df, "empty", True):
-        raise HTTPException(status_code=503, detail="Historique des prix momentanément indisponible. Réessayez plus tard.")
+        st = market_data_provider.history_status()
+        if st["state"] == "loading":
+            detail = "Historique des prix en cours de chargement : réessayez dans quelques secondes."
+        elif st.get("error"):
+            detail = f"Historique des prix momentanément indisponible ({st['error']})."
+        else:
+            detail = "Historique des prix momentanément indisponible. Réessayez plus tard."
+        raise HTTPException(status_code=503, detail=detail, headers={"Retry-After": "10"})
     return df
 
 
@@ -2133,6 +2140,12 @@ class MarketAlertRuleRequest(BaseModel):
 
 class MarketBasketRequest(BaseModel):
     weights: dict[str, float] = Field(..., min_length=2, max_length=8)
+
+
+@app.get("/api/v1/market-intel/status", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_intel_status_endpoint():
+    """État du chargement de l'historique (idle/loading/loaded/error), sans donnée sensible."""
+    return market_data_provider.history_status()
 
 
 @app.get("/api/v1/market-intel/products", dependencies=[Depends(_data_rate_limit_dependency)])
