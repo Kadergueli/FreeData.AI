@@ -255,6 +255,7 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             "reference_date": ref.date().isoformat(),
             "country_code": COUNTRY_CODE,
             "region": region,
+            "source_region": str(rec.get("source_region") or rec["region"]).strip(),
             "source": SOURCE_CANONICAL[src_key],
             "license": str(rec["license"]).strip(),
             "notes": "" if _blank(rec.get("notes")) else str(rec["notes"]).strip(),
@@ -265,11 +266,40 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
     if problems:
         raise AgroIngestError(problems)
 
-    # Doublons sur la clé naturelle : on garde la dernière occurrence (et on le rapporte).
-    unique: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    for r in rows:
-        unique[(r["indicator"], r["region"], r["reference_date"], r["source"])] = r
-    clean = list(unique.values())
+    # Les alias régionaux peuvent converger vers le même pôle canonique.
+    # On ne choisit jamais arbitrairement entre deux mesures différentes.
+    grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (row["indicator"], row["region"], row["reference_date"], row["source"])
+        grouped.setdefault(key, []).append(row)
+
+    clean: list[dict[str, Any]] = []
+    duplicate_groups: list[dict[str, Any]] = []
+    identical_duplicate_rows = 0
+    conflicting_duplicate_rows = 0
+    for key, group in grouped.items():
+        if len(group) == 1:
+            clean.append(group[0])
+            continue
+        signatures = {(item["value"], item["unit"]) for item in group}
+        diagnostic = {
+            "indicator": key[0],
+            "region": key[1],
+            "reference_date": key[2],
+            "source": key[3],
+            "occurrences": len(group),
+            "source_regions": sorted({item["source_region"] for item in group}),
+            "measurements": sorted({f'{item["value"]} {item["unit"]}' for item in group}),
+        }
+        if len(signatures) == 1:
+            identical_duplicate_rows += len(group) - 1
+            duplicate_groups.append({**diagnostic, "type": "identical"})
+            # Mesures identiques : choix stable, indépendant de l'ordre de pagination.
+            clean.append(sorted(group, key=lambda item: item["source_region"])[0])
+        else:
+            conflicting_duplicate_rows += len(group)
+            duplicate_groups.append({**diagnostic, "type": "conflicting"})
+            # Toutes les observations de cette clé sont exclues : aucune valeur n'est inventée.
     by_source: dict[str, int] = {}
     by_indicator: dict[str, int] = {}
     for r in clean:
@@ -279,7 +309,11 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
     report = {
         "rows_in": int(len(df)),
         "rows_valid": len(clean),
-        "duplicates_collapsed": len(rows) - len(clean),
+        "duplicates_collapsed": identical_duplicate_rows,
+        "identical_duplicate_rows_collapsed": identical_duplicate_rows,
+        "conflicting_duplicate_rows_excluded": conflicting_duplicate_rows,
+        "conflicting_duplicate_groups": sum(1 for item in duplicate_groups if item["type"] == "conflicting"),
+        "duplicate_diagnostics": duplicate_groups,
         "dropped_columns": dropped,
         "by_source": by_source,
         "by_indicator": by_indicator,
@@ -349,6 +383,11 @@ class AgroIndicatorStore:
     def ingest_dataframe(self, df: pd.DataFrame, *, dry_run: bool = False, chunk_size: int = 50) -> dict[str, Any]:
         rows, report = validate_agro_dataframe(df)
         report["dry_run"] = bool(dry_run)
+        if report["conflicting_duplicate_groups"]:
+            raise AgroIngestError([
+                f'{report["conflicting_duplicate_groups"]} groupe(s) de doublons contradictoires détecté(s) ; '
+                "import bloqué. Consultez duplicate_diagnostics dans le dry-run."
+            ])
         if dry_run:
             report["written"] = 0
             return report
