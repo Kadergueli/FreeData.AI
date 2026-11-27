@@ -219,12 +219,20 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
         if ind_key == "par" and value < 0:
             bad(f"rayonnement négatif : {value}")
             continue
-        if ind_key == "precipitation_daily_mean" and (value < 0 or value > 100):
-            bad(f"précipitations moyennes quotidiennes hors plage [0, 100] mm/jour : {value}")
-            continue
-        if ind_key in ("temperature_mean", "temperature_max", "temperature_min") and not (-20 <= value <= 70):
-            bad(f"température hors plage plausible [-20, 70] °C : {value}")
-            continue
+        if ind_key == "precipitation_daily_mean":
+            if str(rec["unit"]).strip().lower() != "mm/day":
+                bad(f"unité de précipitation attendue : mm/day (reçu « {rec['unit']} »)")
+                continue
+            if value < 0 or value > 100:
+                bad(f"précipitations moyennes quotidiennes hors plage [0, 100] mm/jour : {value}")
+                continue
+        if ind_key in ("temperature_mean", "temperature_max", "temperature_min"):
+            if str(rec["unit"]).strip() not in ("°C", "degC"):
+                bad(f"unité de température attendue : °C (reçu « {rec['unit']} »)")
+                continue
+            if not (-20 <= value <= 70):
+                bad(f"température hors plage plausible [-20, 70] °C : {value}")
+                continue
         ref = pd.to_datetime(rec["reference_date"], errors="coerce")
         if pd.isna(ref):
             bad(f"date de référence invalide « {rec['reference_date']} »")
