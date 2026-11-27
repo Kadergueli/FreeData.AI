@@ -43,6 +43,7 @@ def test_domain_agriculture_operational_with_climate_scope():
     assert "table_agro_indicators" in mod.knowledge_sources
     assert "températures mensuelles" in mod.instructions
     assert "NASA POWER" in mod.instructions
+    assert "Copernicus ERA5-Land" in mod.instructions
     assert "données de terrain" in mod.instructions
 
 
