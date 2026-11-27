@@ -142,6 +142,36 @@ def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
     assert "unité de précipitation attendue" in str(unit_exc.value)
 
 
+def test_climate_duplicate_audit_collapses_only_identical_measurements(tmp_path):
+    base = _nasa_row(
+        source="NASA POWER", license="CC BY 4.0", sector="environment",
+        indicator="Monthly precipitation", value=3.4, unit="mm/day",
+        ref="2024-01-01",
+    )
+    alias = {**base, "id": 2, "region": "Moundou"}
+    clean, report = validate_agro_dataframe(pd.DataFrame([base, alias]))
+    assert len(clean) == 1
+    assert report["identical_duplicate_rows_collapsed"] == 1
+    assert report["conflicting_duplicate_groups"] == 0
+    assert report["duplicate_diagnostics"][0]["type"] == "identical"
+
+    conflicting = {**alias, "value": 4.1}
+    clean, report = validate_agro_dataframe(pd.DataFrame([base, conflicting]))
+    assert clean == []
+    assert report["rows_valid"] == 0
+    assert report["conflicting_duplicate_rows_excluded"] == 2
+    assert report["conflicting_duplicate_groups"] == 1
+    diagnostic = report["duplicate_diagnostics"][0]
+    assert diagnostic["type"] == "conflicting"
+    assert diagnostic["measurements"] == ["3.4 mm/day", "4.1 mm/day"]
+    assert set(diagnostic["source_regions"]) == {"Moundou", "Moundou (Logone Occidental)"}
+
+    store = AgroIndicatorStore(str(tmp_path / "conflict.db"))
+    with pytest.raises(AgroIngestError, match="doublons contradictoires"):
+        store.ingest_dataframe(pd.DataFrame([base, conflicting]), dry_run=False)
+    assert store.count() == 0
+
+
 def test_region_parsing_and_province_check():
     assert canonical_region("Abéché (Ouaddaï)") == "Abeche"
     assert canonical_region("Am Timan (Salamat)") == "Am Timan"
