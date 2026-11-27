@@ -30,7 +30,7 @@ MODERATE_DEFICIT_PCT = -20.0
 SEVERE_DEFICIT_PCT = -35.0
 STALE_AFTER_MONTHS = 3
 WETNESS_KEYS = ("root_zone_wetness", "surface_wetness")
-CLIMATE_ALERT_KEYS = ("precipitation_daily_mean",)
+CLIMATE_ALERT_KEYS = ("precipitation_daily_mean", "precipitation_daily_mean_copernicus")
 ROAD_TORTUOSITY_FACTOR = 1.25
 WORLD_BANK_DEFAULT_YIELD_KG_HA = 834.6
 
