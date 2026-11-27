@@ -383,7 +383,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                             ? FDTheme.danger
                             : FDTheme.subtle,
                       ),
-                      label: const Text('Écarts observés (>15%)'),
+                      label: const Text('Alertes (>15%)'),
                       selected: effectiveMode == 'alerts',
                       selectedColor: FDTheme.dangerSoft,
                       labelStyle: TextStyle(
@@ -408,7 +408,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               ? FDTheme.green
                               : FDTheme.subtle,
                         ),
-                        label: const Text('Étude saisonnière détaillée'),
+                        label: const Text('Saisonnalité & Stockage'),
                         selected: effectiveMode == 'seasonality',
                         selectedColor: FDTheme.greenSoft,
                         labelStyle: TextStyle(
