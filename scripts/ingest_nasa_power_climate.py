@@ -25,7 +25,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import settings
-from src.agro_indicators import AgroIndicatorStore, HUBS, REQUIRED_COLUMNS, SUPPORTED_REGIONS, canonical_region
+from src.agro_indicators import AgroIndicatorStore, HUBS, REQUIRED_COLUMNS, SUPPORTED_REGIONS, canonical_region, validate_agro_dataframe
 
 API_SOURCES = ("NASA POWER", "Copernicus ERA5-Land")
 API_INDICATORS = (
@@ -172,8 +172,14 @@ def main() -> int:
                 f"régions prises en charge. Exemples (métadonnées uniquement) : "
                 f"{json.dumps(examples, ensure_ascii=False)}. Aucune écriture n'a été effectuée."
             )
-        store = AgroIndicatorStore()
-        report = store.ingest_dataframe(frame, dry_run=not args.apply)
+        if args.apply:
+            store = AgroIndicatorStore(database_url=settings.supabase_db_url)
+            report = store.ingest_dataframe(frame, dry_run=False)
+        else:
+            # Validation pure : ne crée ni fichier SQLite local ni table de destination.
+            _, report = validate_agro_dataframe(frame)
+            report["dry_run"] = True
+            report["written"] = 0
     except Exception as exc:
         print(f"IMPORT REFUSÉ : {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
