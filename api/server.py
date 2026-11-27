@@ -827,7 +827,7 @@ def agro_zone_profile_endpoint(
     region: str = Query(..., min_length=2, max_length=80),
     store: AgroIndicatorStore = Depends(get_agro_store),
 ):
-    """Pré-diagnostic agro-climatique de zone : humidité des sols, PAR, anomalies vs normale 2020–2023, indicateurs nationaux."""
+    """Pré-diagnostic agro-climatique régional : humidité, PAR, précipitations/températures NASA POWER et anomalies 2020–2023."""
     hub = canonical_region(region)
     if hub is None or hub == AGRO_NATIONAL:
         raise HTTPException(
