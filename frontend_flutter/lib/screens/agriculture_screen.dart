@@ -9,8 +9,8 @@ import '../core/utils/error_text.dart';
 
 /// Pré-diagnostic agro-climatique de zone (espace Grand Public, gratuit).
 ///
-/// Données : NASA POWER Agro (12 pôles, mensuel) + World Bank (national, annuel).
-/// Jamais une « analyse de parcelle » ; aucune température ni précipitation en V1.
+/// Données : NASA POWER Agro (humidité/PAR), NASA POWER (pluie/températures mensuelles)
+/// et World Bank (national, annuel). Jamais une « analyse de parcelle ».
 class AgricultureScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onAskAssistant;
@@ -169,7 +169,19 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
   List<String> _seriesKeys(Map<String, dynamic> profile) {
     final series = profile['series'];
     if (series is! Map) return const [];
-    const order = ['root_zone_wetness', 'surface_wetness', 'par'];
+    const order = [
+      'root_zone_wetness',
+      'surface_wetness',
+      'par',
+      'precipitation_daily_mean',
+      'temperature_mean',
+      'temperature_max',
+      'temperature_min',
+      'precipitation_daily_mean_copernicus',
+      'temperature_mean_copernicus',
+      'temperature_max_copernicus',
+      'temperature_min_copernicus',
+    ];
     final keys = series.keys.map((k) => k.toString()).toList();
     keys.sort((a, b) {
       final ia = order.indexOf(a);
@@ -214,7 +226,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
 
   String _askPrompt() {
     final region = _selectedRegion ?? 'cette zone';
-    return 'Donne-moi le pré-diagnostic agro-climatique de la zone de $region (humidité des sols, rayonnement, anomalies par rapport à la normale 2020–2023) en citant les sources.';
+    return 'Donne-moi le pré-diagnostic agro-climatique de la zone de $region (humidité des sols, précipitations moyennes quotidiennes, températures mensuelles, rayonnement PAR et anomalies par rapport à la normale 2020–2023). Distingue les données régionales modélisées des mesures parcellaires et cite les sources.';
   }
 
   @override
@@ -310,7 +322,7 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Données satellitaires modélisées au niveau de 12 pôles du Tchad. Ce n’est pas une analyse de parcelle.',
+              'Humidité des sols, pluie et températures mensuelles issues de données satellitaires modélisées aux pôles régionaux. Ce n’est pas une analyse de parcelle.',
               style:
                   TextStyle(fontSize: 13, color: AppColors.muted, height: 1.4),
             ),
@@ -834,9 +846,6 @@ class _AgricultureScreenState extends State<AgricultureScreen> {
             row('Licence nationale',
                 _joinMapped(natProv['licenses'], const {})),
           ],
-          const SizedBox(height: 6),
-          row('Sources marchés',
-              'WFP (CC BY-IGO 3.0) · FEWS NET (Attribution Required)'),
           if (limitations.isNotEmpty) ...[
             const SizedBox(height: 10),
             const Text('Limites méthodologiques & portée d’utilisation',

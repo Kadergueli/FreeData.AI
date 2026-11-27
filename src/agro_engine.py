@@ -1,10 +1,10 @@
-"""Moteur agro-climatique déterministe (V1) : anomalies d'humidité des sols et alertes de déficit hydrique.
+"""Moteur agro-climatique déterministe : anomalies régionales et alertes indicatives.
 
 Principes :
-- uniquement les indicateurs réellement ingérés (humidité racinaire, humidité de surface, PAR) ;
-- AUCUNE température ni précipitation en V1 (absentes du jeu de données) ;
+- indicateurs ingérés : humidité racinaire/surface et PAR (NASA POWER Agro), précipitations et températures mensuelles (NASA POWER) ;
+- aucune observation n'est présentée comme une mesure parcellaire ou une prévision météorologique ;
 - anomalie = écart à la normale 2020–2023 du MÊME mois calendaire, calculée seulement si ≥ 3 années de référence ;
-- les seuils d'alerte sont des repères de lecture indicatifs (non calibrés sur des rendements) et sont exposés dans la réponse.
+- les seuils d'alerte sont des repères statistiques indicatifs, non calibrés sur des rendements.
 """
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ MODERATE_DEFICIT_PCT = -20.0
 SEVERE_DEFICIT_PCT = -35.0
 STALE_AFTER_MONTHS = 3
 WETNESS_KEYS = ("root_zone_wetness", "surface_wetness")
+CLIMATE_ALERT_KEYS = ("precipitation_daily_mean", "precipitation_daily_mean_copernicus")
 ROAD_TORTUOSITY_FACTOR = 1.25
 WORLD_BANK_DEFAULT_YIELD_KG_HA = 834.6
 
@@ -53,7 +54,7 @@ ZONE_TITLE = "Pré-diagnostic agro-climatique de zone"
 
 LIMITATIONS = (
     "Couverture spatiale : indicateurs satellitaires modélisés à l'échelle du pôle régional (maille urbaine/provinciale), ne constituant pas une mesure parcellaire.",
-    "Périmètre des variables : jeu de données limité à l'humidité des sols (surface et zone racinaire) et au rayonnement PAR ; aucune variable de température ou de précipitations n'est intégrée.",
+    "Périmètre des variables : humidité des sols et rayonnement PAR (NASA POWER Agro), complétés par les précipitations moyennes quotidiennes et températures mensuelles (NASA POWER et Copernicus ERA5-Land). Les séries restent séparées par source ; l’évapotranspiration de référence et les prévisions météorologiques ne sont pas intégrées.",
     "Indicateurs d'alerte : les seuils de déficit hydrique sont des repères statistiques indicatifs calculés par rapport à la normale mensuelle 2020–2023.",
     "Portée décisionnelle : ce pré-diagnostic zonal ne se substitue ni à une analyse physico-chimique en laboratoire ni à une expertise agronomique sur site.",
 )
@@ -62,6 +63,14 @@ INDICATOR_LABELS_FR = {
     "root_zone_wetness": "Humidité de la zone racinaire",
     "surface_wetness": "Humidité de surface du sol",
     "par": "Rayonnement photosynthétiquement actif (PAR)",
+    "precipitation_daily_mean": "Précipitations moyennes quotidiennes",
+    "temperature_mean": "Température moyenne",
+    "temperature_max": "Température maximale",
+    "temperature_min": "Température minimale",
+    "precipitation_daily_mean_copernicus": "Précipitations moyennes quotidiennes — Copernicus ERA5-Land",
+    "temperature_mean_copernicus": "Température moyenne — Copernicus ERA5-Land",
+    "temperature_max_copernicus": "Température maximale — Copernicus ERA5-Land",
+    "temperature_min_copernicus": "Température minimale — Copernicus ERA5-Land",
 }
 
 
@@ -111,10 +120,10 @@ def deficit_level(anomaly_pct: Optional[float]) -> Optional[str]:
 
 
 def water_deficit_alerts(region: str, anomalies_by_key: dict[str, list[dict[str, Any]]], today: Optional[date] = None) -> list[dict[str, Any]]:
-    """Alerte sur la dernière observation de chaque indice d'humidité si elle est nettement sous la normale du mois."""
+    """Signale les déficits d'humidité des sols et de précipitations face à la normale du même mois."""
     today = today or date.today()
     alerts: list[dict[str, Any]] = []
-    for key in WETNESS_KEYS:
+    for key in (*WETNESS_KEYS, *CLIMATE_ALERT_KEYS):
         points = anomalies_by_key.get(key) or []
         if not points:
             continue
@@ -134,7 +143,7 @@ def water_deficit_alerts(region: str, anomalies_by_key: dict[str, list[dict[str,
             "level": level,
             "stale": _months_between(last["reference_date"], today) > STALE_AFTER_MONTHS,
             "message": (
-                f"{INDICATOR_LABELS_FR[key]} inférieure de {abs(last['anomaly_pct']):.0f} % à la normale "
+                f"{INDICATOR_LABELS_FR[key]} {'sont inférieures' if key in CLIMATE_ALERT_KEYS else 'est inférieure'} de {abs(last['anomaly_pct']):.0f} % à la normale "
                 f"{BASELINE_YEARS[0]}–{BASELINE_YEARS[1]} du même mois (déficit {label})."
             ),
             "thresholds_pct": {"moderate": MODERATE_DEFICIT_PCT, "severe": SEVERE_DEFICIT_PCT},
@@ -171,6 +180,13 @@ def build_zone_profile(
     for r in regional_rows:
         key = regional_indicator_key(r["indicator"])
         if key:
+            source_key = str(r.get("source") or "").strip().lower()
+            # Keep Copernicus and NASA POWER as independent time series; never average or
+            # interleave two upstream products that may differ in grid and methodology.
+            if source_key == "copernicus era5-land" and key in {
+                "precipitation_daily_mean", "temperature_mean", "temperature_max", "temperature_min"
+            }:
+                key = f"{key}_copernicus"
             grouped.setdefault(key, []).append(r)
     series: dict[str, list[dict[str, Any]]] = {}
     anomalies: dict[str, list[dict[str, Any]]] = {}

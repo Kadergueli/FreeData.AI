@@ -1,10 +1,11 @@
 """Indicateurs agricoles du Tchad (table_agro_indicators) : ingestion stricte et lecture.
 
-Sources autorisées en production (usage commercial) :
-- NASA POWER Agro (domaine public U.S. Government / NASA) : 12 pôles régionaux, mensuel ;
+Sources autorisées dans le moteur :
+- NASA POWER Agro (domaine public U.S. Government / NASA) : humidité des sols et PAR ;
+- NASA POWER (CC BY 4.0 dans le catalogue FreeData) et Copernicus ERA5-Land (Licence to use Copernicus Products) : précipitations et températures mensuelles ;
 - World Bank (CC BY 4.0) : macro-agriculture nationale, annuel.
 
-Open-Meteo Agro-Climate (non commercial) et FAOSTAT (restrictions promotionnelles) sont REFUSÉS à l'ingestion.
+Open-Meteo Free API (usage non commercial uniquement) et FAOSTAT (restrictions de promotion commerciale) sont exclus du pipeline commercial.
 Toute ligne ingérée porte source, licence, date de référence, résolution spatiale et niveau de confiance.
 Aucune donnée n'est jamais inventée : l'ingestion est « tout ou rien » et rapporte chaque anomalie du fichier.
 """
@@ -26,7 +27,7 @@ SECTOR = "agriculture"
 COUNTRY_CODE = "TCD"
 NATIONAL = "national"
 
-# Les 12 pôles couverts par NASA POWER Agro (graphie canonique).
+# Les 12 pôles historiques NASA POWER Agro (centres de référence GPS).
 HUBS: tuple[str, ...] = (
     "Abeche", "Ati", "Bol", "Bongor", "Doba", "Koumra",
     "Mao", "Mongo", "Moundou", "N'Djamena", "Pala", "Sarh",
@@ -40,15 +41,26 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 # source -> (préfixe de licence attendu, résolution spatiale, niveau de confiance)
 SOURCE_RULES: dict[str, tuple[str, str, str]] = {
     "nasa power agro": ("public domain", "regional_city_hub", "Satellite_Modeled_Regional"),
+    "nasa power": ("cc by 4.0", "regional_city_hub", "Satellite_Modeled_Regional"),
+    "copernicus era5-land": ("licence to use copernicus products", "regional_city_hub", "Satellite_Modeled_Regional"),
     "world bank": ("cc by 4.0", "national", "Official_Macro_National"),
 }
-SOURCE_CANONICAL = {"nasa power agro": "NASA POWER Agro", "world bank": "World Bank"}
+SOURCE_CANONICAL = {
+    "nasa power agro": "NASA POWER Agro",
+    "nasa power": "NASA POWER",
+    "copernicus era5-land": "Copernicus ERA5-Land",
+    "world bank": "World Bank",
+}
 
 # Indicateurs régionaux NASA POWER Agro reconnus (préfixe normalisé -> clé technique).
 REGIONAL_INDICATOR_KEYS: tuple[tuple[str, str], ...] = (
     ("root zone soil wetness", "root_zone_wetness"),
     ("surface soil wetness", "surface_wetness"),
     ("photosynthetically active radiation", "par"),
+    ("monthly precipitation", "precipitation_daily_mean"),
+    ("monthly mean temperature", "temperature_mean"),
+    ("monthly max temperature", "temperature_max"),
+    ("monthly min temperature", "temperature_min"),
 )
 
 _NATIONAL_ALIASES = {"national", "tchad", "chad", "tcd", "country"}
@@ -71,23 +83,21 @@ def _alnum(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", _fold(text))
 
 
-_HUB_BY_KEY = {_alnum(h): h for h in HUBS}
-
-# Province de rattachement de chaque pôle, telle qu'écrite dans le jeu de données (« Ville (Province) »).
+# Province de rattachement des 23 régions présentes dans Copernicus ERA5-Land.
+# Les 11 nouvelles villes sont des zones de diagnostic, pas de nouveaux centres IDW GPS.
 HUB_PROVINCE: dict[str, str] = {
-    "Abeche": "Ouaddai",
-    "Ati": "Batha",
-    "Bol": "Lac",
-    "Bongor": "Mayo-Kebbi Est",
-    "Doba": "Logone Oriental",
-    "Koumra": "Mandoul",
-    "Mao": "Kanem",
-    "Mongo": "Guera",
-    "Moundou": "Logone Occidental",
-    "N'Djamena": "N'Djamena",
-    "Pala": "Mayo-Kebbi Ouest",
-    "Sarh": "Moyen-Chari",
+    "Abeche": "Ouaddai", "Am Timan": "Salamat", "Am-Djarass": "Ennedi Est",
+    "Ati": "Batha", "Bardai": "Tibesti", "Biltine": "Wadi Fira",
+    "Bol": "Lac", "Bongor": "Mayo-Kebbi Est", "Doba": "Logone Oriental",
+    "Fada": "Ennedi Ouest", "Faya-Largeau": "Borkou", "Goz Beida": "Sila",
+    "Koumra": "Mandoul", "Lai": "Tandjile", "Mao": "Kanem",
+    "Massakory": "Hadjer-Lamis", "Massenya": "Chari-Baguirmi",
+    "Mongo": "Guera", "Moundou": "Logone Occidental",
+    "Moussoro": "Barh el Gazel", "N'Djamena": "N'Djamena",
+    "Pala": "Mayo-Kebbi Ouest", "Sarh": "Moyen-Chari",
 }
+SUPPORTED_REGIONS: tuple[str, ...] = tuple(HUB_PROVINCE)
+_HUB_BY_KEY = {_alnum(h): h for h in HUB_PROVINCE}
 _REGION_RE = re.compile(r"^\s*([^()]+?)\s*(?:\(([^()]+)\))?\s*$")
 
 
@@ -163,15 +173,16 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             blanks = [c for c in REQUIRED_COLUMNS if _blank(rec.get(c))]
             bad(f"valeur manquante ({', '.join(blanks)})")
             continue
-        if _fold(rec["sector"]) != SECTOR:
-            bad(f"secteur « {rec['sector']} » ≠ agriculture")
-            continue
-        if str(rec["country_code"]).strip().upper() != COUNTRY_CODE:
-            bad(f"pays « {rec['country_code']} » ≠ TCD")
-            continue
         src_key = _fold(rec["source"])
         if src_key not in SOURCE_RULES:
             bad(f"source non autorisée en production : « {rec['source']} »")
+            continue
+        expected_sector = "environment" if src_key in ("nasa power", "copernicus era5-land") else SECTOR
+        if _fold(rec["sector"]) != expected_sector:
+            bad(f"secteur « {rec['sector']} » ≠ {expected_sector}")
+            continue
+        if str(rec["country_code"]).strip().upper() != COUNTRY_CODE:
+            bad(f"pays « {rec['country_code']} » ≠ TCD")
             continue
         lic_prefix, spatial, confidence = SOURCE_RULES[src_key]
         if not _fold(rec["license"]).startswith(lic_prefix):
@@ -208,6 +219,20 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
         if ind_key == "par" and value < 0:
             bad(f"rayonnement négatif : {value}")
             continue
+        if ind_key == "precipitation_daily_mean":
+            if str(rec["unit"]).strip().lower() != "mm/day":
+                bad(f"unité de précipitation attendue : mm/day (reçu « {rec['unit']} »)")
+                continue
+            if value < 0 or value > 100:
+                bad(f"précipitations moyennes quotidiennes hors plage [0, 100] mm/jour : {value}")
+                continue
+        if ind_key in ("temperature_mean", "temperature_max", "temperature_min"):
+            if str(rec["unit"]).strip() not in ("°C", "degC"):
+                bad(f"unité de température attendue : °C (reçu « {rec['unit']} »)")
+                continue
+            if not (-20 <= value <= 70):
+                bad(f"température hors plage plausible [-20, 70] °C : {value}")
+                continue
         ref = pd.to_datetime(rec["reference_date"], errors="coerce")
         if pd.isna(ref):
             bad(f"date de référence invalide « {rec['reference_date']} »")
@@ -223,7 +248,7 @@ def validate_agro_dataframe(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dic
             continue
         rows.append({
             "id": rid,
-            "sector": SECTOR,
+            "sector": expected_sector,
             "indicator": str(rec["indicator"]).strip(),
             "value": value,
             "unit": str(rec["unit"]).strip(),

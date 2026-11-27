@@ -19,6 +19,7 @@ from src.agro_indicators import (
     canonical_region,
     parse_region,
     validate_agro_dataframe,
+    regional_indicator_key,
 )
 from src.domains import DomainRegistry
 
@@ -36,11 +37,14 @@ def _nasa_row(i=1, indicator="Root zone soil wetness index", value=0.4, region="
     return row
 
 
-def test_domain_agriculture_operational_without_temperature_claims():
+def test_domain_agriculture_operational_with_climate_scope():
     mod = DomainRegistry.get_domain("agriculture")
     assert mod.data_status == "operational"
     assert "table_agro_indicators" in mod.knowledge_sources
-    assert "AUCUNE donnée de température" in mod.instructions
+    assert "températures mensuelles" in mod.instructions
+    assert "NASA POWER" in mod.instructions
+    assert "Copernicus ERA5-Land" in mod.instructions
+    assert "données de terrain" in mod.instructions
 
 
 @pytest.mark.skipif(not REAL_CSV.exists(), reason="CSV agricole commercial absent")
@@ -99,9 +103,49 @@ def test_validation_rejects_missing_values_and_columns():
         validate_agro_dataframe(pd.DataFrame([{"indicator": "x"}]))
     assert "Colonnes obligatoires manquantes" in str(exc.value)
 
+def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
+    row = _nasa_row(
+        source="NASA POWER",
+        license="CC BY 4.0",
+        sector="environment",
+        indicator="Monthly precipitation",
+        value=3.4,
+        unit="mm/day",
+    )
+    clean, report = validate_agro_dataframe(pd.DataFrame([row]))
+    assert report["rows_valid"] == 1
+    assert clean[0]["source"] == "NASA POWER"
+    assert clean[0]["sector"] == "environment"
+    assert clean[0]["region"] == "Moundou"
+    assert regional_indicator_key(clean[0]["indicator"]) == "precipitation_daily_mean"
+
+    copernicus = _nasa_row(
+        source="Copernicus ERA5-Land",
+        license="Licence to use Copernicus Products",
+        sector="environment",
+        indicator="Monthly precipitation",
+        value=2.8,
+        unit="mm/day",
+    )
+    copernicus_clean, copernicus_report = validate_agro_dataframe(pd.DataFrame([copernicus]))
+    assert copernicus_report["rows_valid"] == 1
+    assert copernicus_clean[0]["source"] == "Copernicus ERA5-Land"
+
+    bad = {**row, "indicator": "Monthly max temperature", "value": 95, "unit": "°C"}
+    with pytest.raises(AgroIngestError) as exc:
+        validate_agro_dataframe(pd.DataFrame([bad]))
+    assert "température hors plage plausible" in str(exc.value)
+
+    wrong_unit = {**row, "unit": "mm"}
+    with pytest.raises(AgroIngestError) as unit_exc:
+        validate_agro_dataframe(pd.DataFrame([wrong_unit]))
+    assert "unité de précipitation attendue" in str(unit_exc.value)
+
 
 def test_region_parsing_and_province_check():
     assert canonical_region("Abéché (Ouaddaï)") == "Abeche"
+    assert canonical_region("Am Timan (Salamat)") == "Am Timan"
+    assert canonical_region("Moussoro (Barh el Gazel)") == "Moussoro"
     assert canonical_region("N'Djamena (N'Djamena)") == "N'Djamena"
     assert canonical_region("national") == "national"
     assert parse_region("Sarh (Moyen-Chari)") == ("Sarh", "Moyen-Chari")
@@ -133,6 +177,50 @@ def test_zone_profile_emits_deficit_alert_and_stale_flag():
     assert prof["stale"] is False
     stale = build_zone_profile("Moundou", rows, [], today=date(2027, 1, 1))
     assert stale["stale"] is True and stale["alerts"][0]["stale"] is True
+
+def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_screen():
+    rows = []
+    for i, y in enumerate((2020, 2021, 2022, 2023)):
+        rows.append(_nasa_row(
+            i, indicator="Monthly precipitation", value=3.0, unit="mm/day",
+            ref=f"{y}-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+        ))
+        rows.append(_nasa_row(
+            i + 20, indicator="Monthly mean temperature", value=28.0, unit="°C",
+            ref=f"{y}-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+        ))
+    rows.append(_nasa_row(
+        99, indicator="Monthly precipitation", value=0.5, unit="mm/day",
+        ref="2026-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+    ))
+    rows.append(_nasa_row(
+        100, indicator="Monthly mean temperature", value=30.0, unit="°C",
+        ref="2026-03-01", source="NASA POWER", license="CC BY 4.0", sector="environment",
+    ))
+    prof = build_zone_profile("Moundou", rows, [], today=date(2026, 4, 15))
+    assert "precipitation_daily_mean" in prof["series"]
+    assert "temperature_mean" in prof["series"]
+    copernicus_rows = []
+    for i, y in enumerate((2020, 2021, 2022, 2023, 2026)):
+        rainfall = 3.0 if y < 2026 else 0.5
+        temperature = 28.0 if y < 2026 else 30.0
+        copernicus_rows.append(_nasa_row(
+            i + 200, indicator="Monthly precipitation", value=rainfall, unit="mm/day",
+            ref=f"{y}-03-01", source="Copernicus ERA5-Land",
+            license="Licence to use Copernicus Products", sector="environment",
+        ))
+        copernicus_rows.append(_nasa_row(
+            i + 210, indicator="Monthly mean temperature", value=temperature, unit="°C",
+            ref=f"{y}-03-01", source="Copernicus ERA5-Land",
+            license="Licence to use Copernicus Products", sector="environment",
+        ))
+    prof = build_zone_profile("Moundou", rows + copernicus_rows, [], today=date(2026, 4, 15))
+    assert "precipitation_daily_mean_copernicus" in prof["series"]
+    assert "temperature_mean_copernicus" in prof["series"]
+    assert any(a["indicator_key"] == "precipitation_daily_mean_copernicus" for a in prof["alerts"])
+    assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
+    assert any(a["indicator_key"] == "precipitation_daily_mean" for a in prof["alerts"])
+    assert set(prof["provenance"]["sources"]) == {"NASA POWER", "Copernicus ERA5-Land"}
 
 
 def test_endpoints_handle_unknown_zone_and_empty_database(tmp_path):

@@ -84,8 +84,10 @@ class DomainRegistry:
                 "Méthodologie officielle FreeData.td : interpolation spatiale GPS IDW sur les 3 pôles les plus proches (w_i = 1/d_i^2), "
                 "distance routière Haversine × 1,25, décote bord-champ (8 % ≤ 15 km, 15 % 15–50 km, 22 % > 50 km), et scoring unifié sur 100 "
                 "(50 pts Eau/Climat + 30 pts Sol [plafonné à 15/30 sans mesure labo] + 20 pts Marché/Logistique). "
-                "Cite toujours la source, la période et le niveau de confiance. Tu ne disposes d'AUCUNE donnée de température ni de précipitations : "
-                "ne les évoque jamais et n'invente aucun chiffre."
+                "Cite toujours la source, la période et le niveau de confiance. Les précipitations moyennes quotidiennes et températures "
+                "mensuelles proviennent de NASA POWER et Copernicus ERA5-Land à l'échelle régionale ; leurs séries restent séparées par source et ne sont ni des mesures parcellaires ni des prévisions météo. "
+                "Ne transforme pas mm/jour en cumul mensuel sans tenir compte du nombre de jours du mois. N'en déduis pas un rendement agricole "
+                "sans modèle validé et données de terrain."
             ),
             allowed_tools=("chad_market_agent", "analytics_query", "ml_forecast", "rag_hybrid"),
             knowledge_sources=("table_agro_indicators", "table_ml_forecasts", "table_ml_seasonality_studies", "METHODOLOGY.md"),
