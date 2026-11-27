@@ -1,0 +1,134 @@
+"""Importe les variables climatiques NASA POWER déjà collectées dans table_public.
+
+Cette extension réutilise l'écran Agriculture existant. Elle n'utilise PAS Open-Meteo
+(Free API non-commerciale) ni FAOSTAT (restrictions de promotion commerciale).
+
+Usage :
+    python scripts/ingest_nasa_power_climate.py --dry-run
+    SUPABASE_DB_URL=... python scripts/ingest_nasa_power_climate.py --apply
+
+L'import ne copie que les 12 pôles déjà couverts par le diagnostic agricole.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import settings
+from src.agro_indicators import AgroIndicatorStore, HUBS, canonical_region
+
+API_INDICATORS = (
+    "Monthly precipitation",
+    "Monthly mean temperature",
+    "Monthly max temperature",
+    "Monthly min temperature",
+)
+SELECT = "date_reference,indicateur,region,valeur,unite,source_api,secteur,licence"
+
+
+def fetch_source_rows() -> list[dict]:
+    """Lit la table publique par pages sans utiliser de clé privilégiée."""
+    if not settings.supabase_url or not settings.read_key:
+        raise RuntimeError("SUPABASE_URL et SUPABASE_KEY (lecture) sont requis.")
+    endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/table_public"
+    headers = {
+        "apikey": settings.read_key,
+        "Authorization": f"Bearer {settings.read_key}",
+        "Accept": "application/json",
+    }
+    indicator_filter = 'in.(' + ",".join(f'"{name}"' for name in API_INDICATORS) + ')'
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        response = requests.get(
+            endpoint,
+            headers=headers,
+            params={
+                "select": SELECT,
+                "source_api": "eq.NASA POWER",
+                "secteur": "eq.environment",
+                "indicateur": indicator_filter,
+                "order": "date_reference.asc",
+                "limit": 1000,
+                "offset": offset,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        batch = response.json()
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += len(batch)
+    return rows
+
+
+def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
+    """Convertit les observations source en lignes contrôlables par AgroIndicatorStore."""
+    collected_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows: list[dict] = []
+    for idx, item in enumerate(source_rows, start=1):
+        region = canonical_region(str(item.get("region") or ""))
+        if region not in HUBS:
+            continue
+        if item.get("source_api") != "NASA POWER" or item.get("secteur") != "environment":
+            continue
+        rows.append({
+            "id": idx,
+            "sector": "environment",
+            "indicator": str(item.get("indicateur") or ""),
+            "value": item.get("valeur"),
+            "unit": str(item.get("unite") or ""),
+            "reference_date": str(item.get("date_reference") or ""),
+            "country_code": "TCD",
+            "region": region,
+            "source": "NASA POWER",
+            "license": str(item.get("licence") or ""),
+            "notes": "NASA POWER monthly climate indicator; imported from public.table_public.",
+            "collected_at": collected_at,
+            "spatial_resolution": "regional_city_hub",
+            "confidence_level": "Satellite_Modeled_Regional",
+        })
+    return pd.DataFrame(rows)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Import NASA POWER climate indicators into AgroIndicatorStore.")
+    parser.add_argument("--dry-run", action="store_true", help="Validate only; no database writes (default).")
+    parser.add_argument("--apply", action="store_true", help="Write validated rows to SUPABASE_DB_URL.")
+    args = parser.parse_args()
+    if args.apply and args.dry_run:
+        parser.error("Choisissez --dry-run ou --apply, pas les deux.")
+    if args.apply and not settings.supabase_db_url:
+        parser.error("--apply exige SUPABASE_DB_URL pour éviter toute écriture locale accidentelle.")
+
+    try:
+        source_rows = fetch_source_rows()
+        frame = to_agro_dataframe(source_rows)
+        store = AgroIndicatorStore()
+        report = store.ingest_dataframe(frame, dry_run=not args.apply)
+    except Exception as exc:
+        print(f"IMPORT REFUSÉ : {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    report["source_rows_fetched"] = len(source_rows)
+    report["poles_in_scope"] = list(HUBS)
+    report["write_target"] = "SUPABASE_DB_URL" if args.apply else "none (dry-run)"
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    if args.apply:
+        print(f"Total table_agro_indicators après import : {store.count()}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
