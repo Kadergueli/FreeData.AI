@@ -108,24 +108,40 @@ class _MarketAlertsCenterScreenState extends State<MarketAlertsCenterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.ink)),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppColors.ink,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(description,
-                style:
-                    const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text(
+              description,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.muted,
+              ),
+            ),
             if (error != null) ...[
               const SizedBox(height: 8),
-              Text(error,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.danger)),
+              Text(
+                error,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.danger,
+                ),
+              ),
             ] else if (children.isEmpty) ...[
               const SizedBox(height: 10),
-              const Text('Aucun élément pour le moment.',
-                  style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
+              const Text(
+                'Aucun élément pour le moment.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.muted,
+                ),
+              ),
             ] else ...[
               const Divider(height: 22),
               ...children,
@@ -193,7 +209,8 @@ class _MarketAlertsCenterScreenState extends State<MarketAlertsCenterScreen> {
                       leading: const Icon(Icons.trending_up_rounded,
                           color: AppColors.warning),
                       title: Text(
-                          '${r['market_name'] ?? 'Marché'} · ${r['province'] ?? '—'}'),
+                        '${r['market_name'] ?? 'Marché'} · ${r['province'] ?? '—'}',
+                      ),
                       subtitle: Text(
                         '${r['commodity_std'] ?? 'Produit'} · observé ${r['value'] ?? r['last_observed_price'] ?? '—'} XAF/kg · attendu ${r['predicted_price'] ?? '—'} XAF/kg',
                       ),
