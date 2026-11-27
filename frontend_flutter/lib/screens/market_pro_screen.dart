@@ -545,12 +545,17 @@ class _MarketProScreenState extends State<MarketProScreen> {
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Simulateur Arbitrage Inter-Provinces (marge nette & ROI)',
+                        'Arbitrage spatial · rentabilité d’une route interprovinciale',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Ce calcul évalue une route précise avec le coût réel du transport et le tonnage saisis. L’écart brut affiché plus haut n’est pas un bénéfice net.',
+                        style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                       const SizedBox(height: 8),
                       FDCard(
@@ -741,12 +746,17 @@ class _MarketProScreenState extends State<MarketProScreen> {
                             )),
                       const SizedBox(height: 16),
                       const Text(
-                        'Watchlists & Alertes de seuils de prix',
+                        'Surveillance des prix prévisionnels · Watchlists',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Le seuil est comparé au prix prévu (ou au dernier prix observé si la prévision manque). Pour surveiller des seuils sur les prix historiques, utilisez Intelligence → Alertes personnalisées.',
+                        style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                       const SizedBox(height: 8),
                       FDCard(

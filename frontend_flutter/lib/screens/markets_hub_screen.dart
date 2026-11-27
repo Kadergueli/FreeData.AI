@@ -7,6 +7,7 @@ import 'analytics_screen.dart';
 import 'campaign_plan_screen.dart';
 import 'farm_operating_account_screen.dart';
 import 'forecast_screen.dart';
+import 'market_alerts_center_screen.dart';
 import 'market_intel_screen.dart';
 import 'passport_screen.dart';
 
@@ -35,7 +36,7 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 7, vsync: this);
   }
 
   @override
@@ -135,6 +136,13 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                           text: 'Intelligence',
                         ),
                         const Tab(
+                          icon: Icon(
+                            Icons.notifications_active_outlined,
+                            size: 18,
+                          ),
+                          text: 'Surveillance',
+                        ),
+                        const Tab(
                           icon: Icon(Icons.calculate_outlined, size: 18),
                           text: 'Plan Campagne',
                         ),
@@ -174,6 +182,7 @@ class _MarketsHubScreenState extends State<MarketsHubScreen>
                   apiService: widget.apiService,
                   onRequestPro: widget.onRequestPro,
                 ),
+                MarketAlertsCenterScreen(apiService: widget.apiService),
                 CampaignPlanScreen(
                   apiService: widget.apiService,
                   onSelectPrompt: widget.onSelectPrompt,
