@@ -20,7 +20,7 @@ List<Map<String, dynamic>> _series(String key, double base, double lastValue,
   points.add({
     'reference_date': '2026-03-01',
     'value': lastValue,
-    'unit': 'ratio (0-1)',
+    'unit': unit,
     'baseline_mean': base,
     'anomaly_pct': ((lastValue - base) / base * 100).roundToDouble(),
   });
@@ -72,7 +72,7 @@ class _AgroFakeApi extends ApiService {
       'latest': {
         'root_zone_wetness': {
           'label': 'Humidité de la zone racinaire',
-          'unit': unit,
+          'unit': 'ratio (0-1)',
           'reference_date': '2026-03-01',
           'value': 0.3,
         },
