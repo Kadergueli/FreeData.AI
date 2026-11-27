@@ -102,7 +102,11 @@ class _MarketProScreenState extends State<MarketProScreen> {
         double.tryParse(_thresholdCtrl.text.trim().replaceAll(',', '.'));
     if (val == null || !val.isFinite || val <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saisissez un seuil fini en XAF/kg supérieur à 0.')),
+        const SnackBar(
+          content: Text(
+            'Saisissez un seuil fini en XAF/kg supérieur à 0.',
+          ),
+        ),
       );
       return;
     }
