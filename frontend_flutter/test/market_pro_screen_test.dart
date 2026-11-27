@@ -228,7 +228,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final threshold = find.widgetWithText(TextField, 'Seuil (XAF/kg)');
+    final threshold = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.labelText == 'Seuil (XAF/kg)',
+    );
     await tester.scrollUntilVisible(
       threshold,
       220,
@@ -263,9 +266,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final transport = find.widgetWithText(
-      TextField,
-      'Transport réel (XAF/kg)',
+    final transport = find.byWidgetPredicate(
+      (widget) => widget is TextField &&
+          widget.decoration?.labelText == 'Transport réel (XAF/kg)',
     );
     await tester.scrollUntilVisible(
       transport,
