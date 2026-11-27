@@ -186,57 +186,51 @@ def test_endpoints_gate_pro_and_keep_brief_public(tmp_path):
     assert feed["triggered"][0]["rule_id"] == rule["rule_id"]
 
 
-def test_rest_history_reads_base_table_by_id_ranges_and_normalizes(monkeypatch):
+def test_rest_history_reads_preaggregated_panel_in_one_request(monkeypatch):
     from src import market_data as md
-    from src.config import settings
 
-    rows = []
-    for i in range(1, 2601):
-        wfp = i % 2 == 0
-        rows.append({
-            "id": i, "source_api": "WFP" if wfp else "FEWS NET", "date_reference": "2025-01-15",
-            "indicateur": "Millet (Pearl) retail price (WFP)" if wfp else "Millet price (retail) - Dembé",
-            "region": "Dembé (N'Djamena)" if wfp else "N'Djamena",
-            "unite": "XAF/KG", "valeur": 200.0 + i, "notes_publiques": None,
-        })
-    rows.append({"id": 2601, "source_api": "WFP", "date_reference": "2025-01-15",
-                 "indicateur": "Sugar retail price (WFP)", "region": "Dembé (N'Djamena)",
-                 "unite": "XAF/500_g", "valeur": 100.0, "notes_publiques": "OUTLIER"})
-    pages = []
+    panel = [
+        {"commodity": "millet", "province": "N'Djamena", "market_name": "Dembé",
+         "months": [f"2025-{m:02d}-01" for m in range(1, 13)], "prices": [200.0 + m for m in range(12)]},
+        {"commodity": "sugar", "province": "Logone", "market_name": "Moundou",
+         "months": ["2025-01-01", "2025-02-01"], "prices": [700.0, None]},
+    ]
+    urls = []
 
     class _Resp:
-        def __init__(self, data):
-            self._data = data
+        status_code = 200
 
         def raise_for_status(self):
             pass
 
         def json(self):
-            return self._data
+            return panel
 
     def fake_get(url, headers=None, params=None, timeout=None):
-        assert url.endswith("/table_public")  # jamais la vue (coûteuse)
-        p = dict(params) if isinstance(params, dict) else {}
-        if isinstance(params, list):
-            gt = int([v for k, v in params if k == "id" and v.startswith("gt.")][0][3:])
-            lt = int([v for k, v in params if k == "id" and v.startswith("lt.")][0][3:])
-            page = [r for r in rows if gt < r["id"] < lt][:1000]
-            pages.append(len(page))
-            return _Resp(page)
-        return _Resp([rows[0]] if p["order"] == "id.asc" else [rows[-1]])
+        urls.append(url)
+        return _Resp()
 
     monkeypatch.setattr(md.requests, "get", fake_get)
-    monkeypatch.setattr(type(settings), "data_backend", property(lambda self: "supabase_rest"))
+    df = md._load_history_rest()
+    assert len(urls) == 1 and urls[0].endswith("/mv_market_panel")  # jamais les relevés bruts ni la vue lourde
+    assert len(df) == 13  # la valeur None est ignorée
+    assert set(df["commodity_std"]) == {"millet", "sugar"}
+    assert df["year_month"].iloc[0] == pd.Period("2025-01", freq="M")
+    # le panneau alimente directement les analyses
+    assert mi.product_brief(df, "millet")["status"] == "insufficient_data"  # 1 marché < MIN_MARKETS : honnête
+
+
+def test_missing_panel_gives_actionable_reason(monkeypatch):
+    from src import market_data as md
+
+    class _Resp:
+        status_code = 404
+
+    monkeypatch.setattr(md.requests, "get", lambda *a, **k: _Resp())
     md.clear_cache()
-    try:
-        df = md.load_price_history()
-    finally:
-        md.clear_cache()
-    assert len(df) == 2600  # le relevé OUTLIER (sucre) est écarté
-    assert set(df["commodity_std"]) == {"Millet"}
-    assert set(df["source"]) == {"WFP", "FEWS NET"}
-    assert set(df["province"]) == {"N'Djamena"} and set(df["market_name"]) == {"Dembé"}
-    assert "year_month" in df.columns
+    assert md._cached("price_history", md._load_history_rest).empty
+    assert "sql/18" in md.history_status()["error"]
+    md.clear_cache()
 
 
 def test_cache_runs_one_load_for_concurrent_requests():

@@ -460,9 +460,6 @@ async def lifespan(app: FastAPI):
         refresh_engines()
     except Exception:
         logger.exception("Chargement initial impossible : l'API démarre en mode dégradé (503).")
-    if os.getenv("RENDER") and settings.data_backend == "supabase_rest":
-        # Préchauffe l'historique de l'Intelligence marché en arrière-plan : le premier utilisateur n'attend pas.
-        threading.Thread(target=market_data_provider.load_price_history, name="market-intel-warmup", daemon=True).start()
     yield
     STATE.clear()
 
