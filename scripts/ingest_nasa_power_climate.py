@@ -36,12 +36,12 @@ SELECT = "date_reference,indicateur,region,valeur,unite,source_api,secteur,licen
 
 def fetch_source_rows() -> list[dict]:
     """Lit la table publique par pages sans utiliser de clé privilégiée."""
-    if not settings.supabase_url or not settings.read_key:
-        raise RuntimeError("SUPABASE_URL et SUPABASE_KEY (lecture) sont requis.")
+    if not settings.supabase_url or not settings.supabase_key:
+        raise RuntimeError("SUPABASE_URL et SUPABASE_KEY publique sont requis.")
     endpoint = f"{settings.supabase_url.rstrip('/')}/rest/v1/table_public"
     headers = {
-        "apikey": settings.read_key,
-        "Authorization": f"Bearer {settings.read_key}",
+        "apikey": settings.supabase_key,
+        "Authorization": f"Bearer {settings.supabase_key}",
         "Accept": "application/json",
     }
     indicator_filter = 'in.(' + ",".join(f'"{name}"' for name in API_INDICATORS) + ')'
