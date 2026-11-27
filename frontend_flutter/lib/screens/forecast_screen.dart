@@ -383,7 +383,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                             ? FDTheme.danger
                             : FDTheme.subtle,
                       ),
-                      label: const Text('Alertes (>15%)'),
+                      label: const Text('Écarts observés (>15%)'),
                       selected: effectiveMode == 'alerts',
                       selectedColor: FDTheme.dangerSoft,
                       labelStyle: TextStyle(
@@ -408,7 +408,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                               ? FDTheme.green
                               : FDTheme.subtle,
                         ),
-                        label: const Text('Saisonnalité & Stockage'),
+                        label: const Text('Étude saisonnière détaillée'),
                         selected: effectiveMode == 'seasonality',
                         selectedColor: FDTheme.greenSoft,
                         labelStyle: TextStyle(
@@ -766,7 +766,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
               const SizedBox(height: 12),
               Text(
                 effectiveMode == 'alerts'
-                    ? 'Alerte déclenchée lorsque l’écart observé dépasse le seuil de tension par rapport au prix attendu.'
+                    ? 'Détection automatique des écarts entre le dernier prix observé et le prix attendu. Ce signal (>15 %) n’est pas une règle personnalisée ni une alerte sur une prévision future.'
                     : (effectiveMode == 'seasonality'
                         ? 'Étude fondée sur les écarts saisonniers historiques (hors frais de transport et pertes).'
                         : (effectiveMode == 'anomalies'
