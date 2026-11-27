@@ -23,7 +23,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import settings
-from src.agro_indicators import AgroIndicatorStore, HUBS, SUPPORTED_REGIONS, canonical_region
+from src.agro_indicators import AgroIndicatorStore, HUBS, REQUIRED_COLUMNS, SUPPORTED_REGIONS, canonical_region
 
 API_INDICATORS = (
     "Monthly precipitation",
@@ -100,7 +100,9 @@ def to_agro_dataframe(source_rows: list[dict]) -> pd.DataFrame:
             "spatial_resolution": "regional_city_hub",
             "confidence_level": "Satellite_Modeled_Regional",
         })
-    return pd.DataFrame(rows)
+    # Garder le schéma même si aucune ligne ne passe les filtres : cela évite
+    # une erreur trompeuse « colonnes obligatoires manquantes » sur un DataFrame vide.
+    return pd.DataFrame(rows, columns=["id", *REQUIRED_COLUMNS, "notes"])
 
 
 def main() -> int:
@@ -115,7 +117,24 @@ def main() -> int:
 
     try:
         source_rows = fetch_source_rows()
+        if not source_rows:
+            raise RuntimeError(
+                "Aucune observation ne correspond aux filtres de lecture dans public.table_public "
+                "(source_api NASA POWER/Copernicus ERA5-Land, secteur environment et indicateurs "
+                "climatiques mensuels). Vérifiez les valeurs réellement stockées dans source_api, "
+                "secteur et indicateur ; aucune écriture n'a été effectuée."
+            )
         frame = to_agro_dataframe(source_rows)
+        if frame.empty:
+            examples = [
+                {key: item.get(key) for key in ("region", "source_api", "secteur", "indicateur")}
+                for item in source_rows[:5]
+            ]
+            raise RuntimeError(
+                f"{len(source_rows)} observation(s) récupérée(s), mais aucune ne correspond aux "
+                f"régions prises en charge par AgroIndicatorStore. Exemples (métadonnées uniquement) : "
+                f"{json.dumps(examples, ensure_ascii=False)}. Aucune écriture n'a été effectuée."
+            )
         store = AgroIndicatorStore()
         report = store.ingest_dataframe(frame, dry_run=not args.apply)
     except Exception as exc:
