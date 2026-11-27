@@ -201,6 +201,7 @@ def build_zone_profile(
             "unit": last_row["unit"],
             "reference_date": last_row["reference_date"],
             "value": last_row["value"],
+            "source": last_row.get("source"),
         }
     last_dates = [v["reference_date"] for v in latest.values()]
     stale = bool(last_dates) and _months_between(max(last_dates), today) > STALE_AFTER_MONTHS
