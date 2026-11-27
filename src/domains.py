@@ -85,7 +85,7 @@ class DomainRegistry:
                 "distance routière Haversine × 1,25, décote bord-champ (8 % ≤ 15 km, 15 % 15–50 km, 22 % > 50 km), et scoring unifié sur 100 "
                 "(50 pts Eau/Climat + 30 pts Sol [plafonné à 15/30 sans mesure labo] + 20 pts Marché/Logistique). "
                 "Cite toujours la source, la période et le niveau de confiance. Les précipitations moyennes quotidiennes et températures "
-                "mensuelles proviennent de NASA POWER à l'échelle régionale ; elles ne sont ni des mesures parcellaires ni des prévisions météo. "
+                "mensuelles proviennent de NASA POWER et Copernicus ERA5-Land à l'échelle régionale ; leurs séries restent séparées par source et ne sont ni des mesures parcellaires ni des prévisions météo. "
                 "Ne transforme pas mm/jour en cumul mensuel sans tenir compte du nombre de jours du mois. N'en déduis pas un rendement agricole "
                 "sans modèle validé et données de terrain."
             ),
