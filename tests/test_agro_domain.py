@@ -143,6 +143,8 @@ def test_nasa_power_monthly_climate_is_accepted_with_environment_provenance():
 
 def test_region_parsing_and_province_check():
     assert canonical_region("Abéché (Ouaddaï)") == "Abeche"
+    assert canonical_region("Am Timan (Salamat)") == "Am Timan"
+    assert canonical_region("Moussoro (Barh el Gazel)") == "Moussoro"
     assert canonical_region("N'Djamena (N'Djamena)") == "N'Djamena"
     assert canonical_region("national") == "national"
     assert parse_region("Sarh (Moyen-Chari)") == ("Sarh", "Moyen-Chari")
