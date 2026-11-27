@@ -5,13 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:freedata_ai/screens/agriculture_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
 
-List<Map<String, dynamic>> _series(String key, double base, double lastValue) {
+List<Map<String, dynamic>> _series(String key, double base, double lastValue,
+    {String unit = 'ratio (0-1)'}) {
   final points = <Map<String, dynamic>>[];
   for (final y in [2020, 2021, 2022, 2023]) {
     points.add({
       'reference_date': '$y-03-01',
       'value': base,
-      'unit': 'ratio (0-1)',
+      'unit': unit,
       'baseline_mean': base,
       'anomaly_pct': 0.0,
     });
@@ -57,15 +58,21 @@ class _AgroFakeApi extends ApiService {
       'indicator_labels': {
         'root_zone_wetness': 'Humidité de la zone racinaire',
         'surface_wetness': 'Humidité de surface du sol',
+        'precipitation_daily_mean': 'Précipitations moyennes quotidiennes',
+        'temperature_mean': 'Température moyenne',
       },
       'series': {
         'root_zone_wetness': _series('root_zone_wetness', 0.5, 0.3),
         'surface_wetness': _series('surface_wetness', 0.4, 0.38),
+        'precipitation_daily_mean': _series(
+          'precipitation_daily_mean', 3.0, 0.5, unit: 'mm/day'),
+        'temperature_mean': _series(
+          'temperature_mean', 28.0, 30.0, unit: '°C'),
       },
       'latest': {
         'root_zone_wetness': {
           'label': 'Humidité de la zone racinaire',
-          'unit': 'ratio (0-1)',
+          'unit': unit,
           'reference_date': '2026-03-01',
           'value': 0.3,
         },
@@ -74,6 +81,18 @@ class _AgroFakeApi extends ApiService {
           'unit': 'ratio (0-1)',
           'reference_date': '2026-03-01',
           'value': 0.38,
+        },
+        'precipitation_daily_mean': {
+          'label': 'Précipitations moyennes quotidiennes',
+          'unit': 'mm/day',
+          'reference_date': '2026-03-01',
+          'value': 0.5,
+        },
+        'temperature_mean': {
+          'label': 'Température moyenne',
+          'unit': '°C',
+          'reference_date': '2026-03-01',
+          'value': 30.0,
         },
       },
       'alerts': [
@@ -89,8 +108,8 @@ class _AgroFakeApi extends ApiService {
       ],
       'stale': false,
       'provenance': {
-        'sources': ['NASA POWER Agro'],
-        'licenses': ['Public Domain (U.S. Government / NASA)'],
+        'sources': ['NASA POWER Agro', 'NASA POWER'],
+        'licenses': ['Public Domain (U.S. Government / NASA)', 'CC BY 4.0'],
         'reference_period': {'first': '2020-01-01', 'last': '2026-03-01'},
         'spatial_resolution': ['regional_city_hub'],
         'confidence_level': ['Satellite_Modeled_Regional'],
@@ -110,7 +129,7 @@ class _AgroFakeApi extends ApiService {
         },
       },
       'limitations': [
-        'Cette version ne contient ni température ni précipitations : aucun résultat n’en est déduit.',
+        'Précipitations et températures mensuelles modélisées à l’échelle régionale ; pas de mesure parcellaire.',
       ],
     };
   }
@@ -122,7 +141,7 @@ void main() {
   });
 
   testWidgets(
-      'AgricultureScreen shows zone pre-diagnostic with alert, provenance and no temperature data',
+      'AgricultureScreen enriches the existing zone view with NASA rainfall and temperature',
       (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1.0;
@@ -146,15 +165,17 @@ void main() {
     expect(find.text('Rendement céréalier'), findsOneWidget);
     expect(find.text('Satellite modélisé (régional)'), findsOneWidget);
     expect(find.textContaining('NASA POWER Agro'), findsWidgets);
-    expect(find.textContaining('ni température ni précipitations'),
-        findsOneWidget);
-    // Jamais de promesse de température dans l'interface.
-    expect(find.textContaining('Température'), findsNothing);
+    expect(find.textContaining('Précipitations moyennes quotidiennes'),
+        findsWidgets);
+    expect(find.textContaining('Température moyenne'), findsWidgets);
+    expect(find.textContaining('NASA POWER'), findsWidgets);
     expect(find.textContaining('analyse de parcelle'), findsWidgets);
 
     await tester.tap(find.text('Analyser cette zone avec l’assistant'));
     await tester.pumpAndSettle();
     expect(asked, contains("N'Djamena"));
+    expect(asked, contains('précipitations'));
+    expect(asked, contains('températures'));
     expect(tester.takeException(), isNull);
   });
 
