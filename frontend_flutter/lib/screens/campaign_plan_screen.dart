@@ -292,8 +292,13 @@ class _CampaignPlanScreenState extends State<CampaignPlanScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Construisez une stratégie d’achat, de stockage et de revente à partir de votre capital réel, des prix observés et des hypothèses de coûts.',
+                      'Construisez une stratégie d’achat, de stockage et de revente sur un cycle commercial à partir de votre capital réel, des prix observés et des hypothèses de coûts.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Ce plan optimise un cycle d’achat-stockage-revente. Pour tester la rentabilité d’une route précise entre deux provinces avec transport et tonnage, utilisez Agriculture → Marché & Crédit Agro → Arbitrage spatial.',
+                      style: TextStyle(fontSize: 11.5, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
                     const Text(
