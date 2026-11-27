@@ -60,7 +60,8 @@ class _AlertsCenterApi extends ApiService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('surveillance distinguishes observed rules from forecast watchlists',
+  testWidgets(
+      'surveillance distinguishes observed rules from forecast watchlists',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
