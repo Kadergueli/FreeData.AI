@@ -555,9 +555,9 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
               '${b['percentile_vs_history']} %',
             ),
             if (seas['status'] == 'ok') ...[
-              _row('Mois les moins chers', '${seas['buy_months']}'),
-              _row('Mois les plus chers', '${seas['sell_months']}'),
-              _note('Saisonnalité ${seas['label']}.'),
+              _row('Aperçu indicatif · mois moins chers', '${seas['buy_months']}'),
+              _row('Aperçu indicatif · mois plus chers', '${seas['sell_months']}'),
+              _note('Aperçu saisonnier indicatif de la fiche produit. Pour l’étude détaillée, les profils historiques et la stratégie de stockage, consultez Prévisions → Étude saisonnière détaillée.'),
             ],
             const SizedBox(height: 8),
             _bullets(b['limits'] is List ? b['limits'] as List : const []),
@@ -765,12 +765,13 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
     final a = _alerts;
     final rules = a == null ? <Map<String, dynamic>>[] : _asList(a['rules']);
     return [
-      _sectionTitle('Mes alertes'),
+      _sectionTitle('Alertes personnalisées · prix observés'),
       FDCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (rules.isEmpty) _note('Aucune alerte pour le moment.'),
+            _note('Ces règles sont évaluées sur les prix observés dans l’historique : seuil, variation, écart à la médiane ou nouvelle donnée. Elles ne surveillent pas le prix prévisionnel.'),
+            if (rules.isEmpty) _note('Aucune alerte personnalisée pour le moment.'),
             for (final r in rules) _alertRow(r),
             const Divider(height: 24),
             _alertForm(),
@@ -833,7 +834,7 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Nouvelle alerte sur ce produit',
+          'Nouvelle règle sur les prix observés',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
