@@ -5,8 +5,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:freedata_ai/screens/agriculture_screen.dart';
 import 'package:freedata_ai/services/api_service.dart';
 
-List<Map<String, dynamic>> _series(String key, double base, double lastValue,
-    {String unit = 'ratio (0-1)'}) {
+List<Map<String, dynamic>> _series(
+  String key,
+  double base,
+  double lastValue, {
+  String unit = 'ratio (0-1)',
+}) {
   final points = <Map<String, dynamic>>[];
   for (final y in [2020, 2021, 2022, 2023]) {
     points.add({
@@ -65,9 +69,17 @@ class _AgroFakeApi extends ApiService {
         'root_zone_wetness': _series('root_zone_wetness', 0.5, 0.3),
         'surface_wetness': _series('surface_wetness', 0.4, 0.38),
         'precipitation_daily_mean': _series(
-          'precipitation_daily_mean', 3.0, 0.5, unit: 'mm/day'),
+          'precipitation_daily_mean',
+          3.0,
+          0.5,
+          unit: 'mm/day',
+        ),
         'temperature_mean': _series(
-          'temperature_mean', 28.0, 30.0, unit: '°C'),
+          'temperature_mean',
+          28.0,
+          30.0,
+          unit: '°C',
+        ),
       },
       'latest': {
         'root_zone_wetness': {
