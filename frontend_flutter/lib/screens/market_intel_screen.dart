@@ -555,9 +555,17 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
               '${b['percentile_vs_history']} %',
             ),
             if (seas['status'] == 'ok') ...[
-              _row('Aperçu indicatif · mois moins chers', '${seas['buy_months']}'),
-              _row('Aperçu indicatif · mois plus chers', '${seas['sell_months']}'),
-              _note('Aperçu saisonnier indicatif de la fiche produit. Pour l’étude détaillée, les profils historiques et la stratégie de stockage, consultez Prévisions → Étude saisonnière détaillée.'),
+              _row(
+                'Aperçu indicatif · mois moins chers',
+                '${seas['buy_months']}',
+              ),
+              _row(
+                'Aperçu indicatif · mois plus chers',
+                '${seas['sell_months']}',
+              ),
+              _note(
+                'Aperçu saisonnier indicatif de la fiche produit. Pour l’étude détaillée, les profils historiques et la stratégie de stockage, consultez Prévisions → Étude saisonnière détaillée.',
+              ),
             ],
             const SizedBox(height: 8),
             _bullets(b['limits'] is List ? b['limits'] as List : const []),
@@ -770,8 +778,11 @@ class _MarketIntelScreenState extends State<MarketIntelScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _note('Ces règles sont évaluées sur les prix observés dans l’historique : seuil, variation, écart à la médiane ou nouvelle donnée. Elles ne surveillent pas le prix prévisionnel.'),
-            if (rules.isEmpty) _note('Aucune alerte personnalisée pour le moment.'),
+            _note(
+              'Ces règles sont évaluées sur les prix observés dans l’historique : seuil, variation, écart à la médiane ou nouvelle donnée. Elles ne surveillent pas le prix prévisionnel.',
+            ),
+            if (rules.isEmpty)
+              _note('Aucune alerte personnalisée pour le moment.'),
             for (final r in rules) _alertRow(r),
             const Divider(height: 24),
             _alertForm(),
