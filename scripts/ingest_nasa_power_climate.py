@@ -34,7 +34,7 @@ API_INDICATORS = (
     "Monthly max temperature",
     "Monthly min temperature",
 )
-SELECT = "date_reference,indicateur,region,valeur,unite,source_api,secteur,licence"
+SELECT = "id,date_reference,indicateur,region,valeur,unite,source_api,secteur,licence"
 
 
 def _fetch_source_rows_postgres() -> list[dict]:
@@ -49,7 +49,7 @@ def _fetch_source_rows_postgres() -> list[dict]:
             cur.execute(
                 f"SELECT {SELECT} FROM public.table_public "
                 "WHERE source_api = ANY(%s) AND secteur = %s AND indicateur = ANY(%s) "
-                "ORDER BY date_reference ASC",
+                "ORDER BY id ASC",
                 (list(API_SOURCES), "environment", list(API_INDICATORS)),
             )
             return [dict(row) for row in cur.fetchall()]
@@ -79,30 +79,42 @@ def _fetch_source_rows_service_role() -> list[dict]:
     indicator_filter = "in.(" + ",".join(f'"{name}"' for name in API_INDICATORS) + ")"
     source_filter = "in.(" + ",".join(f'"{name}"' for name in API_SOURCES) + ")"
     rows: list[dict] = []
-    offset = 0
+    last_id: int | None = None
     while True:
+        params = {
+            "select": SELECT,
+            "source_api": source_filter,
+            "secteur": "eq.environment",
+            "indicateur": indicator_filter,
+            # id est une clé primaire unique : contrairement à date_reference,
+            # son tri garantit un ordre stable entre les pages.
+            "order": "id.asc",
+            "limit": 1000,
+        }
+        if last_id is not None:
+            # Pagination par curseur : aucune ligne déjà lue ne peut réapparaître
+            # si des lignes partagent la même date ou si de nouvelles lignes arrivent.
+            params["id"] = f"gt.{last_id}"
         response = requests.get(
             endpoint,
             headers=headers,
-            params={
-                "select": SELECT,
-                "source_api": source_filter,
-                "secteur": "eq.environment",
-                "indicateur": indicator_filter,
-                "order": "date_reference.asc",
-                "limit": 1000,
-                "offset": offset,
-            },
+            params=params,
             timeout=30,
         )
         response.raise_for_status()
         batch = response.json()
         if not batch:
             break
+        batch_last_id = int(batch[-1]["id"])
+        if last_id is not None and batch_last_id <= last_id:
+            raise RuntimeError(
+                "Pagination Supabase non monotone : la clé primaire id n'avance pas. "
+                "Import interrompu sans écriture."
+            )
         rows.extend(batch)
         if len(batch) < 1000:
             break
-        offset += len(batch)
+        last_id = batch_last_id
     return rows
 
 
