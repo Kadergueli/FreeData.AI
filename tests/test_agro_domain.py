@@ -201,14 +201,16 @@ def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_scree
     assert "precipitation_daily_mean" in prof["series"]
     assert "temperature_mean" in prof["series"]
     copernicus_rows = []
-    for i, y in enumerate((2025, 2026)):
+    for i, y in enumerate((2020, 2021, 2022, 2023, 2026)):
+        rainfall = 3.0 if y < 2026 else 0.5
+        temperature = 28.0 if y < 2026 else 30.0
         copernicus_rows.append(_nasa_row(
-            i + 200, indicator="Monthly precipitation", value=2.0 + i, unit="mm/day",
+            i + 200, indicator="Monthly precipitation", value=rainfall, unit="mm/day",
             ref=f"{y}-03-01", source="Copernicus ERA5-Land",
             license="Licence to use Copernicus Products", sector="environment",
         ))
         copernicus_rows.append(_nasa_row(
-            i + 210, indicator="Monthly mean temperature", value=29.0 + i, unit="°C",
+            i + 210, indicator="Monthly mean temperature", value=temperature, unit="°C",
             ref=f"{y}-03-01", source="Copernicus ERA5-Land",
             license="Licence to use Copernicus Products", sector="environment",
         ))
@@ -218,7 +220,7 @@ def test_zone_profile_integrates_nasa_rainfall_and_temperature_without_new_scree
     assert any(a["indicator_key"] == "precipitation_daily_mean_copernicus" for a in prof["alerts"])
     assert prof["series"]["precipitation_daily_mean"][-1]["anomaly_pct"] == pytest.approx(-83.33, abs=0.1)
     assert any(a["indicator_key"] == "precipitation_daily_mean" for a in prof["alerts"])
-    assert set(prof["provenance"]["sources"]) == {"NASA POWER"}
+    assert set(prof["provenance"]["sources"]) == {"NASA POWER", "Copernicus ERA5-Land"}
 
 
 def test_endpoints_handle_unknown_zone_and_empty_database(tmp_path):
