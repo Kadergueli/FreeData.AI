@@ -43,6 +43,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String? _selectedCommodity;
   String? _selectedProvince;
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
 
   @override
@@ -97,6 +98,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final seq = ++_loadSeq;
     setState(() {
       _loading = _profile == null || _summary == null;
+      _refreshing = true;
       _error = null;
     });
     try {
@@ -154,6 +156,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         _regional = results[2];
         _trends = results[3];
         _loading = false;
+        _refreshing = false;
       });
 
       final optional = await Future.wait([benchFuture, forecastFuture]);
@@ -169,6 +172,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       setState(() {
         _error = errText(e);
         _loading = false;
+        _refreshing = false;
       });
     }
   }
@@ -327,6 +331,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                     const SizedBox(height: 12),
                     filterBar,
+                    if (_refreshing)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
                     const SizedBox(height: 12),
                     if (_profile != null)
                       FDCard(
