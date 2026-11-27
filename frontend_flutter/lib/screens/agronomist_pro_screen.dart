@@ -93,6 +93,10 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
   Map<String, dynamic>? _officialProfile;
   Map<String, dynamic>? _result;
   List<Map<String, dynamic>> _history = const [];
+  bool _profileLoading = false;
+  bool _historyLoading = false;
+  String? _profileError;
+  String? _historyError;
 
   bool get _hasAccess =>
       widget.apiService.isAuthenticated && widget.apiService.hasPremiumKey;
@@ -115,6 +119,11 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
   }
 
   Future<void> _loadOfficialProfile() async {
+    if (!mounted) return;
+    setState(() {
+      _profileLoading = true;
+      _profileError = null;
+    });
     try {
       final prof = await widget.apiService.getMyAgroProfile();
       if (!mounted) return;
@@ -127,8 +136,15 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
           _addressCtrl.text = prof['address']?.toString() ?? _addressCtrl.text;
           _contactCtrl.text = prof['contact']?.toString() ?? _contactCtrl.text;
         }
+        _profileLoading = false;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _profileError = errText(e);
+        _profileLoading = false;
+      });
+    }
   }
 
   Future<void> _loadSavedBranding() async {
@@ -181,10 +197,25 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
   }
 
   Future<void> _loadHistory() async {
+    if (!mounted) return;
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
     try {
       final list = await widget.apiService.listAgroFieldAssessments();
-      if (mounted) setState(() => _history = list);
-    } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _history = list;
+        _historyLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _historyError = errText(e);
+        _historyLoading = false;
+      });
+    }
   }
 
   double? _parseOpt(TextEditingController ctrl) {
@@ -1496,6 +1527,49 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           color: AppColors.blue),
                     ),
                     const SizedBox(height: 8),
+                    if (_profileLoading)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text('Vérification du profil officiel…'),
+                          ],
+                        ),
+                      ),
+                    if (_profileError != null)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Impossible de vérifier le profil officiel : $_profileError',
+                                style: const TextStyle(
+                                  color: AppColors.danger,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _loadOfficialProfile,
+                              child: const Text('Réessayer'),
+                            ),
+                          ],
+                        ),
+                      ),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(10),
@@ -1617,6 +1691,55 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
               if (assessment != null) ...[
                 const SizedBox(height: 14),
                 _buildResultCard(assessment, qa),
+              ],
+              if (_historyLoading || _historyError != null || _history.isEmpty) ...[
+                const SizedBox(height: 14),
+                FDCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Mes diagnostics enregistrés',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_historyLoading)
+                        const Row(
+                          children: [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 10),
+                            Text('Chargement de votre historique…'),
+                          ],
+                        )
+                      else if (_historyError != null) ...[
+                        Text(
+                          'Impossible de charger l’historique : $_historyError',
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _loadHistory,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Réessayer'),
+                          ),
+                        ),
+                      ] else
+                        const Text('Aucun diagnostic enregistré pour le moment.'),
+                    ],
+                  ),
+                ),
               ],
               if (_history.isNotEmpty) ...[
                 const SizedBox(height: 14),
