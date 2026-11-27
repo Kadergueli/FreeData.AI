@@ -237,3 +237,27 @@ def test_rest_history_reads_base_table_by_id_ranges_and_normalizes(monkeypatch):
     assert set(df["source"]) == {"WFP", "FEWS NET"}
     assert set(df["province"]) == {"N'Djamena"} and set(df["market_name"]) == {"Dembé"}
     assert "year_month" in df.columns
+
+
+def test_cache_runs_one_load_for_concurrent_requests():
+    import threading
+    import time as _time
+
+    from src import market_data as md
+
+    md.clear_cache()
+    calls = []
+
+    def slow_loader():
+        calls.append(1)
+        _time.sleep(0.2)
+        return pd.DataFrame({"a": [1]})
+
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(md._cached("k_single", slow_loader))) for _ in range(6)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    md.clear_cache()
+    assert len(calls) == 1 and len(results) == 6 and all(len(r) == 1 for r in results)

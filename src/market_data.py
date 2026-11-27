@@ -7,6 +7,7 @@ modules concernés indiquent « indisponible » au lieu d'échouer.
 """
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 import time
@@ -23,6 +24,7 @@ CACHE_TTL_SECONDS = 6 * 3600
 _FAILURE_TTL_SECONDS = 20  # un échec n'est pas rejoué à chaque requête
 _cache: dict[str, tuple[float, Optional[pd.DataFrame]]] = {}
 _lock = threading.Lock()
+_key_locks: dict[str, threading.Lock] = {}
 
 
 def clear_cache() -> None:
@@ -31,21 +33,34 @@ def clear_cache() -> None:
 
 
 def _cached(key: str, loader: Callable[[], pd.DataFrame]) -> pd.DataFrame:
-    now = time.time()
+    """Cache TTL avec chargement unique : les requêtes simultanées attendent la première au lieu de recharger
+    chacune les données (la mémoire d'une instance gratuite ne supporte pas plusieurs chargements en parallèle)."""
+
+    def _hit() -> Optional[pd.DataFrame]:
+        with _lock:
+            entry = _cache.get(key)
+            if entry and entry[0] > time.time():
+                return entry[1] if entry[1] is not None else pd.DataFrame()
+        return None
+
+    found = _hit()
+    if found is not None:
+        return found
     with _lock:
-        hit = _cache.get(key)
-        if hit and hit[0] > now:
-            return hit[1] if hit[1] is not None else pd.DataFrame()
-    try:
-        value = loader()
+        key_lock = _key_locks.setdefault(key, threading.Lock())
+    with key_lock:
+        found = _hit()  # un autre thread a peut-être chargé pendant l'attente
+        if found is not None:
+            return found
+        try:
+            value = loader()
+            ttl, stored = CACHE_TTL_SECONDS, value
+        except Exception as exc:  # noqa: BLE001 - dégradation voulue
+            logger.warning("Chargement %s impossible : %s", key, exc)
+            value, ttl, stored = pd.DataFrame(), _FAILURE_TTL_SECONDS, None
         with _lock:
-            _cache[key] = (now + CACHE_TTL_SECONDS, value)
+            _cache[key] = (time.time() + ttl, stored)
         return value
-    except Exception as exc:  # noqa: BLE001 - dégradation voulue
-        logger.warning("Chargement %s impossible : %s", key, exc)
-        with _lock:
-            _cache[key] = (now + _FAILURE_TTL_SECONDS, None)
-        return pd.DataFrame()
 
 
 _RAW_COLUMNS = "id,source_api,date_reference,indicateur,region,unite,valeur,notes_publiques"
@@ -71,14 +86,37 @@ def _edge_id(order: str) -> Optional[int]:
     return int(rows[0]["id"]) if rows else None
 
 
-def _fetch_id_range(bounds: tuple[int, int]) -> list[dict]:
+_KEEP_COLUMNS = ["source", "province", "market_name", "commodity_std", "year_month", "value", "is_flagged_outlier"]
+
+
+def _process_page(batch: list[dict]) -> pd.DataFrame:
+    """Normalise une page de relevés bruts et ne garde que les produits suivis (mémoire constante par page)."""
+    from src.data_loader import drop_flagged_outliers, standardize_raw_markets
+    from src.market_intel import PRODUCTS
+
+    if not batch:
+        return pd.DataFrame(columns=_KEEP_COLUMNS)
+    raw = pd.DataFrame(batch).rename(columns={
+        "source_api": "source", "date_reference": "reference_date", "indicateur": "indicator",
+        "unite": "unit", "valeur": "value", "notes_publiques": "notes",
+    })
+    df = standardize_raw_markets(raw)
+    if settings.exclude_flagged_outliers:
+        df = drop_flagged_outliers(df)
+    names = {n for meta in PRODUCTS.values() for n in meta["names"]}
+    df = df[df["commodity_std"].astype(str).str.lower().isin(names)]
+    return df[_KEEP_COLUMNS].reset_index(drop=True)
+
+
+def _fetch_id_range(bounds: tuple[int, int]) -> list[pd.DataFrame]:
     """Relevés WFP/FEWS NET dont id est dans [lo, hi) ; pagination par clé (coût constant par page).
 
     On filtre sur la table de base (indexée) et non sur la vue : la vue recalcule des expressions
-    régulières sur toute la table à chaque requête (≈1,3 s), ce qui saturait Supabase.
+    régulières sur toute la table à chaque requête (≈1,3 s), ce qui saturait Supabase. Chaque page est
+    réduite immédiatement aux produits suivis : on ne garde jamais les ~50 000 lignes brutes en mémoire.
     """
     lo, hi = bounds
-    rows: list[dict] = []
+    frames: list[pd.DataFrame] = []
     last = lo - 1
     for _ in range(40):
         resp = requests.get(
@@ -97,19 +135,23 @@ def _fetch_id_range(bounds: tuple[int, int]) -> list[dict]:
         )
         resp.raise_for_status()
         batch = resp.json()
-        rows.extend(batch)
-        if len(batch) < 1000:
+        size = len(batch)
+        if size:
+            last = int(batch[-1]["id"])
+            part = _process_page(batch)
+            if not part.empty:
+                frames.append(part)
+        del batch
+        if size < 1000:
             break
-        last = int(batch[-1]["id"])
-    return rows
+    return frames
 
 
 def _load_history_rest() -> pd.DataFrame:
-    """Charge les relevés WFP/FEWS NET (≈50 000 lignes) par plages d'id en parallèle, puis normalise."""
+    """Charge les relevés WFP/FEWS NET par plages d'id (2 threads), réduits page par page, puis fusionne."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from src.data_loader import drop_flagged_outliers, standardize_raw_markets, unify_commodity_case
-    from src.market_intel import PRODUCTS
+    from src.data_loader import unify_commodity_case
 
     lo, hi = _edge_id("id.asc"), _edge_id("id.desc")
     if lo is None or hi is None:
@@ -120,20 +162,14 @@ def _load_history_rest() -> pd.DataFrame:
     n_chunks = 8
     step = max(1, (hi - lo + 1) // n_chunks + 1)
     ranges = [(a, min(a + step, hi + 1)) for a in range(lo, hi + 1, step)]
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        chunks = list(pool.map(_fetch_id_range, ranges))
-    rows = [r for chunk in chunks for r in chunk]
-    if not rows:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        parts = [f for chunk in pool.map(_fetch_id_range, ranges) for f in chunk]
+    if not parts:
         raise ValueError("Aucun relevé de prix reçu depuis table_public.")
-    raw = pd.DataFrame(rows).rename(columns={
-        "source_api": "source", "date_reference": "reference_date", "indicateur": "indicator",
-        "unite": "unit", "valeur": "value", "notes_publiques": "notes",
-    })
-    df = unify_commodity_case(standardize_raw_markets(raw))
-    if settings.exclude_flagged_outliers:
-        df = drop_flagged_outliers(df)
-    names = {n for meta in PRODUCTS.values() for n in meta["names"]}
-    return df[df["commodity_std"].astype(str).str.lower().isin(names)].reset_index(drop=True)
+    df = unify_commodity_case(pd.concat(parts, ignore_index=True))
+    del parts
+    gc.collect()
+    return df
 
 
 def load_price_history() -> pd.DataFrame:
