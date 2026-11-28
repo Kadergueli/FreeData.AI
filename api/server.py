@@ -28,7 +28,7 @@ from src.forecasting import run_forecasting_pipeline
 from src.credit_passport import INDEX_NAME, PASSPORT_METHODOLOGY, compute_credit_passport, compute_recommended_max_loan
 from src.ai_agent import FreeDataAIAgent
 from src.disclaimers import CREDIT_PASSPORT_DISCLAIMER
-from src.freshness import assess_dataset_freshness, filter_fresh
+from src.freshness import assess_dataset_freshness, build_series_freshness_report, filter_fresh
 from src.reports import build_market_study_dossier, render_market_study_pdf
 from src.reports.jobs import ReportJobManager, ReportJobQueueFull
 from src.anomalies import detect_anomalies, recent_anomalies
@@ -269,14 +269,31 @@ def _fetch_gold_table(table_name: str, privileged: bool = False) -> pd.DataFrame
 def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source: str,
                     studies: StudyBook | None = None, track_record: dict | None = None,
                     anomalies: pd.DataFrame | None = None) -> dict:
-    """Applique le filtre de fraîcheur (couche API, le modèle n'est pas touché) et construit l'agent."""
+    """Applique le filtre de fraîcheur et conserve un diagnostic par série sans toucher au modèle."""
     now_utc = datetime.now(timezone.utc)
-    pub_dt = now_utc
-    if not forecast_df.empty and "generated_at" in forecast_df.columns:
-        parsed_pub = pd.to_datetime(forecast_df["generated_at"], utc=True, errors="coerce").dropna()
-        if not parsed_pub.empty:
-            pub_dt = parsed_pub.max().to_pydatetime()
 
+    # En mode Gold, date_calcul est l'horodatage persistant du run de calcul.
+    # Ne jamais remplacer une date absente/ancienne par l'heure du démarrage de l'API.
+    computation_dt = now_utc if mode == "full_compute" else None
+    publication_dt = None
+    if not forecast_df.empty:
+        for col in ("date_calcul", "generated_at"):
+            if col in forecast_df.columns:
+                parsed = pd.to_datetime(forecast_df[col], utc=True, errors="coerce").dropna()
+                if not parsed.empty:
+                    computation_dt = parsed.max().to_pydatetime()
+                    break
+        if "published_at" in forecast_df.columns:
+            parsed_pub = pd.to_datetime(forecast_df["published_at"], utc=True, errors="coerce").dropna()
+            if not parsed_pub.empty:
+                publication_dt = parsed_pub.max().to_pydatetime()
+
+    # Rapport calculé AVANT le filtre : les séries anciennes restent visibles au diagnostic.
+    series_freshness = build_series_freshness_report(
+        forecast_df,
+        max_staleness_months=settings.max_staleness_months,
+        now_utc=now_utc,
+    )
     hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
     forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
     freshness = {
@@ -285,16 +302,16 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
             "last_observed_month",
             settings.max_staleness_months,
             now_utc=now_utc,
-            last_successful_computation_at=now_utc,
-            last_publication_at=pub_dt,
+            last_successful_computation_at=computation_dt,
+            last_publication_at=publication_dt,
         ),
         "historical": assess_dataset_freshness(
             hist_df,
             "year_month",
             settings.max_staleness_months,
             now_utc=now_utc,
-            last_successful_computation_at=now_utc,
-            last_publication_at=pub_dt,
+            last_successful_computation_at=computation_dt,
+            last_publication_at=publication_dt,
         ),
     }
     return {
@@ -310,6 +327,7 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
         "alerts_source": alerts_source,
         "stale_excluded": stale_excluded,
         "freshness": freshness,
+        "series_freshness": series_freshness,
     }
 
 
@@ -1277,6 +1295,40 @@ def get_forecasts(
         df["interval_status"] = "uncalibrated"
     out = df[cols].rename(columns={"value": "last_observed_price"}).head(limit)
     return {"count": len(out), "items": out.to_dict(orient="records")}
+
+
+@app.get("/api/v1/market-data/freshness", dependencies=[Depends(_data_rate_limit_dependency)])
+def market_data_freshness_endpoint(
+    commodity: Optional[str] = Query(None, max_length=120),
+    province: Optional[str] = Query(None, max_length=120),
+    market: Optional[str] = Query(None, max_length=160),
+    source: Optional[str] = Query(None, max_length=40),
+    status: Optional[str] = Query(None, pattern="^(fresh|aging|stale|unavailable)$"),
+    limit: int = Query(200, ge=1, le=2000),
+    state: dict = Depends(get_state),
+):
+    """Expose la fraîcheur par produit/province/marché, y compris les séries exclues des prévisions."""
+    df = state.get("series_freshness", pd.DataFrame()).copy()
+    if df.empty:
+        return {"count": 0, "summary": {}, "items": []}
+
+    summary = df["freshness_status"].value_counts(dropna=False).to_dict()
+    for col, value in (
+        ("commodity_std", commodity), ("province", province),
+        ("market_name", market), ("source", source),
+        ("freshness_status", status),
+    ):
+        if value:
+            df = df[df[col].astype(str).str.casefold() == value.strip().casefold()]
+    df = df.sort_values(["data_age_months", "commodity_std", "province", "market_name"],
+                        ascending=[False, True, True, True], na_position="last")
+    out = df.head(limit)
+    return {
+        "count": len(out),
+        "total_matching": len(df),
+        "summary": summary,
+        "items": out.where(pd.notna(out), None).to_dict(orient="records"),
+    }
 
 
 @app.get("/api/v1/alerts", dependencies=[Depends(_data_rate_limit_dependency)])
