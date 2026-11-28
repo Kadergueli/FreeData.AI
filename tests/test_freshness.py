@@ -79,3 +79,51 @@ def test_series_freshness_report_keeps_stale_series_and_quality_labels():
     assert report.loc[2, "forecast_quality"] == "reduced"
     assert report.loc[2, "interval_status"] == "wide_reduced"
     assert len(report) == 4
+
+
+
+def test_gold_freshness_uses_persisted_calculation_timestamp(monkeypatch):
+    monkeypatch.setattr(server, "FreeDataAIAgent", lambda *args, **kwargs: object())
+    now_month = pd.Period(datetime.now(timezone.utc).strftime("%Y-%m"), freq="M")
+    obs_month = str(now_month)
+    forecasts = pd.DataFrame({
+        "source": ["WFP"],
+        "province": ["Salamat"],
+        "market_name": ["Bol"],
+        "commodity_std": ["Millet"],
+        "last_observed_month": [obs_month],
+        "forecast_month": [str(now_month + 1)],
+        "forecast_t1": [510.0],
+        "date_calcul": ["2026-11-15 20:39:25"],
+    })
+    historical = pd.DataFrame({"year_month": [obs_month]})
+    state = server._finalize_state(
+        historical, forecasts, pd.DataFrame(), "gold_fast_read", "stored"
+    )
+    freshness = state["freshness"]["forecasts"]
+    assert freshness["last_successful_computation_at"] == "2026-11-15T20:39:25+00:00"
+    assert freshness["last_publication_at"] is None
+    assert len(state["series_freshness"]) == 1
+
+
+def test_market_freshness_endpoint_filters_and_summarizes_series():
+    report = pd.DataFrame({
+        "source": ["WFP", "FEWS NET"],
+        "commodity_std": ["Millet", "Millet"],
+        "province": ["Salamat", "Salamat"],
+        "market_name": ["Bol", "Am-Timan"],
+        "last_observed_month": ["2026-10", "2026-06"],
+        "data_age_months": [1, 5],
+        "freshness_status": ["fresh", "stale"],
+        "forecast_quality": ["standard", "reduced"],
+        "interval_status": ["calibrated_80", "wide_reduced"],
+        "date_calcul": ["2026-11-15", "2026-11-15"],
+    })
+    payload = server.market_data_freshness_endpoint(
+        commodity="Millet", province="Salamat", market=None, source=None,
+        status="stale", limit=100, state={"series_freshness": report},
+    )
+    assert payload["summary"] == {"fresh": 1, "stale": 1}
+    assert payload["count"] == 1
+    assert payload["items"][0]["market_name"] == "Am-Timan"
+    assert payload["items"][0]["forecast_quality"] == "reduced"
