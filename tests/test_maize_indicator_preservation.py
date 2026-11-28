@@ -75,3 +75,67 @@ def test_maize_indicators_stay_separate_even_when_one_has_more_records():
         "Maize Grain (White)": 1,
     }
     assert len(preserved) == 4
+
+
+
+def test_legacy_view_error_is_detected_only_for_missing_source_label():
+    from src.data_loader import _is_missing_source_label_error
+
+    class FakeResponse:
+        status_code = 400
+        text = '{"message":"column v_clean_markets.commodity_source_label does not exist","code":"42703"}'
+
+    class FakeError(Exception):
+        response = FakeResponse()
+
+    assert _is_missing_source_label_error(FakeError("HTTP 400"))
+    assert not _is_missing_source_label_error(RuntimeError("network timeout"))
+
+
+def test_rest_loader_falls_back_to_legacy_view_without_failing(monkeypatch):
+    import requests
+    from src import data_loader
+
+    class FakeResponse:
+        def __init__(self, rows=None, error=False):
+            self.rows = rows or []
+            self.error = error
+            self.status_code = 400
+            self.text = '{"message":"column commodity_source_label does not exist","code":"42703"}'
+
+        def raise_for_status(self):
+            if self.error:
+                exc = requests.HTTPError("400 Bad Request")
+                exc.response = self
+                raise exc
+
+        def json(self):
+            return self.rows
+
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        calls.append(kwargs["params"]["select"])
+        if len(calls) == 1:
+            return FakeResponse(error=True)
+        return FakeResponse(rows=[{
+            "month_date": "2025-01-01",
+            "source": "FEWS NET",
+            "province": "Salamat",
+            "market_name": "Am Timan",
+            "commodity_std": "Maize (white)",
+            "price_value": 450.0,
+            "is_flagged_outlier": 0,
+        }])
+
+    monkeypatch.setattr(data_loader.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(data_loader.settings, "read_key", "test-key")
+    monkeypatch.setattr(data_loader.requests, "get", fake_get)
+
+    result = data_loader._fetch_supabase_rest_view()
+
+    assert len(calls) == 2
+    assert "commodity_source_label" in calls[0]
+    assert "commodity_source_label" not in calls[1]
+    assert result.loc[0, "commodity_source_label"] == "Maize (white)"
+    assert result.loc[0, "value"] == 450.0
