@@ -9,7 +9,7 @@ from src.ml_engine import evaluate_ridge_chronological
 
 def _spec(task_type="forecasting", *, time_column="month", target="price", features=None):
     return DatasetSpec(
-        domain="markets_and_prices",
+        domain="economy",
         task_type=task_type,
         feature_columns=features or (["feature"] if task_type != "forecasting" else []),
         target_column=target,
