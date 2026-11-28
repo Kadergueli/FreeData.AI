@@ -9,8 +9,9 @@ import '../core/utils/error_text.dart';
 
 /// Pré-diagnostic agro-climatique de zone (espace Grand Public, gratuit).
 ///
-/// Données : NASA POWER Agro (humidité/PAR), NASA POWER (pluie/températures mensuelles)
-/// et World Bank (national, annuel). Jamais une « analyse de parcelle ».
+/// Données : NASA POWER Agro (humidité/PAR), NASA POWER et Copernicus ERA5-Land
+/// (pluie/températures mensuelles), et World Bank (national, annuel).
+/// Les séries NASA POWER et Copernicus restent distinctes. Jamais une « analyse de parcelle ».
 class AgricultureScreen extends StatefulWidget {
   final ApiService apiService;
   final void Function(String prompt)? onAskAssistant;
