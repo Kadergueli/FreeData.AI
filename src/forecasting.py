@@ -12,6 +12,17 @@ def fit_ridge_numpy(X: np.ndarray, y: np.ndarray, alpha: float = 50.0) -> np.nda
     return np.linalg.solve(X.T @ X + reg, X.T @ y)
 
 
+def _conformal_q80(errs: np.ndarray) -> float:
+    """Quantile conformel fini : statistique d'ordre, sans interpolation optimiste."""
+    clean = np.asarray(errs, dtype=float)
+    clean = clean[np.isfinite(clean)]
+    n = len(clean)
+    if n == 0:
+        raise ValueError("Au moins un résidu fini est requis pour calibrer l'intervalle.")
+    rank = min(n, int(np.ceil((n + 1) * 0.80)))
+    return float(np.sort(clean)[rank - 1])
+
+
 def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Construit la grille calendaire complète, entraîne le modèle hybride Mean-Reversion
@@ -136,16 +147,6 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
                     "commodity_std": va_cal["commodity_std"].values,
                     "abs_err": np.abs(va_cal["value"].values - pred_va),
                 })
-
-    def _conformal_q80(errs: np.ndarray) -> float:
-        """Quantile conformel fini : statistique d'ordre, sans interpolation optimiste."""
-        clean = np.asarray(errs, dtype=float)
-        clean = clean[np.isfinite(clean)]
-        n = len(clean)
-        if n == 0:
-            raise ValueError("Au moins un résidu fini est requis pour calibrer l'intervalle.")
-        rank = min(n, int(np.ceil((n + 1) * 0.80)))
-        return float(np.sort(clean)[rank - 1])
 
     min_cal_n = 20
     pc_q80: dict[tuple[str, str], float] = {}
