@@ -99,32 +99,49 @@ def evaluate_ridge_chronological(
         return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
     X, y = build_lag_features(values)
-    # Three chronological windows need enough examples to keep training, validation,
-    # and the final holdout distinct. Short histories are not scored optimistically.
-    if len(X) < 6:
+    if len(X) < 5:
         return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
-    train_end = max(3, int(len(X) * 0.6))
-    validation_end = max(train_end + 1, int(len(X) * 0.8))
-    if validation_end >= len(X):
-        return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
+    if len(X) < 8:
+        # With a short history there is not enough evidence to tune alpha reliably.
+        # Keep a fixed, predeclared middle alpha and reserve the latest observations
+        # for an independent holdout instead of reusing them for model selection.
+        train_end = max(3, int(len(X) * 0.7))
+        if train_end >= len(X):
+            return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
+        best_alpha = float(alphas[len(alphas) // 2])
+        best_validation_mae = None
+        X_test, y_test = X[train_end:], y[train_end:]
+        final_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:train_end], y[:train_end])
+        train_samples = train_end
+        validation_samples = 0
+        evaluation_protocol = "chronological_fixed_alpha_holdout_small_sample"
+    else:
+        train_end = max(3, int(len(X) * 0.6))
+        validation_end = max(train_end + 1, int(len(X) * 0.8))
+        if validation_end >= len(X):
+            return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
-    X_train, y_train = X[:train_end], y[:train_end]
-    X_validation, y_validation = X[train_end:validation_end], y[train_end:validation_end]
-    X_test, y_test = X[validation_end:], y[validation_end:]
+        X_train, y_train = X[:train_end], y[:train_end]
+        X_validation, y_validation = X[train_end:validation_end], y[train_end:validation_end]
+        X_test, y_test = X[validation_end:], y[validation_end:]
 
-    best_alpha = float(alphas[0])
-    best_validation_mae = float("inf")
-    for alpha in alphas:
-        candidate = RidgePriceRegressor(alpha=float(alpha)).fit(X_train, y_train)
-        validation_predictions = candidate.predict(X_validation)
-        validation_mae = float(np.mean(np.abs(y_validation - validation_predictions)))
-        if validation_mae < best_validation_mae:
-            best_validation_mae = validation_mae
-            best_alpha = float(alpha)
+        best_alpha = float(alphas[0])
+        best_validation_mae = float("inf")
+        for alpha in alphas:
+            candidate = RidgePriceRegressor(alpha=float(alpha)).fit(X_train, y_train)
+            validation_predictions = candidate.predict(X_validation)
+            validation_mae = float(np.mean(np.abs(y_validation - validation_predictions)))
+            if validation_mae < best_validation_mae:
+                best_validation_mae = validation_mae
+                best_alpha = float(alpha)
 
-    # Refit only on data available before the untouched final test window.
-    final_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:validation_end], y[:validation_end])
+        # Refit only on data available before the untouched final test window.
+        final_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:validation_end], y[:validation_end])
+        train_samples = int(len(X_train))
+        validation_samples = int(len(X_validation))
+        evaluation_protocol = "chronological_train_validation_test_60_20_20"
+
     ridge_predictions = final_model.predict(X_test)
     ridge_mae = float(np.mean(np.abs(y_test - ridge_predictions)))
     ridge_rmse = float(np.sqrt(np.mean((y_test - ridge_predictions) ** 2)))
@@ -135,16 +152,16 @@ def evaluate_ridge_chronological(
     return {
         "status": "evaluated",
         "best_alpha": best_alpha,
-        "train_samples": int(len(X_train)),
-        "validation_samples": int(len(X_validation)),
+        "train_samples": int(train_samples),
+        "validation_samples": int(validation_samples),
         "test_samples": int(len(X_test)),
-        "validation_ridge_mae_xaf_kg": round(best_validation_mae, 2),
+        "validation_ridge_mae_xaf_kg": round(best_validation_mae, 2) if best_validation_mae is not None else None,
         "ridge_mae_xaf_kg": round(ridge_mae, 2),
         "ridge_rmse_xaf_kg": round(ridge_rmse, 2),
         "naive_mae_xaf_kg": round(naive_mae, 2),
         "naive_rmse_xaf_kg": round(naive_rmse, 2),
         "beats_baseline": ridge_mae <= naive_mae,
-        "evaluation_protocol": "chronological_train_validation_test_60_20_20",
+        "evaluation_protocol": evaluation_protocol,
         "model": final_model,
     }
 
