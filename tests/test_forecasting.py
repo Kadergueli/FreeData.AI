@@ -188,7 +188,7 @@ def test_reduced_forecast_is_explicit_and_uses_wider_interval():
     rows = []
     for market in ("Bol", "Aboudeia", "Am-Timan"):
         for i, month in enumerate(months):
-            if market == "Am-Timan" and i == len(months) - 1:
+            if market == "Am-Timan" and i == len(months) - 2:
                 continue
             value = 500.0 + i * 1.5 + float(rng.normal(0, 18.0))
             rows.append(("WFP", "Salamat", market, "Millet", month, value))
