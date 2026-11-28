@@ -10,8 +10,6 @@ logger = logging.getLogger("freedata.data")
 COMMODITY_NORM = {
     "Millet (Pearl)": "Millet",
     "Sorghum (Red)": "Sorghum (red)",
-    "Maize (Corn)": "Maize (white)",
-    "Maize Grain (White)": "Maize (white)",
     "Rice (5% Broken)": "Rice (imported)",
 }
 
@@ -31,7 +29,7 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
 
     while True:
         params = {
-            "select": "month_date,source,province,market_name,commodity_std,price_value,is_flagged_outlier",
+            "select": "month_date,source,province,market_name,commodity_source_label,commodity_std,price_value,is_flagged_outlier",
             "unit_clean": "eq.xaf/kg",
             # Ordre stable obligatoire : sans lui, limit/offset peut dupliquer ou sauter des lignes.
             "order": "id",
@@ -69,8 +67,8 @@ def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
         from sqlalchemy import create_engine
         engine = create_engine(settings.supabase_db_url)
         query = """
-            SELECT month_date, source, province, market_name, commodity_std,
-                   price_value AS value, is_flagged_outlier
+            SELECT month_date, source, province, market_name, commodity_source_label,
+                   commodity_std, price_value AS value, is_flagged_outlier
             FROM public.v_clean_markets
             WHERE unit_clean = 'xaf/kg'
         """
@@ -116,6 +114,8 @@ def standardize_raw_markets(df: pd.DataFrame) -> pd.DataFrame:
     markets.loc[is_fews, "market_name"] = extracted[1].fillna(markets.loc[is_fews, "region"] + " (Agrégé)")
 
     markets["is_flagged_outlier"] = markets["notes"].str.contains("OUTLIER", na=False).astype(int)
+    # Preserve the source label for auditability and distinct market-price series.
+    markets["commodity_source_label"] = markets["commodity"]
     markets["commodity_std"] = markets["commodity"].replace(COMMODITY_NORM)
 
     return markets[markets["unit_clean"] == "xaf/kg"].copy()
