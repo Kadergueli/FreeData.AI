@@ -112,7 +112,7 @@ def evaluate_ridge_chronological(
         best_alpha = float(alphas[len(alphas) // 2])
         best_validation_mae = None
         X_test, y_test = X[train_end:], y[train_end:]
-        final_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:train_end], y[:train_end])
+        test_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:train_end], y[:train_end])
         train_samples = train_end
         validation_samples = 0
         evaluation_protocol = "chronological_fixed_alpha_holdout_small_sample"
@@ -137,17 +137,21 @@ def evaluate_ridge_chronological(
                 best_alpha = float(alpha)
 
         # Refit only on data available before the untouched final test window.
-        final_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:validation_end], y[:validation_end])
+        test_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:validation_end], y[:validation_end])
         train_samples = int(len(X_train))
         validation_samples = int(len(X_validation))
         evaluation_protocol = "chronological_train_validation_test_60_20_20"
 
-    ridge_predictions = final_model.predict(X_test)
+    ridge_predictions = test_model.predict(X_test)
     ridge_mae = float(np.mean(np.abs(y_test - ridge_predictions)))
     ridge_rmse = float(np.sqrt(np.mean((y_test - ridge_predictions) ** 2)))
     naive_predictions = X_test[:, 0]  # lag_1 baseline
     naive_mae = float(np.mean(np.abs(y_test - naive_predictions)))
     naive_rmse = float(np.sqrt(np.mean((y_test - naive_predictions) ** 2)))
+
+    # Evaluation above uses only pre-test observations. After metrics are frozen,
+    # refit the selected configuration on the full available history for inference.
+    inference_model = RidgePriceRegressor(alpha=best_alpha).fit(X, y)
 
     return {
         "status": "evaluated",
@@ -162,7 +166,7 @@ def evaluate_ridge_chronological(
         "naive_rmse_xaf_kg": round(naive_rmse, 2),
         "beats_baseline": ridge_mae <= naive_mae,
         "evaluation_protocol": evaluation_protocol,
-        "model": final_model,
+        "model": inference_model,
     }
 
 class KMeansMarketClusterer:
