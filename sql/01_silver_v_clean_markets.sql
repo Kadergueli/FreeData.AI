@@ -63,11 +63,10 @@ SELECT
     unit_clean,
     province,
     market_name,
+    raw_commodity AS commodity_source_label,
     CASE raw_commodity
         WHEN 'Millet (Pearl)' THEN 'Millet'
         WHEN 'Sorghum (Red)' THEN 'Sorghum (red)'
-        WHEN 'Maize (Corn)' THEN 'Maize (white)'
-        WHEN 'Maize Grain (White)' THEN 'Maize (white)'
         WHEN 'Rice (5% Broken)' THEN 'Rice (imported)'
         ELSE raw_commodity
     END AS commodity_std,
