@@ -110,3 +110,54 @@ def assess_dataset_freshness(
         "data_age_months": int(age_months),
         "freshness_status": status,
     }
+
+def build_series_freshness_report(
+    df: Optional[pd.DataFrame],
+    max_staleness_months: int = 3,
+    now_utc: Optional[datetime] = None,
+) -> pd.DataFrame:
+    """Construit un état de fraîcheur par série (source, produit, province, marché).
+
+    Les lignes anciennes sont conservées dans ce rapport : il sert au diagnostic,
+    tandis que filter_fresh continue de contrôler les données servies aux analyses.
+    """
+    columns = [
+        "source", "commodity_std", "province", "market_name",
+        "last_observed_month", "data_age_months", "freshness_status",
+        "forecast_quality", "interval_status", "date_calcul",
+    ]
+    if df is None or df.empty or "last_observed_month" not in df.columns:
+        return pd.DataFrame(columns=columns)
+
+    ref_dt = now_utc or datetime.now(timezone.utc)
+    if ref_dt.tzinfo is None:
+        ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+    else:
+        ref_dt = ref_dt.astimezone(timezone.utc)
+    current_period = pd.Period(f"{ref_dt.year:04d}-{ref_dt.month:02d}", freq="M")
+    threshold = max(1, int(max_staleness_months or 1))
+
+    report = pd.DataFrame(index=df.index)
+    for col in columns:
+        report[col] = df[col] if col in df.columns else None
+
+    ages: list[Optional[int]] = []
+    statuses: list[str] = []
+    for value in report["last_observed_month"].tolist():
+        period = _parse_month_period(value)
+        if period is None:
+            ages.append(None)
+            statuses.append("unavailable")
+            continue
+        age = max(
+            0,
+            (current_period.year - period.year) * 12
+            + (current_period.month - period.month),
+        )
+        ages.append(int(age))
+        statuses.append("fresh" if age < threshold else "aging" if age == threshold else "stale")
+
+    report["data_age_months"] = ages
+    report["freshness_status"] = statuses
+    return report[columns].reset_index(drop=True)
+
