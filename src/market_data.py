@@ -86,7 +86,7 @@ def _edge_id(order: str) -> Optional[int]:
     return int(rows[0]["id"]) if rows else None
 
 
-_KEEP_COLUMNS = ["source", "province", "market_name", "commodity_std", "year_month", "value", "is_flagged_outlier"]
+_KEEP_COLUMNS = ["source", "province", "market_name", "commodity_source_label", "commodity_std", "year_month", "value", "is_flagged_outlier"]
 
 
 def _process_page(batch: list[dict]) -> pd.DataFrame:
