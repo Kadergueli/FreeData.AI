@@ -63,7 +63,6 @@ SELECT
     unit_clean,
     province,
     market_name,
-    raw_commodity AS commodity_source_label,
     CASE raw_commodity
         WHEN 'Millet (Pearl)' THEN 'Millet'
         WHEN 'Sorghum (Red)' THEN 'Sorghum (red)'
@@ -72,5 +71,6 @@ SELECT
     END AS commodity_std,
     is_flagged_outlier,
     score_qualite,
-    date_publication
+    date_publication,
+    raw_commodity AS commodity_source_label
 FROM standardized;
