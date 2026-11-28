@@ -210,8 +210,7 @@ def _limits(product_id: str, n_markets: int, n_months: int, seasonality: dict) -
         out.append("Saisonnalité calculée sur moins de 3 années : à lire comme une tendance, pas une règle.")
     if seasonality.get("status") != "ok":
         out.append("Historique insuffisant pour une saisonnalité.")
-    if n_markets < 8:
-        if product_id not in VOL_REF:
+    if product_id not in VOL_REF:
         out.append("Seuils de volatilité génériques : ils ne sont pas calibrés pour cette série.")
     if n_markets < 8:
         out.append(f"Couverture limitée : {n_markets} marché(s) observé(s) le dernier mois.")
