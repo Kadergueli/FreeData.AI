@@ -63,6 +63,9 @@ SELECT
     unit_clean,
     province,
     market_name,
+    -- Ne jamais rabattre les indicateurs FEWS NET "Maize (Corn)" et
+    -- "Maize Grain (White)" sur une seule catégorie : leur équivalence physique
+    -- n'est pas confirmée. Le libellé source est conservé ci-dessous.
     CASE raw_commodity
         WHEN 'Millet (Pearl)' THEN 'Millet'
         WHEN 'Sorghum (Red)' THEN 'Sorghum (red)'

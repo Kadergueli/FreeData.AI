@@ -18,7 +18,10 @@ from src.seasonality import MONTHS_FR, seasonal_calendar
 PRODUCTS: dict[str, dict[str, Any]] = {
     "millet": {"label_fr": "Mil", "names": ["millet"], "world": None},
     "sorghum": {"label_fr": "Sorgho rouge", "names": ["sorghum (red)"], "world": None},
-    "maize": {"label_fr": "Maïs blanc", "names": ["maize (white)"], "world": "World price, maize"},
+    "maize": {"label_fr": "Maïs blanc (WFP)", "names": ["maize (white)"], "world": "World price, maize"},
+    # FEWS NET indicators are intentionally separate: their physical/product meaning is not confirmed.
+    "maize_corn": {"label_fr": "Maïs (Corn) — FEWS NET", "names": ["maize (corn)"], "world": None},
+    "maize_grain_white": {"label_fr": "Maïs grain blanc — FEWS NET", "names": ["maize grain (white)"], "world": None},
     "groundnut": {"label_fr": "Arachide décortiquée", "names": ["groundnuts (shelled)"], "world": "World price, groundnuts"},
     "rice_local": {"label_fr": "Riz local", "names": ["rice (local)"], "world": None},
     "rice_imported": {"label_fr": "Riz importé", "names": ["rice (imported)"], "world": "World price, rice (Thai 5%)", "import_exposed": True},
@@ -74,20 +77,40 @@ def normalize_product(raw: str) -> str:
 # Préparation des séries
 # ----------------------------------------------------------------------------
 def _product_frame(df: Optional[pd.DataFrame], product_id: str) -> pd.DataFrame:
-    """Relevés du produit, dédoublonnés par (province, marché, mois) : WFP et FEWS NET se recoupent."""
+    """Construit une série par marché/mois sans donner le même poids à des sources de densité différente.
+
+    Quand WFP et FEWS NET couvrent le même produit, marché et mois, on retient la source ayant
+    le plus d'observations. En cas d'égalité, les deux sources sont conservées via la moyenne de
+    leurs moyennes mensuelles. Les indicateurs produits distincts sont isolés dans PRODUCTS.
+    """
     cols = ["province", "market_name", "ym", "value"]
     if df is None or getattr(df, "empty", True):
         return pd.DataFrame(columns=cols)
     names = PRODUCTS[product_id]["names"]
     sub = df[df["commodity_std"].astype(str).str.strip().str.lower().isin(names)].copy()
-    sub = sub[pd.to_numeric(sub["value"], errors="coerce") > 0]
+    sub["value"] = pd.to_numeric(sub["value"], errors="coerce")
+    sub = sub[sub["value"] > 0]
     if sub.empty:
         return pd.DataFrame(columns=cols)
     sub["ym"] = sub["year_month"]
     sub["province"] = sub["province"].fillna("").astype(str)
     sub["market_name"] = sub["market_name"].fillna("").astype(str)
-    out = sub.groupby(["province", "market_name", "ym"], as_index=False)["value"].mean()
-    return out
+    source_col = "source" if "source" in sub.columns else None
+    if source_col is None:
+        sub["_source_key"] = "__unknown__"
+        source_col = "_source_key"
+    source_month = (
+        sub.groupby(["province", "market_name", "ym", source_col], as_index=False)
+        .agg(source_value=("value", "mean"), record_count=("value", "size"))
+    )
+    market_month = ["province", "market_name", "ym"]
+    max_counts = source_month.groupby(market_month)["record_count"].transform("max")
+    selected = source_month[source_month["record_count"] == max_counts]
+    return (
+        selected.groupby(market_month, as_index=False)["source_value"]
+        .mean()
+        .rename(columns={"source_value": "value"})
+    )
 
 
 def _wide(frame: pd.DataFrame) -> pd.DataFrame:
@@ -187,6 +210,8 @@ def _limits(product_id: str, n_markets: int, n_months: int, seasonality: dict) -
         out.append("Saisonnalité calculée sur moins de 3 années : à lire comme une tendance, pas une règle.")
     if seasonality.get("status") != "ok":
         out.append("Historique insuffisant pour une saisonnalité.")
+    if product_id not in VOL_REF:
+        out.append("Seuils de volatilité génériques : ils ne sont pas calibrés pour cette série.")
     if n_markets < 8:
         out.append(f"Couverture limitée : {n_markets} marché(s) observé(s) le dernier mois.")
     if n_months < 24:

@@ -181,10 +181,11 @@ KEY_COLS = ["source", "province", "market_name", "commodity_std", "year_month"]
 
 
 def unify_commodity_case(df: pd.DataFrame) -> pd.DataFrame:
-    """Fusionne les noms de produit qui ne diffèrent que par la casse (« Wheat Flour » / « Wheat flour »).
+    """Unifie uniquement les variantes de casse sans écraser les indicateurs sources distincts.
 
-    Ils désignent le même produit mais coupaient l'historique en deux. Le nom retenu est la graphie la plus fréquente.
-    Si, après fusion, un même (source, marché, mois) apparaît deux fois, les valeurs sont moyennées.
+    Le libellé source fait partie de la clé lorsqu'il est disponible : deux indicateurs distincts
+    qui partagent accidentellement le même commodity_std restent donc deux séries séparées.
+    Les doublons d'un même indicateur/source/marché/mois sont moyennés.
     """
     if "commodity_std" not in df.columns or df.empty:
         return df
@@ -198,10 +199,11 @@ def unify_commodity_case(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     df["commodity_std"] = df["commodity_std"].map(mapping).fillna(df["commodity_std"])
-    if {"value", *KEY_COLS} <= set(df.columns) and df.duplicated(KEY_COLS).any():
-        other = [c for c in df.columns if c not in KEY_COLS + ["value"]]
+    key_cols = KEY_COLS + (["commodity_source_label"] if "commodity_source_label" in df.columns else [])
+    if {"value", *key_cols} <= set(df.columns) and df.duplicated(key_cols).any():
+        other = [c for c in df.columns if c not in key_cols + ["value"]]
         agg = {"value": "mean", **{c: "max" if c == "is_flagged_outlier" else "first" for c in other}}
-        df = df.groupby(KEY_COLS, as_index=False, dropna=False).agg(agg)
+        df = df.groupby(key_cols, as_index=False, dropna=False).agg(agg)
     return df
 
 

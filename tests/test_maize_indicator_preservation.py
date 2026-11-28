@@ -147,3 +147,38 @@ def test_rest_loader_falls_back_to_legacy_view_without_failing(monkeypatch):
     assert "commodity_source_label" not in calls[1]
     assert result.loc[0, "commodity_source_label"] == "Maize (white)"
     assert result.loc[0, "value"] == 450.0
+
+
+
+def test_distinct_source_labels_are_not_averaged_when_standardized_name_collides():
+    raw = pd.DataFrame(
+        [
+            {
+                "source": "FEWS NET", "reference_date": "2025-02-10", "unit": "XAF/kg",
+                "value": 300.0, "region": "Salamat",
+                "indicator": "Maize (Corn) price (retail) - Am Timan", "notes": "",
+            },
+            {
+                "source": "FEWS NET", "reference_date": "2025-02-11", "unit": "XAF/kg",
+                "value": 450.0, "region": "Salamat",
+                "indicator": "Maize Grain (White) price (retail) - Am Timan", "notes": "",
+            },
+        ]
+    )
+    standardized = standardize_raw_markets(raw)
+    # Simulate a future/legacy canonicalization collision while preserving raw provenance.
+    standardized["commodity_std"] = "Maize (white)"
+    preserved = unify_commodity_case(standardized)
+
+    assert len(preserved) == 2
+    assert set(preserved["commodity_source_label"]) == {"Maize (Corn)", "Maize Grain (White)"}
+    assert preserved["value"].tolist() == [300.0, 450.0]
+
+
+def test_sql_view_keeps_maize_indicators_unmapped_and_source_label():
+    from pathlib import Path
+
+    sql = (Path(__file__).parents[1] / "sql" / "01_silver_v_clean_markets.sql").read_text(encoding="utf-8")
+    assert "WHEN 'Maize (Corn)'" not in sql
+    assert "WHEN 'Maize Grain (White)'" not in sql
+    assert "raw_commodity AS commodity_source_label" in sql
