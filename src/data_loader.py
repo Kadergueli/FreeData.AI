@@ -14,8 +14,24 @@ COMMODITY_NORM = {
 }
 
 
+def _is_missing_source_label_error(exc: Exception) -> bool:
+    """Recognizes only the missing-column error for the compatibility field."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    detail = str(exc).lower()
+    if response is not None:
+        try:
+            detail += " " + response.text.lower()
+        except Exception:
+            pass
+    markers = ("does not exist", "undefined column", "could not find", "schema cache", "42703", "pgrst204")
+    return "commodity_source_label" in detail and any(marker in detail for marker in markers) and (
+        status is None or status in (400, 404, 422)
+    )
+
+
 def _fetch_supabase_rest_view() -> pd.DataFrame:
-    """Lit toute la vue public.v_clean_markets via l'API HTTPS Supabase (paginée)."""
+    """Read v_clean_markets, including temporary compatibility with the old view schema."""
     base = settings.supabase_url.rstrip("/")
     endpoint = f"{base}/rest/v1/v_clean_markets"
     headers = {
@@ -26,10 +42,14 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
     all_rows = []
     offset = 0
     batch_size = 1000
+    has_source_label = True
 
     while True:
+        columns = "month_date,source,province,market_name,commodity_std,price_value,is_flagged_outlier"
+        if has_source_label:
+            columns = "month_date,source,province,market_name,commodity_source_label," + columns.split("market_name,", 1)[1]
         params = {
-            "select": "month_date,source,province,market_name,commodity_source_label,commodity_std,price_value,is_flagged_outlier",
+            "select": columns,
             "unit_clean": "eq.xaf/kg",
             # Ordre stable obligatoire : sans lui, limit/offset peut dupliquer ou sauter des lignes.
             "order": "id",
@@ -37,7 +57,17 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
             "offset": offset,
         }
         resp = requests.get(endpoint, headers=headers, params=params, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            if has_source_label and offset == 0 and _is_missing_source_label_error(exc):
+                logger.warning(
+                    "Legacy v_clean_markets view detected: falling back to commodity_std. "
+                    "Distinct source indicators already merged by the old view cannot be recovered."
+                )
+                has_source_label = False
+                continue
+            raise
         batch = resp.json()
         if not batch:
             break
@@ -50,6 +80,8 @@ def _fetch_supabase_rest_view() -> pd.DataFrame:
         raise ValueError("La vue v_clean_markets est vide ou inaccessible sur Supabase.")
 
     df_clean = pd.DataFrame(all_rows).rename(columns={"price_value": "value"})
+    if "commodity_source_label" not in df_clean.columns:
+        df_clean["commodity_source_label"] = df_clean["commodity_std"]
     df_clean["year_month"] = pd.to_datetime(df_clean["month_date"]).dt.to_period("M")
     return df_clean
 
