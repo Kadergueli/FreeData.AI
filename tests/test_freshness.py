@@ -58,3 +58,24 @@ def test_freshness_year_boundary_calculation():
     assert res["data_age_months"] == 2
     assert res["freshness_status"] == "fresh"
 
+
+
+
+def test_series_freshness_report_keeps_stale_series_and_quality_labels():
+    from src.freshness import build_series_freshness_report
+
+    now = datetime(2026, 11, 28, 12, 0, tzinfo=timezone.utc)
+    df = pd.DataFrame({
+        "source": ["WFP"] * 4,
+        "commodity_std": ["Millet"] * 4,
+        "province": ["Salamat"] * 4,
+        "market_name": ["Bol", "Bol", "Bol", "Bol"],
+        "last_observed_month": ["2026-11", "2026-08", "2026-07", "invalid"],
+        "forecast_quality": ["standard", "standard", "reduced", "reduced"],
+        "interval_status": ["calibrated_80", "calibrated_80", "wide_reduced", "uncalibrated"],
+    })
+    report = build_series_freshness_report(df, max_staleness_months=3, now_utc=now)
+    assert report["freshness_status"].tolist() == ["fresh", "aging", "stale", "unavailable"]
+    assert report.loc[2, "forecast_quality"] == "reduced"
+    assert report.loc[2, "interval_status"] == "wide_reduced"
+    assert len(report) == 4
