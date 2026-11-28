@@ -1739,7 +1739,8 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                           ),
                         ),
                       ] else
-                        const Text('Aucun diagnostic enregistré pour le moment.'),
+                        const Text(
+                            'Aucun diagnostic enregistré pour le moment.'),
                     ],
                   ),
                 ),
