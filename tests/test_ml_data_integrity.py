@@ -19,7 +19,7 @@ def _spec(task_type="forecasting", *, time_column="month", target="price", featu
 
 
 def test_csv_rejects_infinite_numeric_values():
-    spec = _spec(features=["x"])
+    spec = _spec(features=["x"], target="y")
     raw = b"month,x,y\n2025-01,1,10\n2025-02,inf,11\n2025-03,3,12\n2025-04,4,13\n2025-05,5,14\n2025-06,6,15\n2025-07,7,16\n2025-08,8,17\n2025-09,9,18\n2025-10,10,19\n"
     with pytest.raises(ValueError, match="infinie ou non finie"):
         parse_and_validate_csv(raw, spec)
