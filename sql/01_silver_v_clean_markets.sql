@@ -3,7 +3,9 @@
 -- Branchée directement sur public.table_public (données validées et publiées).
 -- ============================================================================
 
-CREATE OR REPLACE VIEW public.v_clean_markets AS
+CREATE OR REPLACE VIEW public.v_clean_markets
+WITH (security_invoker = on)
+AS
 WITH base_markets AS (
     SELECT
         id,
