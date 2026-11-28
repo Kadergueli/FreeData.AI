@@ -138,9 +138,14 @@ def run_forecasting_pipeline(kg_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
                 })
 
     def _conformal_q80(errs: np.ndarray) -> float:
-        n = len(errs)
-        level = min(1.0, np.ceil((n + 1) * 0.80) / n)
-        return float(np.quantile(errs, level))
+        """Quantile conformel fini : statistique d'ordre, sans interpolation optimiste."""
+        clean = np.asarray(errs, dtype=float)
+        clean = clean[np.isfinite(clean)]
+        n = len(clean)
+        if n == 0:
+            raise ValueError("Au moins un résidu fini est requis pour calibrer l'intervalle.")
+        rank = min(n, int(np.ceil((n + 1) * 0.80)))
+        return float(np.sort(clean)[rank - 1])
 
     min_cal_n = 20
     pc_q80: dict[tuple[str, str], float] = {}
