@@ -200,9 +200,27 @@ def parse_and_validate_csv(csv_bytes: bytes, spec: DatasetSpec) -> tuple[pd.Data
         if work[spec.target_column].isna().all():
             raise ValueError(f"La colonne cible '{spec.target_column}' doit contenir des classes numériques (0/1).")
 
+    for col in numeric_cols:
+        finite_values = work[col].dropna().to_numpy(dtype=float)
+        if not np.isfinite(finite_values).all():
+            raise ValueError(f"La colonne numérique '{col}' contient une valeur infinie ou non finie.")
+
+    if spec.task_type == "classification" and spec.target_column:
+        target_values = work[spec.target_column].dropna().to_numpy(dtype=float)
+        if not np.isfinite(target_values).all():
+            raise ValueError(f"La cible '{spec.target_column}' contient une valeur infinie ou non finie.")
+        if not np.equal(target_values, np.floor(target_values)).all():
+            raise ValueError(f"La cible '{spec.target_column}' doit contenir des classes entières 0/1.")
+
     if spec.time_column:
-        work[spec.time_column] = work[spec.time_column].astype(str).str.strip()
-        work = work[work[spec.time_column] != ""]
+        parsed_time = pd.to_datetime(work[spec.time_column], errors="coerce", utc=True)
+        if parsed_time.isna().any():
+            bad_count = int(parsed_time.isna().sum())
+            raise ValueError(f"Colonne temporelle '{spec.time_column}' : {bad_count} date(s) invalide(s).")
+        if spec.task_type == "forecasting" and parsed_time.duplicated().any():
+            duplicate_count = int(parsed_time.duplicated(keep=False).sum())
+            raise ValueError(f"Colonne temporelle '{spec.time_column}' : {duplicate_count} ligne(s) avec date dupliquée pour une série de prévision.")
+        work[spec.time_column] = parsed_time
         work = work.sort_values(spec.time_column, kind="mergesort")
 
     req_non_null = list(numeric_cols)
@@ -415,13 +433,29 @@ def _benchmark_forecasting(df: pd.DataFrame, spec: DatasetSpec) -> list[dict[str
 def _benchmark_regression(df: pd.DataFrame, spec: DatasetSpec, seed: int = 42) -> list[dict[str, Any]]:
     X = df[spec.feature_columns].to_numpy(dtype=float)
     y = df[spec.target_column].to_numpy(dtype=float)
-    rng = np.random.default_rng(seed)
-    idx = np.arange(len(X))
-    rng.shuffle(idx)
     split = max(3, int(len(X) * 0.75))
-    tr, te = idx[:split], idx[split:]
+    if spec.time_column:
+        timestamps = pd.to_datetime(df[spec.time_column], errors="coerce", utc=True)
+        unique_timestamps = np.sort(timestamps.dropna().unique())
+        if len(unique_timestamps) < 2:
+            raise ValueError("Historique temporel insuffisant pour une séparation chronologique.")
+        cutoff_index = max(1, int(len(unique_timestamps) * 0.75))
+        cutoff = unique_timestamps[cutoff_index - 1]
+        tr = np.flatnonzero((timestamps <= cutoff).to_numpy())
+        te = np.flatnonzero((timestamps > cutoff).to_numpy())
+        protocol = (
+            f"chronological_75_25 (train={len(tr)}, test={len(te)}, "
+            f"unique_timestamps={len(unique_timestamps)})"
+        )
+    else:
+        rng = np.random.default_rng(seed)
+        idx = np.arange(len(X))
+        rng.shuffle(idx)
+        tr, te = idx[:split], idx[split:]
+        protocol = f"random_holdout_75_25_seed{seed} (train={len(tr)}, test={len(te)})"
+    if len(te) < 1:
+        raise ValueError("Échantillon insuffisant pour un holdout de régression 75/25.")
     X_tr, y_tr, X_te, y_te = X[tr], y[tr], X[te], y[te]
-    protocol = f"holdout_75_25_seed{seed} (train={len(tr)}, test={len(te)})"
     results: list[dict[str, Any]] = []
 
     # 1. Naive mean baseline

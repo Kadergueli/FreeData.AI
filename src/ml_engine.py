@@ -89,49 +89,85 @@ def evaluate_ridge_chronological(
     alphas: tuple[float, ...] = (0.1, 1.0, 10.0),
     min_history: int = 8,
 ) -> dict[str, Any]:
-    """Chronological train/test split comparing tuned Ridge Regression against Naive baseline."""
-    if len(prices) < min_history:
-        return {"status": "insufficient_history", "observations": int(len(prices)), "min_required": min_history}
+    """Select Ridge alpha on a chronological validation window and report once on a later holdout."""
+    values = np.asarray(prices, dtype=float)
+    if values.ndim != 1 or not np.isfinite(values).all():
+        return {"status": "invalid_data", "reason": "prices_must_be_finite_1d"}
+    if not alphas or any(not np.isfinite(float(a)) or float(a) < 0 for a in alphas):
+        return {"status": "invalid_hyperparameters", "reason": "alphas_must_be_finite_non_negative"}
+    if len(values) < min_history:
+        return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
-    X, y = build_lag_features(prices)
+    X, y = build_lag_features(values)
     if len(X) < 5:
-        return {"status": "insufficient_history", "observations": int(len(prices)), "min_required": min_history}
+        return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
-    split = max(3, int(len(X) * 0.7))
-    X_tr, y_tr = X[:split], y[:split]
-    X_te, y_te = X[split:], y[split:]
+    if len(X) < 8:
+        # With a short history there is not enough evidence to tune alpha reliably.
+        # Keep a fixed, predeclared middle alpha and reserve the latest observations
+        # for an independent holdout instead of reusing them for model selection.
+        train_end = max(3, int(len(X) * 0.7))
+        if train_end >= len(X):
+            return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
+        best_alpha = float(alphas[len(alphas) // 2])
+        best_validation_mae = None
+        X_test, y_test = X[train_end:], y[train_end:]
+        test_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:train_end], y[:train_end])
+        train_samples = train_end
+        validation_samples = 0
+        evaluation_protocol = "chronological_fixed_alpha_holdout_small_sample"
+    else:
+        train_end = max(3, int(len(X) * 0.6))
+        validation_end = max(train_end + 1, int(len(X) * 0.8))
+        if validation_end >= len(X):
+            return {"status": "insufficient_history", "observations": int(len(values)), "min_required": min_history}
 
-    best_model = None
-    best_mae = float("inf")
-    best_alpha = alphas[0]
-    for a in alphas:
-        cand = RidgePriceRegressor(alpha=a).fit(X_tr, y_tr)
-        preds = cand.predict(X_te)
-        mae = float(np.mean(np.abs(y_te - preds)))
-        if mae < best_mae:
-            best_mae = mae
-            best_model = cand
-            best_alpha = a
+        X_train, y_train = X[:train_end], y[:train_end]
+        X_validation, y_validation = X[train_end:validation_end], y[train_end:validation_end]
+        X_test, y_test = X[validation_end:], y[validation_end:]
 
-    ridge_preds = best_model.predict(X_te)
-    ridge_rmse = float(np.sqrt(np.mean((y_te - ridge_preds) ** 2)))
-    naive_preds = X_te[:, 0]  # lag_1
-    naive_mae = float(np.mean(np.abs(y_te - naive_preds)))
-    naive_rmse = float(np.sqrt(np.mean((y_te - naive_preds) ** 2)))
+        best_alpha = float(alphas[0])
+        best_validation_mae = float("inf")
+        for alpha in alphas:
+            candidate = RidgePriceRegressor(alpha=float(alpha)).fit(X_train, y_train)
+            validation_predictions = candidate.predict(X_validation)
+            validation_mae = float(np.mean(np.abs(y_validation - validation_predictions)))
+            if validation_mae < best_validation_mae:
+                best_validation_mae = validation_mae
+                best_alpha = float(alpha)
+
+        # Refit only on data available before the untouched final test window.
+        test_model = RidgePriceRegressor(alpha=best_alpha).fit(X[:validation_end], y[:validation_end])
+        train_samples = int(len(X_train))
+        validation_samples = int(len(X_validation))
+        evaluation_protocol = "chronological_train_validation_test_60_20_20"
+
+    ridge_predictions = test_model.predict(X_test)
+    ridge_mae = float(np.mean(np.abs(y_test - ridge_predictions)))
+    ridge_rmse = float(np.sqrt(np.mean((y_test - ridge_predictions) ** 2)))
+    naive_predictions = X_test[:, 0]  # lag_1 baseline
+    naive_mae = float(np.mean(np.abs(y_test - naive_predictions)))
+    naive_rmse = float(np.sqrt(np.mean((y_test - naive_predictions) ** 2)))
+
+    # Evaluation above uses only pre-test observations. After metrics are frozen,
+    # refit the selected configuration on the full available history for inference.
+    inference_model = RidgePriceRegressor(alpha=best_alpha).fit(X, y)
 
     return {
         "status": "evaluated",
         "best_alpha": best_alpha,
-        "train_samples": int(len(X_tr)),
-        "test_samples": int(len(X_te)),
-        "ridge_mae_xaf_kg": round(best_mae, 2),
+        "train_samples": int(train_samples),
+        "validation_samples": int(validation_samples),
+        "test_samples": int(len(X_test)),
+        "validation_ridge_mae_xaf_kg": round(best_validation_mae, 2) if best_validation_mae is not None else None,
+        "ridge_mae_xaf_kg": round(ridge_mae, 2),
         "ridge_rmse_xaf_kg": round(ridge_rmse, 2),
         "naive_mae_xaf_kg": round(naive_mae, 2),
         "naive_rmse_xaf_kg": round(naive_rmse, 2),
-        "beats_baseline": best_mae <= naive_mae,
-        "model": best_model,
+        "beats_baseline": ridge_mae <= naive_mae,
+        "evaluation_protocol": evaluation_protocol,
+        "model": inference_model,
     }
-
 
 class KMeansMarketClusterer:
     """Deterministic K-Means clustering for market segmentation by volatility and price level."""
