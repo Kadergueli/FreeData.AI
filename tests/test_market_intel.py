@@ -261,3 +261,61 @@ def test_cache_runs_one_load_for_concurrent_requests():
         th.join()
     md.clear_cache()
     assert len(calls) == 1 and len(results) == 6 and all(len(r) == 1 for r in results)
+
+
+
+def test_maize_fews_indicators_are_exposed_as_separate_products():
+    rows = []
+    for product, value in [("Maize (Corn)", 310.0), ("Maize Grain (White)", 470.0)]:
+        for prov, market in MARKETS:
+            rows.append({
+                "source": "FEWS NET", "province": prov, "market_name": market,
+                "commodity_std": product, "year_month": pd.Period("2025-01", freq="M"),
+                "value": value, "is_flagged_outlier": 0,
+            })
+    df = pd.DataFrame(rows)
+
+    corn = mi.product_brief(df, "maize_corn")
+    grain = mi.product_brief(df, "maize_grain_white")
+
+    assert corn["status"] == "ok" and grain["status"] == "ok"
+    assert corn["national_median_xaf_kg"] == 310.0
+    assert grain["national_median_xaf_kg"] == 470.0
+    assert corn["product_id"] != grain["product_id"]
+    assert mi.PRODUCTS["maize_corn"]["world"] is None
+    assert mi.PRODUCTS["maize_grain_white"]["world"] is None
+
+
+def test_market_intel_prefers_source_with_more_records_for_same_market_month():
+    rows = []
+    for value in [200.0, 202.0, 204.0]:
+        rows.append({
+            "source": "WFP", "province": "Salamat", "market_name": "Am Timan",
+            "commodity_std": "Millet", "year_month": pd.Period("2025-01", freq="M"),
+            "value": value,
+        })
+    rows.append({
+        "source": "FEWS NET", "province": "Salamat", "market_name": "Am Timan",
+        "commodity_std": "Millet", "year_month": pd.Period("2025-01", freq="M"),
+        "value": 500.0,
+    })
+
+    frame = mi._product_frame(pd.DataFrame(rows), "millet")
+
+    assert len(frame) == 1
+    assert frame.iloc[0]["value"] == pytest.approx(202.0)
+
+
+def test_market_intel_keeps_both_sources_when_record_counts_tie():
+    rows = []
+    for source, value in [("WFP", 200.0), ("FEWS NET", 300.0)]:
+        rows.append({
+            "source": source, "province": "Salamat", "market_name": "Am Timan",
+            "commodity_std": "Millet", "year_month": pd.Period("2025-01", freq="M"),
+            "value": value,
+        })
+
+    frame = mi._product_frame(pd.DataFrame(rows), "millet")
+
+    assert len(frame) == 1
+    assert frame.iloc[0]["value"] == pytest.approx(250.0)
