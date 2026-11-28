@@ -46,8 +46,8 @@ def test_classification_rejects_fractional_labels():
         parse_and_validate_csv(raw, spec)
 
 
-def test_regression_with_time_column_uses_chronological_holdout():
-    dates = pd.date_range("2024-01-01", periods=40, freq="MS", tz="UTC")
+def test_regression_with_time_column_keeps_same_timestamp_rows_together():
+    dates = pd.date_range("2024-01-01", periods=20, freq="MS", tz="UTC").repeat(2)
     frame = pd.DataFrame({
         "month": dates,
         "x": np.arange(40, dtype=float),
@@ -57,6 +57,20 @@ def test_regression_with_time_column_uses_chronological_holdout():
     candidates = _benchmark_regression(frame, spec)
     assert candidates
     assert all(candidate["protocol"].startswith("chronological_75_25") for candidate in candidates)
+    assert all(candidate["train_samples"] == 30 for candidate in candidates)
+    assert all(candidate["test_samples"] == 10 for candidate in candidates)
+    assert all("unique_timestamps=20" in candidate["protocol"] for candidate in candidates)
+
+
+def test_regression_csv_allows_multiple_entities_at_the_same_timestamp():
+    spec = _spec(task_type="regression", features=["x"], target="y")
+    rows = ["month,x,y"] + [
+        f"2025-{month:02d},{index},{index * 2}"
+        for month in range(1, 6)
+        for index in (month, month + 10)
+    ]
+    clean, _ = parse_and_validate_csv(("\\n".join(rows)).encode(), spec)
+    assert len(clean) == 10
 
 
 def test_ridge_alpha_selection_is_independent_of_final_test_tail():
