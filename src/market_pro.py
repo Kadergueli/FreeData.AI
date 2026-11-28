@@ -20,6 +20,14 @@ from src import db as _db
 from src.agro_engine import SUPPORTED_AGRO_CROPS
 
 
+def _is_positive_number(value: Any) -> bool:
+    try:
+        number = float(value)
+        return math.isfinite(number) and number > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1043,32 +1051,61 @@ def compute_farm_operating_account(
     """Compte d'exploitation agricole (OPEX/CAPEX saisis + prix WFP/FEWS NET vérifiés)."""
     from src.agro_indicators import HUB_PROVINCE, canonical_region, national_indicator_key
 
+    numeric_inputs = (
+        area_hectares, farmgate_discount_pct, seed_cost_per_ha_xaf,
+        fertilizer_cost_per_ha_xaf, labor_cost_per_ha_xaf,
+        land_prep_irrigation_per_ha_xaf, harvest_postharvest_per_ha_xaf,
+        other_opex_per_ha_xaf, capex_total_xaf, loan_amount_xaf, interest_rate_pct,
+    )
+    if any(not math.isfinite(float(value)) for value in numeric_inputs):
+        raise ValueError("Tous les paramètres financiers doivent être des nombres finis.")
+    if not 0 < float(area_hectares) <= 500_000:
+        raise ValueError("La superficie doit être comprise entre 0 et 500 000 hectares.")
+    if not 0 <= float(farmgate_discount_pct) <= 50:
+        raise ValueError("La décote bord-champ doit être comprise entre 0 et 50 %.")
+    if any(float(value) < 0 for value in numeric_inputs[2:]):
+        raise ValueError("Les coûts et financements doivent être positifs ou nuls.")
+    if float(interest_rate_pct) > 100:
+        raise ValueError("Le taux d’intérêt doit être compris entre 0 et 100 %.")
+    if target_yield_kg_ha is not None and (
+        not math.isfinite(float(target_yield_kg_ha)) or not 0 < float(target_yield_kg_ha) <= 50_000
+    ):
+        raise ValueError("Le rendement cible doit être compris entre 0 et 50 000 kg/ha.")
+
     cid = _normalize_crop_id(crop_id)
     meta = SUPPORTED_AGRO_CROPS[cid]
     comm = meta["commodity_std"]
 
     hub = canonical_region(province)
     prov_name = HUB_PROVINCE.get(hub, province) if (hub and hub != "national") else province.strip()
-    area = max(0.01, float(area_hectares))
-    disc_ratio = max(0.0, min(0.5, float(farmgate_discount_pct) / 100.0))
+    area = float(area_hectares)
+    disc_ratio = float(farmgate_discount_pct) / 100.0
 
-    # Rendement : saisi par l'opérateur ou proxy World Bank 2020-2024
+    # Rendement : le proxy national est une référence indicative, jamais une mesure parcellaire.
     yield_is_proxy = not (target_yield_kg_ha is not None and target_yield_kg_ha > 0)
     if not yield_is_proxy:
         y_ha = float(target_yield_kg_ha)
         y_source = "Rendement cible saisi par l'opérateur / agronome"
+        yield_source_type = "user_input"
     else:
         wb_vals = [
             float(r["value"])
             for r in (national_agro_rows or [])
-            if national_indicator_key(r["indicator"]) == "cereal_yield" and 2020 <= int(r["reference_date"][:4]) <= 2024
+            if national_indicator_key(r.get("indicator", "")) == "cereal_yield"
+            and 2020 <= int(str(r.get("reference_date", "0"))[:4] or 0) <= 2024
+            and _is_positive_number(r.get("value"))
         ]
-        y_ha = round(sum(wb_vals) / len(wb_vals), 1) if wb_vals else 834.6
-        y_source = f"Proxy céréalier national World Bank 2020–2024 ({y_ha:.1f} kg/ha)"
-
+        if wb_vals:
+            y_ha = round(sum(wb_vals) / len(wb_vals), 1)
+            y_source = f"Proxy céréalier national World Bank 2020–2024 ({y_ha:.1f} kg/ha), non spécifique à la parcelle"
+            yield_source_type = "world_bank_national_proxy"
+        else:
+            y_ha = 834.6
+            y_source = "Valeur technique de repli (834,6 kg/ha), non observée et non vérifiée"
+            yield_source_type = "technical_fallback"
     production_kg = round(area * y_ha, 1)
 
-    # OPEX & CAPEX
+    # OPEX & CAPEX saisis par l'utilisateur.
     opex_items = {
         "Semences": max(0.0, float(seed_cost_per_ha_xaf)),
         "Engrais & intrants": max(0.0, float(fertilizer_cost_per_ha_xaf)),
@@ -1083,35 +1120,79 @@ def compute_farm_operating_account(
     total_investment = opex_total + capex_total
 
     loan_val = max(0.0, float(loan_amount_xaf))
-    rate_val = max(0.0, float(interest_rate_pct))
-    debt_service = round(loan_val * (1.0 + rate_val / 100.0))
 
-    # Prix vérifiés (WFP/FEWS NET + ML t+1)
+    def _positive_frame(frame: Any, commodity: str, *, province_name: str) -> tuple[Any, str]:
+        if frame is None or getattr(frame, "empty", True) or "commodity_std" not in frame.columns:
+            return pd.DataFrame(), "unavailable"
+        scoped = frame[frame["commodity_std"].astype(str).str.casefold() == commodity.casefold()].copy()
+        if scoped.empty:
+            return scoped, "unavailable"
+        if "province" in scoped.columns:
+            local = scoped[scoped["province"].astype(str).str.casefold() == province_name.casefold()]
+        else:
+            local = pd.DataFrame()
+        if not local.empty:
+            scoped, scope_name = local.copy(), "province"
+        else:
+            scope_name = "national_fallback"
+        return scoped, scope_name
+
+    def _month_values(frame: Any, value_column: str, month_column: str) -> Any:
+        if frame.empty or value_column not in frame.columns or month_column not in frame.columns:
+            return pd.DataFrame()
+        selected = frame.copy()
+        selected["_value"] = pd.to_numeric(selected[value_column], errors="coerce")
+        selected["_month"] = selected[month_column].astype(str)
+        selected = selected[
+            selected["_value"].notna()
+            & (selected["_value"] > 0)
+            & selected["_month"].str.match(r"^\d{4}-(0[1-9]|1[0-2])$")
+        ]
+        return selected
+
+    # Historique : comparer les indicateurs sur une fenêtre commune récente (12 mois observés).
+    history_frame, history_scope = _positive_frame(hist_df, comm, province_name=prov_name)
+    history = _month_values(history_frame, "value", "year_month")
+    history_reference_month: Optional[str] = None
+    history_rows_used = 0
+    history_sources: list[str] = []
     stress_px: Optional[float] = None
-    central_px: Optional[float] = None
     storage_px: Optional[float] = None
-    if hist_df is not None and not getattr(hist_df, "empty", True):
-        h_comm = hist_df[hist_df["commodity_std"] == comm]
-        h_prov = h_comm[h_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in h_comm.columns else h_comm
-        h_scope = h_prov if not h_prov.empty else h_comm
-        if not h_scope.empty and "value" in h_scope.columns and not h_scope["value"].dropna().empty:
-            storage_px = round(float(h_scope["value"].dropna().median()), 1)
-            if "year_month" in h_scope.columns:
-                recent = h_scope[h_scope["year_month"].astype(str) >= "2024-01"]
-                if not recent.empty and not recent["value"].dropna().empty:
-                    stress_px = round(float(recent["value"].dropna().min()), 1)
-            if stress_px is None:
-                stress_px = round(float(h_scope["value"].dropna().min()), 1)
+    if not history.empty:
+        history_reference_month = str(history["_month"].max())
+        latest_period = pd.Period(history_reference_month, freq="M")
+        first_period = latest_period - 11
+        recent_history = history[
+            history["_month"].map(lambda value: first_period <= pd.Period(value, freq="M") <= latest_period)
+        ]
+        history_rows_used = int(len(recent_history))
+        history_values = recent_history["_value"]
+        stress_px = round(float(history_values.min()), 1)
+        storage_px = round(float(history_values.median()), 1)
+        if "source" in recent_history.columns:
+            history_sources = sorted({str(v).strip() for v in recent_history["source"].dropna() if str(v).strip()})
 
-    if forecast_df is not None and not getattr(forecast_df, "empty", True):
-        f_comm = forecast_df[forecast_df["commodity_std"] == comm]
-        f_prov = f_comm[f_comm["province"].astype(str).str.lower() == prov_name.lower()] if "province" in f_comm.columns else f_comm
-        f_scope = f_prov if not f_prov.empty else f_comm
-        if not f_scope.empty and "forecast_t1" in f_scope.columns and not f_scope["forecast_t1"].dropna().empty:
-            central_px = round(float(f_scope["forecast_t1"].dropna().mean()), 1)
+    # Prévision : un seul mois cible, le plus récent, sans moyenne entre horizons différents.
+    forecast_frame, forecast_scope = _positive_frame(forecast_df, comm, province_name=prov_name)
+    forecasts = _month_values(forecast_frame, "forecast_t1", "forecast_month")
+    forecast_reference_month: Optional[str] = None
+    forecast_rows_used = 0
+    forecast_sources: list[str] = []
+    central_px: Optional[float] = None
+    if not forecasts.empty:
+        forecast_reference_month = str(forecasts["_month"].max())
+        latest_forecasts = forecasts[forecasts["_month"] == forecast_reference_month]
+        forecast_rows_used = int(len(latest_forecasts))
+        central_px = round(float(latest_forecasts["_value"].median()), 1)
+        if "source" in latest_forecasts.columns:
+            forecast_sources = sorted({str(v).strip() for v in latest_forecasts["source"].dropna() if str(v).strip()})
 
     if central_px is not None and stress_px is not None:
         stress_px = min(stress_px, central_px)
+    if history_rows_used == 0:
+        history_scope = "unavailable"
+    if forecast_rows_used == 0:
+        forecast_scope = "unavailable"
 
     def _build_pnl(sid: str, label: str, mkt_px: Optional[float]) -> dict[str, Any]:
         if mkt_px is None or mkt_px <= 0:
@@ -1133,7 +1214,8 @@ def compute_farm_operating_account(
         net_after_capex = round(ca - total_investment)
         roi_opex = round((ebitda / opex_total) * 100.0, 1) if opex_total > 0 else None
         roi_total = round((net_after_capex / total_investment) * 100.0, 1) if total_investment > 0 else None
-        dscr = round(ebitda / debt_service, 2) if debt_service > 0 else None
+        # No repayment tenor or schedule is supplied: a true DSCR cannot be calculated.
+        dscr = None
         return {
             "id": sid,
             "label": label,
@@ -1148,7 +1230,7 @@ def compute_farm_operating_account(
         }
 
     scenarios = [
-        _build_pnl("stress_floor", "Plancher Stress (min. 2024–2026)", stress_px),
+        _build_pnl("stress_floor", "Plancher Stress (12 derniers mois observés)", stress_px),
         _build_pnl("central_ml", "Scénario Central (Prévision ML t+1)", central_px),
         _build_pnl("storage_median", "Médiane Historique (Stockage)", storage_px),
     ]
@@ -1164,8 +1246,21 @@ def compute_farm_operating_account(
     notes: list[str] = []
     if opex_total == 0 and capex_total == 0:
         notes.append("Aucun coût OPEX/CAPEX saisi : renseignez vos coûts réels (semences, engrais, main-d'œuvre, aménagement) pour obtenir la marge nette.")
-    if yield_is_proxy:
-        notes.append(f"Rendement basé sur le proxy céréalier national World Bank ({y_ha:.1f} kg/ha) : saisir un rendement parcellaire cible pour un dossier investisseur.")
+    if yield_source_type == "world_bank_national_proxy":
+        notes.append(f"Rendement basé sur un proxy céréalier national World Bank ({y_ha:.1f} kg/ha), non spécifique à la culture ni à la parcelle : saisir un rendement local vérifié.")
+    elif yield_source_type == "technical_fallback":
+        notes.append("Aucune donnée de rendement World Bank admissible disponible : la valeur technique de repli n’est pas une observation et ne doit pas servir seule à une décision d’investissement.")
+    if loan_val > 0:
+        notes.append("DSCR non calculé : la durée, la périodicité et l’échéance du prêt ne sont pas renseignées. Aucun ratio de couverture de dette fiable ne peut être fourni.")
+    if history_scope == "national_fallback" and history_rows_used:
+        notes.append("Prix historiques de repli national : aucune observation exploitable n’a été trouvée pour la province sélectionnée.")
+    if forecast_scope == "national_fallback" and forecast_rows_used:
+        notes.append("Prévisions de repli nationales : aucune prévision exploitable n’a été trouvée pour la province sélectionnée.")
+    if not history_rows_used:
+        notes.append("Aucun historique de prix exploitable pour cette culture : les scénarios historiques ne sont pas disponibles.")
+    if not forecast_rows_used:
+        notes.append("Aucune prévision positive valide disponible pour cette culture : le scénario central ML n’est pas disponible.")
+
     if isinstance(mape, (int, float)):
         notes.append(f"Incertitude prix ML hors-temps : ±{round(float(mape), 1)}% MAPE historique sur {meta['label_fr']}.")
 
@@ -1177,6 +1272,7 @@ def compute_farm_operating_account(
         "area_hectares": round(area, 2),
         "yield_kg_ha": round(y_ha, 1),
         "yield_source": y_source,
+        "yield_source_type": yield_source_type,
         "yield_is_proxy": yield_is_proxy,
         "production_kg": production_kg,
         "farmgate_discount_pct": round(float(farmgate_discount_pct), 1),
@@ -1190,13 +1286,22 @@ def compute_farm_operating_account(
         "capex_total_xaf": capex_total,
         "total_investment_xaf": total_investment,
         "loan_amount_xaf": round(loan_val),
-        "debt_service_xaf": debt_service,
+        "debt_service_xaf": None,
+        "dscr_available": False,
         "breakeven_price_opex_xaf_kg": be_opex_px,
         "breakeven_price_total_xaf_kg": be_total_px,
         "breakeven_yield_kg_ha": be_yield_ha,
         "scenarios": scenarios,
+        "history_data_scope": history_scope,
+        "forecast_data_scope": forecast_scope,
+        "history_reference_month": history_reference_month,
+        "forecast_reference_month": forecast_reference_month,
+        "history_rows_used": history_rows_used,
+        "forecast_rows_used": forecast_rows_used,
+        "history_sources": history_sources,
+        "forecast_sources": forecast_sources,
         "investor_readiness_notes": notes,
-        "sources": ["WFP", "FEWS NET", "World Bank"],
+        "sources": sorted(set(history_sources + forecast_sources + (["World Bank"] if yield_source_type == "world_bank_national_proxy" else []))),
         "license": "CC BY-IGO 3.0 / CC BY 4.0 / Attribution Required (FreeData.td)",
     }
 
