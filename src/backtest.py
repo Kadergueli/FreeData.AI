@@ -81,8 +81,15 @@ def run_backtest(
             if model_fn is not None:
                 r = model_fc.get(key)
                 if r is not None and str(r["forecast_month"]) == str(target):
-                    records.append({**base, "method": "model", "forecast": float(r["forecast_t1"]),
-                                    "ci_low": float(r["ci_low_80"]), "ci_high": float(r["ci_high_80"])})
+                    records.append({
+                        **base,
+                        "method": "model",
+                        "forecast": float(r["forecast_t1"]),
+                        "ci_low": float(r["ci_low_80"]),
+                        "ci_high": float(r["ci_high_80"]),
+                        "forecast_quality": str(r.get("forecast_quality", "standard")),
+                        "interval_status": str(r.get("interval_status", "uncalibrated")),
+                    })
                 else:  # le modèle n'a pas produit de prévision pour ce mois (ex. trou dans la série)
                     records.append({**base, "method": "model_missing", "forecast": np.nan, "ci_low": np.nan,
                                     "ci_high": np.nan})
