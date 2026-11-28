@@ -31,7 +31,7 @@ class _PassportScreenState extends State<PassportScreen> {
 
   List<String> _commodities = List<String>.from(_defaultCommodities);
   String _commodity = 'Millet';
-  int _loanAmount = 1000000;
+  int _collateralValue = 1000000;
   List<dynamic> _passports = [];
   bool _loading = true;
   String? _error;
@@ -87,7 +87,7 @@ class _PassportScreenState extends State<PassportScreen> {
     try {
       final items = await widget.apiService.getCreditPassports(
         commodity: _commodity,
-        loanAmount: _loanAmount,
+        collateralValueXaf: _collateralValue,
       );
       if (mounted && token == _requestToken) setState(() => _passports = items);
     } catch (_) {
@@ -184,10 +184,10 @@ class _PassportScreenState extends State<PassportScreen> {
                         SizedBox(
                           width: fieldWidth,
                           child: DropdownButtonFormField<int>(
-                            initialValue: _loanAmount,
+                            initialValue: _collateralValue,
                             isExpanded: true,
                             decoration: const InputDecoration(
-                              labelText: 'Valeur du stock / garantie',
+                              labelText: 'Valeur estimée du stock nanti',
                               isDense: true,
                               contentPadding: EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 12),
@@ -220,7 +220,7 @@ class _PassportScreenState extends State<PassportScreen> {
                             ],
                             onChanged: (v) {
                               if (v != null) {
-                                setState(() => _loanAmount = v);
+                                setState(() => _collateralValue = v);
                                 _load();
                               }
                             },
@@ -259,6 +259,47 @@ class _PassportScreenState extends State<PassportScreen> {
                           fontSize: 12,
                           height: 1.45,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Ce que mesure cet indicateur',
+                      style: TextStyle(
+                        color: Color(0xFF1E3A8A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Il évalue la stabilité historique des prix d’un produit par province. Il ne constitue pas une note de crédit, une évaluation de l’emprunteur ou une prédiction de défaut.',
+                      style: TextStyle(
+                        color: Color(0xFF1E40AF),
+                        fontSize: 12,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Valeur du stock nanti déclarée : ${formatXaf(_collateralValue)} XAF. Le plafond affiché applique uniquement le ratio LTV indicatif associé à la classe de stabilité.',
+                      style: const TextStyle(
+                        color: Color(0xFF1E40AF),
+                        fontSize: 12,
+                        height: 1.45,
                       ),
                     ),
                   ],
@@ -310,11 +351,11 @@ class _PassportScreenState extends State<PassportScreen> {
                         onPressed: () {
                           final comm = commodityLabelFr(_commodity);
                           widget.onSelectPrompt!(
-                            'Évalue le risque de financer ${formatXaf(_loanAmount)} XAF de $comm au Tchad et compare les meilleures provinces.',
+                            'Compare la stabilité des prix de $comm entre les provinces et explique les limites de cet indicateur.',
                           );
                         },
                         icon: const Icon(Icons.auto_awesome_outlined, size: 16),
-                        label: const Text('Analyser dossier (IA)',
+                        label: const Text('Interpréter les résultats (IA)',
                             style: TextStyle(
                                 fontSize: 12.5, fontWeight: FontWeight.w600)),
                         style: TextButton.styleFrom(
@@ -350,9 +391,9 @@ class _PassportScreenState extends State<PassportScreen> {
                   final cvLabel = _formatCv(r['cv_pct']);
                   final drawdownLabel = _formatDrawdown(r['max_drawdown_pct']);
                   final obsMonths = r['obs_months'] ?? '—';
-                  final color = score >= 60
+                  final color = score >= 70
                       ? FDTheme.green
-                      : (score >= 45
+                      : (score >= 58
                           ? const Color(0xFFD98B24)
                           : const Color(0xFFB54745));
                   bool expanded = false;
@@ -395,7 +436,7 @@ class _PassportScreenState extends State<PassportScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '${r['province'] ?? 'Province non précisée'} — ${r['grade'] ?? 'Score'}',
+                                      '${r['province'] ?? 'Province non précisée'}',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w700,
                                         color: FDTheme.ink,
@@ -404,7 +445,7 @@ class _PassportScreenState extends State<PassportScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${r['policy_recommendation'] ?? 'Aucune recommandation disponible'}',
+                                      'Indice de stabilité du marché : ${r['grade'] ?? 'non classé'}',
                                       style: const TextStyle(
                                         color: FDTheme.muted,
                                         fontSize: 13.5,
@@ -419,7 +460,7 @@ class _PassportScreenState extends State<PassportScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   const Text(
-                                    'Plafond LTV',
+                                    'Plafond indicatif',
                                     style: TextStyle(
                                         fontSize: 10.5, color: FDTheme.muted),
                                   ),
@@ -444,7 +485,12 @@ class _PassportScreenState extends State<PassportScreen> {
                               _MetricBadge(text: 'CV : $cvLabel%'),
                               _MetricBadge(
                                   text: 'Baisse max : $drawdownLabel%'),
-                              _MetricBadge(text: '$obsMonths mois'),
+                              _MetricBadge(text: '$obsMonths mois observés'),
+                              if (r['s_coverage'] != null)
+                                _MetricBadge(
+                                  text:
+                                      'Couverture : ${parseNum(r['s_coverage'])?.toStringAsFixed(0) ?? '—'}/100',
+                                ),
                             ],
                           ),
                           const SizedBox(height: 8),
@@ -490,9 +536,9 @@ class _PassportScreenState extends State<PassportScreen> {
                                     Padding(
                                       padding: const EdgeInsets.only(top: 4),
                                       child: Text(
-                                        'Score marché : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
-                                        '(volatilité CV = $cvLabel %, baisse max = $drawdownLabel %, ratio LTV indicatif = $maxLoanLabel). '
-                                        'Indicateur de stabilité des prix uniquement (non calibré sur défauts bancaires).',
+                                        'Indice de stabilité : ${score.toStringAsFixed(0)}/100 calculé sur $obsMonths mois observés '
+                                        '(coefficient de variation = $cvLabel %, baisse maximale = $drawdownLabel %). '
+                                        'Le plafond indicatif est une simulation mécanique de la valeur du stock nanti et du ratio LTV de référence. Ce résultat ne mesure ni la solvabilité de l’emprunteur ni le risque de défaut.',
                                         style: const TextStyle(
                                             fontSize: 12,
                                             height: 1.45,
@@ -537,12 +583,12 @@ class _PassportScreenState extends State<PassportScreen> {
           icon: Icons.location_on_outlined,
         ),
         FDMetricCard(
-          label: 'Meilleur score',
+          label: 'Meilleure stabilité',
           value: '${bestScore.toStringAsFixed(0)}/100',
           icon: Icons.shield_outlined,
         ),
         FDMetricCard(
-          label: 'Plafond LTV max',
+          label: 'Plafond indicatif max',
           value: '${formatXaf(bestLoan)} XAF',
           icon: Icons.payments_outlined,
         ),
