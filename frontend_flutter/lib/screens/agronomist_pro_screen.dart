@@ -1306,9 +1306,10 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                     const Text(
                       '2. Superficie et localisation GPS',
                       style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.blue),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.blue,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     LayoutBuilder(
