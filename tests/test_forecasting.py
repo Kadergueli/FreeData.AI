@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from src.backtest import run_backtest
-from src.forecasting import run_forecasting_pipeline
+from src.forecasting import _conformal_q80, run_forecasting_pipeline
 
 
 def _make_series(
@@ -169,3 +169,40 @@ def test_interval_calibration_status_and_valid_widths():
     assert 0.65 <= cov <= 0.95
 
 
+
+
+
+def test_conformal_q80_uses_finite_sample_order_statistic():
+    """Le quantile conformel fini doit prendre le rang ceil((n+1)*0.8), sans interpolation."""
+    errors = np.arange(1.0, 21.0)
+    assert _conformal_q80(errors) == 17.0
+    assert _conformal_q80(np.array([1.0, 2.0, np.nan, np.inf, 3.0])) == 3.0
+    with pytest.raises(ValueError):
+        _conformal_q80(np.array([np.nan, np.inf]))
+
+
+def test_reduced_forecast_is_explicit_and_uses_wider_interval():
+    """Une série dont le dernier mois manque est réduite et reçoit un intervalle élargi."""
+    rng = np.random.default_rng(19)
+    months = pd.period_range("2022-01", periods=48, freq="M")
+    rows = []
+    for market in ("Bol", "Aboudeia", "Am-Timan"):
+        for i, month in enumerate(months):
+            if market == "Am-Timan" and i == len(months) - 1:
+                continue
+            value = 500.0 + i * 1.5 + float(rng.normal(0, 18.0))
+            rows.append(("WFP", "Salamat", market, "Millet", month, value))
+    df = pd.DataFrame(
+        rows,
+        columns=["source", "province", "market_name", "commodity_std", "year_month", "value"],
+    )
+    _, latest = run_forecasting_pipeline(df)
+    reduced = latest[latest["market_name"] == "Am-Timan"].iloc[0]
+    standard = latest[latest["market_name"] == "Bol"].iloc[0]
+    assert reduced["forecast_quality"] == "reduced"
+    assert reduced["interval_status"] == "wide_reduced"
+    assert standard["forecast_quality"] == "standard"
+    assert standard["interval_status"] == "calibrated_80"
+    assert (reduced["ci_high_80"] - reduced["ci_low_80"]) > (
+        standard["ci_high_80"] - standard["ci_low_80"]
+    )
