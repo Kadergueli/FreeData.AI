@@ -128,8 +128,16 @@ def test_rest_loader_falls_back_to_legacy_view_without_failing(monkeypatch):
             "is_flagged_outlier": 0,
         }])
 
-    monkeypatch.setattr(data_loader.settings, "supabase_url", "https://example.supabase.co")
-    monkeypatch.setattr(data_loader.settings, "read_key", "test-key")
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        data_loader,
+        "settings",
+        SimpleNamespace(
+            supabase_url="https://example.supabase.co",
+            read_key="test-key",
+        ),
+    )
     monkeypatch.setattr(data_loader.requests, "get", fake_get)
 
     result = data_loader._fetch_supabase_rest_view()
