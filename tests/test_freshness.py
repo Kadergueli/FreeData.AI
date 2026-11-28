@@ -5,7 +5,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from api import server
-from src.freshness import assess_dataset_freshness
+from src.freshness import assess_dataset_freshness, filter_fresh
 
 
 def test_freshness_current_month_is_fresh():
@@ -127,3 +127,18 @@ def test_market_freshness_endpoint_filters_and_summarizes_series():
     assert payload["count"] == 1
     assert payload["items"][0]["market_name"] == "Am-Timan"
     assert payload["items"][0]["forecast_quality"] == "reduced"
+
+
+
+def test_filter_fresh_uses_calendar_reference_not_latest_available_row():
+    df = pd.DataFrame({
+        "last_observed_month": ["2026-07", "2026-08", "2026-09", "2026-10"]
+    })
+    kept, excluded = filter_fresh(
+        df,
+        "last_observed_month",
+        max_months=3,
+        reference_month=pd.Period("2026-11", freq="M"),
+    )
+    assert kept["last_observed_month"].tolist() == ["2026-08", "2026-09", "2026-10"]
+    assert excluded == 1
