@@ -86,3 +86,13 @@ def test_ridge_alpha_selection_is_independent_of_final_test_tail():
     assert baseline["evaluation_protocol"] == "chronological_train_validation_test_60_20_20"
     assert baseline["test_samples"] > 0
     assert baseline["ridge_mae_xaf_kg"] != changed["ridge_mae_xaf_kg"]
+
+
+def test_short_ridge_history_uses_fixed_alpha_without_tuning_on_test():
+    prices = np.array([200.0, 205.0, 210.0, 215.0, 220.0, 225.0, 230.0, 235.0])
+    result = evaluate_ridge_chronological(prices)
+    assert result["status"] == "evaluated"
+    assert result["evaluation_protocol"] == "chronological_fixed_alpha_holdout_small_sample"
+    assert result["validation_samples"] == 0
+    assert result["validation_ridge_mae_xaf_kg"] is None
+    assert result["test_samples"] == 2
