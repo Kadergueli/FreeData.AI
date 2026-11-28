@@ -217,9 +217,9 @@ def parse_and_validate_csv(csv_bytes: bytes, spec: DatasetSpec) -> tuple[pd.Data
         if parsed_time.isna().any():
             bad_count = int(parsed_time.isna().sum())
             raise ValueError(f"Colonne temporelle '{spec.time_column}' : {bad_count} date(s) invalide(s).")
-        if parsed_time.duplicated().any():
+        if spec.task_type == "forecasting" and parsed_time.duplicated().any():
             duplicate_count = int(parsed_time.duplicated(keep=False).sum())
-            raise ValueError(f"Colonne temporelle '{spec.time_column}' : {duplicate_count} ligne(s) avec date dupliquée.")
+            raise ValueError(f"Colonne temporelle '{spec.time_column}' : {duplicate_count} ligne(s) avec date dupliquée pour une série de prévision.")
         work[spec.time_column] = parsed_time
         work = work.sort_values(spec.time_column, kind="mergesort")
 
@@ -435,9 +435,18 @@ def _benchmark_regression(df: pd.DataFrame, spec: DatasetSpec, seed: int = 42) -
     y = df[spec.target_column].to_numpy(dtype=float)
     split = max(3, int(len(X) * 0.75))
     if spec.time_column:
-        tr = np.arange(split)
-        te = np.arange(split, len(X))
-        protocol = f"chronological_75_25 (train={len(tr)}, test={len(te)})"
+        timestamps = pd.to_datetime(df[spec.time_column], errors="coerce", utc=True)
+        unique_timestamps = np.sort(timestamps.dropna().unique())
+        if len(unique_timestamps) < 2:
+            raise ValueError("Historique temporel insuffisant pour une séparation chronologique.")
+        cutoff_index = max(1, int(len(unique_timestamps) * 0.75))
+        cutoff = unique_timestamps[cutoff_index - 1]
+        tr = np.flatnonzero((timestamps <= cutoff).to_numpy())
+        te = np.flatnonzero((timestamps > cutoff).to_numpy())
+        protocol = (
+            f"chronological_75_25 (train={len(tr)}, test={len(te)}, "
+            f"unique_timestamps={len(unique_timestamps)})"
+        )
     else:
         rng = np.random.default_rng(seed)
         idx = np.arange(len(X))
