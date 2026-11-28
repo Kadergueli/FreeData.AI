@@ -47,7 +47,7 @@ firebase deploy --only hosting
 ```
 
 ## Health Checks, Backup & Rollback
-- **Health**: `GET /api/v1/health` (checks `status == "ok"`, `series_count`, `data_freshness`).
+- **Health / readiness**: `GET /api/v1/health` renvoie HTTP 200 uniquement lorsque le moteur est chargé (`status == "ok"`), et HTTP 503 avec `status == "degraded"` sinon. Render peut ainsi détecter un démarrage incomplet. Vérifier également `series_count` et `data_freshness`.
 - **Metrics**: `GET /api/v1/metrics` (with `X-Admin-Token`: `total_requests`, `error_4xx`, `error_5xx`, `qa_blocked`, `avg_latency_ms`).
 - **Backup**: Back up `FREEDATA_PROJECT_DB_PATH` (SQLite `.backup` or persistent disk snapshot) and `FREEDATA_ARTIFACTS_DIR` daily.
 - **Rollback**: Redeploy previous Render commit (`git revert` + `git push origin main`) and `firebase hosting:rollback` if needed.

@@ -52,6 +52,18 @@ def test_api_contracts_match_flutter_requirements(gold_tables):
         server.STATE.clear()
 
 
+def test_health_returns_503_when_engine_is_not_loaded():
+    previous_state = dict(server.STATE)
+    server.STATE.clear()
+    try:
+        response = TestClient(server.app).get("/api/v1/health")
+        assert response.status_code == 503
+        assert response.json()["status"] == "degraded"
+    finally:
+        server.STATE.clear()
+        server.STATE.update(previous_state)
+
+
 def test_frontend_contains_no_server_side_secrets():
     secret_patterns = [
         re.compile(r"gsk_[A-Za-z0-9]{12,}"),

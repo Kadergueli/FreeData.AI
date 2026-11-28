@@ -669,8 +669,12 @@ class ChatResponse(BaseModel):
 
 
 @app.get("/api/v1/health")
-def health_check():
+def health_check(response: Response):
     snapshot = dict(STATE)
+    ready = "agent" in snapshot
+    # Render utilise cet endpoint comme health check : un état dégradé doit être
+    # un vrai HTTP 503, sinon le déploiement est marqué sain malgré un moteur absent.
+    response.status_code = 200 if ready else 503
     freshness = snapshot.get("freshness") or {}
     fc_fresh = freshness.get("forecasts") or {
         "latest_observation_month": None,
@@ -680,7 +684,7 @@ def health_check():
         "freshness_status": "unavailable",
     }
     return {
-        "status": "ok" if "agent" in snapshot else "degraded",
+        "status": "ok" if ready else "degraded",
         "backend": settings.data_backend,
         "engine_mode": snapshot.get("mode", "unknown"),
         "alerts_source": snapshot.get("alerts_source", "unknown"),
