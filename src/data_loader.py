@@ -104,7 +104,23 @@ def _load_clean_markets_raw(csv_path: Optional[str] = None) -> pd.DataFrame:
             FROM public.v_clean_markets
             WHERE unit_clean = 'xaf/kg'
         """
-        df_clean = pd.read_sql(query, engine)
+        try:
+            df_clean = pd.read_sql(query, engine)
+        except Exception as exc:
+            if not _is_missing_source_label_error(exc):
+                raise
+            logger.warning(
+                "Legacy v_clean_markets view detected: falling back to commodity_std. "
+                "Distinct source indicators already merged by the old view cannot be recovered."
+            )
+            legacy_query = """
+                SELECT month_date, source, province, market_name, commodity_std,
+                       price_value AS value, is_flagged_outlier
+                FROM public.v_clean_markets
+                WHERE unit_clean = 'xaf/kg'
+            """
+            df_clean = pd.read_sql(legacy_query, engine)
+            df_clean["commodity_source_label"] = df_clean["commodity_std"]
         df_clean["year_month"] = pd.to_datetime(df_clean["month_date"]).dt.to_period("M")
         return df_clean
 
