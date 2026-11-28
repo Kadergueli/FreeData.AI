@@ -1539,7 +1539,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             SizedBox(width: 8),
-                            Text('Vérification du profil officiel…'),
+                            Expanded(
+                              child: Text('Vérification du profil officiel…'),
+                            ),
                           ],
                         ),
                       ),
@@ -1719,7 +1721,9 @@ class _AgronomistProScreenState extends State<AgronomistProScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                             SizedBox(width: 10),
-                            Text('Chargement de votre historique…'),
+                            Expanded(
+                              child: Text('Chargement de votre historique…'),
+                            ),
                           ],
                         )
                       else if (_historyError != null) ...[
