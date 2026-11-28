@@ -66,12 +66,11 @@ SELECT
     CASE raw_commodity
         WHEN 'Millet (Pearl)' THEN 'Millet'
         WHEN 'Sorghum (Red)' THEN 'Sorghum (red)'
-        WHEN 'Maize (Corn)' THEN 'Maize (white)'
-        WHEN 'Maize Grain (White)' THEN 'Maize (white)'
         WHEN 'Rice (5% Broken)' THEN 'Rice (imported)'
         ELSE raw_commodity
     END AS commodity_std,
     is_flagged_outlier,
     score_qualite,
-    date_publication
+    date_publication,
+    raw_commodity AS commodity_source_label
 FROM standardized;
