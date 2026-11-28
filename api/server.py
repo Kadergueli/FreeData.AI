@@ -289,13 +289,18 @@ def _finalize_state(hist_df, forecast_df, passport_df, mode: str, alerts_source:
                 publication_dt = parsed_pub.max().to_pydatetime()
 
     # Rapport calculé AVANT le filtre : les séries anciennes restent visibles au diagnostic.
+    current_month = pd.Period(f"{now_utc.year:04d}-{now_utc.month:02d}", freq="M")
     series_freshness = build_series_freshness_report(
         forecast_df,
         max_staleness_months=settings.max_staleness_months,
         now_utc=now_utc,
     )
-    hist_df, _ = filter_fresh(hist_df, "year_month", settings.max_staleness_months)
-    forecast_df, stale_excluded = filter_fresh(forecast_df, "last_observed_month", settings.max_staleness_months)
+    hist_df, _ = filter_fresh(
+        hist_df, "year_month", settings.max_staleness_months, reference_month=current_month
+    )
+    forecast_df, stale_excluded = filter_fresh(
+        forecast_df, "last_observed_month", settings.max_staleness_months, reference_month=current_month
+    )
     freshness = {
         "forecasts": assess_dataset_freshness(
             forecast_df,
@@ -1327,7 +1332,7 @@ def market_data_freshness_endpoint(
         "count": len(out),
         "total_matching": len(df),
         "summary": summary,
-        "items": out.where(pd.notna(out), None).to_dict(orient="records"),
+        "items": out.astype(object).where(pd.notna(out), None).to_dict(orient="records"),
     }
 
 
