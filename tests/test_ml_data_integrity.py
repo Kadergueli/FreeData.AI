@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from src.ml_benchmark import DatasetSpec, _benchmark_regression, parse_and_validate_csv
-from src.ml_engine import evaluate_ridge_chronological
+from src.ml_engine import build_lag_features, evaluate_ridge_chronological
 
 
 def _spec(task_type="forecasting", *, time_column="month", target="price", features=None):
@@ -86,6 +86,8 @@ def test_ridge_alpha_selection_is_independent_of_final_test_tail():
     assert baseline["evaluation_protocol"] == "chronological_train_validation_test_60_20_20"
     assert baseline["test_samples"] > 0
     assert baseline["ridge_mae_xaf_kg"] != changed["ridge_mae_xaf_kg"]
+    all_features, _ = build_lag_features(prices)
+    assert np.allclose(baseline["model"].feat_mean, all_features.mean(axis=0))
 
 
 def test_short_ridge_history_uses_fixed_alpha_without_tuning_on_test():
