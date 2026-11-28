@@ -69,7 +69,7 @@ def test_regression_csv_allows_multiple_entities_at_the_same_timestamp():
         for month in range(1, 6)
         for index in (month, month + 10)
     ]
-    clean, _ = parse_and_validate_csv(("\\n".join(rows)).encode(), spec)
+    clean, _ = parse_and_validate_csv(("\n".join(rows)).encode(), spec)
     assert len(clean) == 10
 
 
